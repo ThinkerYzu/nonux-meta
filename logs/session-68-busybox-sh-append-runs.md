@@ -244,4 +244,3 @@ Python: 51 (unchanged).
   closure note.
 - `proj_docs/nonux/logs/session-68-busybox-sh-append-runs.md`
   (this file).
-- `./scripts/convert_kb.sh` regenerates HTML.

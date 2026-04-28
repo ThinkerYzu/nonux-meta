@@ -2566,7 +2566,6 @@ Optional for basic boot (required for busybox):
 
 **State machine diagram.**
 - Replaced the ASCII state-machine diagram (which duplicated the `ACTIVE` state and crossed arrows) with a Mermaid `stateDiagram-v2` including `PAUSING` as a first-class intermediate state. Added a short prose note distinguishing cutoff (enters `PAUSING`) from drain completion (enters `PAUSED`).
-- Updated `scripts/convert_kb.sh` to conditionally include a Mermaid.js runtime (`kb-html/mermaid-include.html`) only when a file contains a ```` ```mermaid ```` fence. Non-mermaid docs are unaffected.
 
 **IPC queue and ISR path.**
 - Pinned the per-CPU dispatcher queue to an **MPSC lock-free** shape (Vyukov-style). ISRs, remote dispatchers, and `dedicated` threads all enqueue via a single atomic tail exchange — no lock, no IRQ-disable window around the queue.

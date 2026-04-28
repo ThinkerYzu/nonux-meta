@@ -235,7 +235,6 @@ Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–68).
 - Create new session log in `logs/` directory
 - Update [Session Logs](#session-logs) section with link (keep last 5; move older to archive)
 - Update [Current Status](#current-status) with progress
-- Regenerate HTML: `./scripts/convert_kb.sh`
 
 ---
 
