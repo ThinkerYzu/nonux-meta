@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-07-registry-skeleton – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-7-component-graph-registry-skeleton-slice-3.1"
+id="toc-session-7-component-graph-registry-skeleton-slice-3.1">Session
+7: Component Graph Registry skeleton (slice 3.1)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworkregistry.h-public-api"
+id="toc-frameworkregistry.h-public-api"><code>framework/registry.h</code>
+— public API</a></li>
+<li><a href="#frameworkregistry.c-implementation"
+id="toc-frameworkregistry.c-implementation"><code>framework/registry.c</code>
+— implementation</a></li>
+<li><a href="#testhostregistry_test.c-25-tests"
+id="toc-testhostregistry_test.c-25-tests"><code>test/host/registry_test.c</code>
+— 25 tests</a></li>
+<li><a href="#testhostmakefile"
+id="toc-testhostmakefile"><code>test/host/Makefile</code></a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-7-component-graph-registry-skeleton-slice-3.1">Session
+7: Component Graph Registry skeleton (slice 3.1)</h1>
+<p><strong>Date:</strong> 2026-04-20 <strong>Phase:</strong> 3 —
+Component framework <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li>Open Phase 3 with a small, vertical slice: build the registry’s
+bookkeeping skeleton (slot / component / connection register / lookup /
+unregister / traversal / generation counter) on the host side, fully
+test-covered, with no kernel integration yet.</li>
+<li>Establish the API shape that lifecycle, IPC router, and
+<code>verify-registry</code> will plug into in later slices.</li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="frameworkregistry.h-public-api"><code>framework/registry.h</code> —
+public API</h3>
+<p>Defined the framework-side surface:</p>
+<ul>
+<li>Caller-owned structs: <code>nx_slot</code>,
+<code>nx_component</code>, <code>nx_connection</code>. Caller owns
+storage; registry only bookkeeps pointers.</li>
+<li>Six framework enums: <code>nx_lifecycle_state</code>,
+<code>nx_conn_mode</code>, <code>nx_pause_policy</code>,
+<code>nx_slot_mutability</code>, <code>nx_slot_concurrency</code>, plus
+<code>NX_E*</code> error codes (<code>NX_OK</code>,
+<code>NX_EINVAL</code>, <code>NX_ENOMEM</code>, <code>NX_EEXIST</code>,
+<code>NX_ENOENT</code>, <code>NX_EBUSY</code>,
+<code>NX_ESTATE</code>).</li>
+<li>Mutation API: <code>nx_slot_register / swap / unregister</code>,
+<code>nx_component_register / unregister / state_set</code>,
+<code>nx_connection_register / retune / unregister</code>. Connection
+register returns the new connection on success or NULL with an
+<code>*err</code> out-param on failure (avoids overloading return).</li>
+<li>Lookup: <code>nx_slot_lookup(name)</code>,
+<code>nx_component_lookup(manifest_id, instance_id)</code>. Component
+identity is the (manifest, instance) pair so the same manifest can have
+multiple instances (e.g., <code>uart_pl011</code>/<code>uart0</code>,
+<code>uart_pl011</code>/<code>uart1</code>).</li>
+<li>Traversal: global <code>foreach_slot/component/connection</code>,
+plus per-slot <code>foreach_dependent</code> (incoming edges = “who
+depends on me”) and <code>foreach_dependency</code> (outgoing edges =
+“what I depend on”). Naming matches DESIGN.md §Traversal API.</li>
+<li><code>nx_graph_reset()</code> for test setup — releases all internal
+nodes, zeroes counts and generation, does <strong>not</strong> touch
+caller-owned struct fields.</li>
+<li><code>nx_graph_generation()</code> — monotonically incremented on
+every mutation. Lays the ground for snapshot consistency (slice 3.2) and
+the change log (slice 3.3).</li>
+</ul>
+<h3
+id="frameworkregistry.c-implementation"><code>framework/registry.c</code>
+— implementation</h3>
+<p>Three internal node types (<code>slot_node</code>,
+<code>component_node</code>, <code>conn_node</code>), kept as
+singly-linked lists indexed off three globals. Each
+<code>slot_node</code> carries its own <code>incoming</code> /
+<code>outgoing</code> connection lists so
+<code>foreach_dependent</code>/<code>foreach_dependency</code> are
+O(deg) without rescanning the global list.</p>
+<ul>
+<li><code>slot_register</code> rejects NULL inputs (<code>EINVAL</code>)
+and duplicate names (<code>EEXIST</code>).</li>
+<li><code>slot_unregister</code> rejects slots with live connection
+edges (<code>EBUSY</code>) — caller must tear wiring down first.</li>
+<li><code>slot_swap</code> requires the new component (if non-NULL) to
+be registered; passing NULL unbinds. Both paths bump generation.</li>
+<li><code>component_register</code> keys uniqueness on the (manifest_id,
+instance_id) pair.</li>
+<li><code>component_unregister</code> rejects components still active in
+any slot (<code>EBUSY</code>); enforced by walking slot list.</li>
+<li><code>connection_register</code> accepts
+<code>from_slot == NULL</code> for boot/external edges;
+<code>to_slot</code> is required.</li>
+<li><code>connection_unregister</code> cleans up both global and
+per-slot lists.</li>
+<li>Internal allocations use plain
+<code>malloc</code>/<code>free</code>. Decoupled from the host test’s
+<code>mt_track</code> pool because <code>mt_reset()</code> would dangle
+our pointers if we shared. When the registry lands in-kernel, these
+become <code>kmalloc</code>/<code>kfree</code> — single point to
+swap.</li>
+<li>No concurrency: host-side only, single-threaded. SMP serialisation
+belongs to the recomposer in a later slice.</li>
+</ul>
+<p>~280 lines total.</p>
+<h3
+id="testhostregistry_test.c-25-tests"><code>test/host/registry_test.c</code>
+— 25 tests</h3>
+<p>Coverage shape:</p>
+<ul>
+<li>Init / empty: zero counts, zero generation.</li>
+<li>Slot lifecycle: register, lookup, duplicate-name
+<code>EEXIST</code>, NULL inputs <code>EINVAL</code>, missed lookup,
+unregister, <code>EBUSY</code> while connections live.</li>
+<li>Component lifecycle: register, lookup, duplicate (manifest,
+instance) <code>EEXIST</code>, distinct instances of the same manifest,
+<code>state_set</code> updates state and bumps generation,
+<code>unregister</code> blocked while active in a slot then succeeds
+after <code>slot_swap(s, NULL)</code>.</li>
+<li>Slot swap: sets <code>active</code>, bumps generation, rejects
+unknown components.</li>
+<li>Connection lifecycle: register basic, register with
+<code>from=NULL</code> (boot edge), register with NULL <code>to</code> →
+<code>EINVAL</code>, register with unknown slot → <code>ENOENT</code>,
+retune, unregister cleans both lists.</li>
+<li>Traversal: <code>foreach_slot/component/connection</code> visit-all,
+neighbourhood walk for dependent/dependency.</li>
+<li>Generation: monotonic across register / retune / unregister
+sequence.</li>
+<li>Cycling: 100 iterations of register-all → unregister-all → assert
+zero residue.</li>
+</ul>
+<p><code>SLOT(name, iface)</code> and <code>COMP(name, manifest)</code>
+macros declare auto-storage structs, kept tight enough that each test
+reads as a single thought. Each test starts with
+<code>nx_graph_reset()</code> so it begins on a clean global state
+regardless of what the previous test left behind.</p>
+<h3 id="testhostmakefile"><code>test/host/Makefile</code></h3>
+<p>Added <code>registry_test.c</code> and
+<code>../../framework/registry.c</code> to <code>SRCS</code>, and
+<code>../../framework</code> to the <code>vpath</code>. No changes to
+the top-level Makefile (registry is host-only this slice).</p>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><strong>Caller-owned storage outlives test scope.</strong> First run
+crashed in <code>generation_monotonically_increases</code> — actually in
+the <em>next</em> test, when <code>nx_graph_reset()</code> walked stale
+<code>slot_node</code> entries left over from the prior test’s
+stack-local slot vars and tried to write to
+<code>slot-&gt;active</code>. Two fixes: (1)
+<code>nx_graph_reset()</code> releases registry nodes only, never
+dereferences cached <code>slot</code>/<code>component</code> pointers;
+(2) <code>nx_slot_unregister()</code> no longer touches
+<code>s-&gt;active</code> either. The rule, made explicit in registry.c:
+the registry never writes to caller storage outside the deliberate APIs
+that name it (e.g., <code>slot_swap</code>).</li>
+<li><strong>Plain <code>malloc</code>/<code>free</code> for internals is
+the right call for the slice.</strong> <code>mt_track</code> is for
+catching test-code leaks, not framework leaks; if we tracked registry
+nodes through <code>mt_alloc</code>, <code>mt_reset()</code> between
+tests would free them and dangle our globals. When the registry hits
+kernel, the call sites swap to <code>kmalloc</code>/<code>kfree</code> —
+a one-line indirection isn’t necessary yet.</li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><strong>Connection register returns pointer + out-param
+error</strong>, not int + out-param pointer. Reads naturally at call
+sites and lets <code>if (!c) goto fail;</code> work; the
+<code>int *err</code> lets callers distinguish <code>EEXIST</code> /
+<code>ENOENT</code> / <code>EINVAL</code> when they care.</li>
+<li><strong><code>from_slot == NULL</code> is a legal “boot
+edge”</strong>, not an error. The boot sequence needs to declare initial
+wiring without inventing a fake source slot.</li>
+<li><strong>Slot identity is <code>name</code>; component identity is
+<code>(manifest_id, instance_id)</code>.</strong> Matches DESIGN.md
+§Registered Entities. A future <code>gen-config.py</code> will own
+uniqueness of these strings; the registry just enforces no-duplicates at
+registration.</li>
+<li><strong>No hash tables yet.</strong> Linked-list lookup is O(N). v1
+has tens of slots/components — a hash is premature. Add when we cross
+100s.</li>
+<li><strong>No concurrency primitives in this slice.</strong> SPEC’s
+preemption-atomics rule applies to mutating shared counters in
+production code; the registry is test-only here. Snapshots, seqlock,
+change log are slice 3.2/3.3 work.</li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><code>make test</code> → <strong>42/42 pass</strong> (36 host + 6
+kernel), 0 leaks, 0 errors. Of the 36 host tests: 9 PMM, 2 mem_track,
+<strong>25 new registry</strong>.</li>
+<li>Production <code>kernel.bin</code> is unchanged — registry is built
+and exercised host-side only this slice.</li>
+<li><code>framework/</code> directory now non-empty:
+registry.{h,c}.</li>
+<li><code>tools/</code> directory still empty beyond
+<code>run-qemu.sh</code>. <code>gen-config.py</code>,
+<code>validate-config.py</code>, <code>verify-registry.py</code> are
+next-slice work.</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Phase 3 continues with these slices, ordered by what later slices
+depend on:</p>
+<ul>
+<li><strong>3.2 Snapshot + JSON serialization + change log + event
+subscribe.</strong> The pieces hooks, the recomposer, and the
+<code>kstat</code> dump all consume.</li>
+<li><strong>3.3 Lifecycle state machine
+(<code>framework/component.c</code>).</strong> Wire transitions to
+<code>nx_component_state_set</code> + emit
+GRAPH_EV_COMPONENT_STATE.</li>
+<li><strong>3.4 Dependency injection mechanism.</strong>
+<code>COMPONENT_REGISTER</code> macro + <code>.components</code> linker
+section + descriptor-driven <code>resolve_deps()</code>. Needs a real
+allocator on the kernel side, so this slice may force the
+<code>framework_alloc</code> indirection.</li>
+<li><strong>3.5 Config tooling (<code>gen-config.py</code>,
+<code>validate-config.py</code>).</strong></li>
+<li><strong>3.6 IPC router with cap-array scanning +
+<code>slot_ref_retain/release</code>.</strong></li>
+<li><strong>3.7 <code>verify-registry.py</code> static checker
+(R1–R8).</strong> Wire as <code>make verify-registry</code> build
+gate.</li>
+<li><strong>3.8 Hooks attached to connection edges + slot mutation
+events.</strong></li>
+<li><strong>3.9 Wire registry + framework into kernel boot
+path.</strong></li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/framework/registry.h</code> — new, public
+registry API (~150 lines).</li>
+<li><code>sources/nonux/framework/registry.c</code> — new, host-side
+implementation (~280 lines).</li>
+<li><code>sources/nonux/test/host/registry_test.c</code> — new, 25 tests
+covering register/lookup/swap/retune/traversal/cycling.</li>
+<li><code>sources/nonux/test/host/Makefile</code> — added
+registry_test.c and ../../framework/registry.c to SRCS; added
+../../framework to vpath.</li>
+</ul>
+</body>
+</html>

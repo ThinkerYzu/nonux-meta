@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-39-pipe-signal – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-39-slice-7.5-pipes-polled-signals"
+id="toc-session-39-slice-7.5-pipes-polled-signals">Session 39: slice 7.5
+— pipes + polled signals</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworksyscall.hc"
+id="toc-frameworksyscall.hc"><code>framework/syscall.{h,c}</code></a></li>
+<li><a href="#frameworkprocess.hc"
+id="toc-frameworkprocess.hc"><code>framework/process.{h,c}</code></a></li>
+<li><a href="#coreschedsched.c"
+id="toc-coreschedsched.c"><code>core/sched/sched.c</code></a></li>
+<li><a href="#componentsposix_shimposix.h"
+id="toc-componentsposix_shimposix.h"><code>components/posix_shim/posix.h</code></a></li>
+<li><a href="#demos-ktests" id="toc-demos-ktests">Demos +
+ktests</a></li>
+<li><a href="#drive-by-frameworkipc.c"
+id="toc-drive-by-frameworkipc.c">Drive-by:
+<code>framework/ipc.c</code></a></li>
+<li><a href="#makefile" id="toc-makefile">Makefile</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-39-slice-7.5-pipes-polled-signals">Session 39: slice 7.5
+— pipes + polled signals</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice 7.5
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Two more POSIX primitives layered on existing framework pieces.
+<code>NX_SYS_PIPE</code> wraps the slice-5.6 channel primitive into a
+POSIX-flavoured read/write pair with asymmetric rights.
+<code>NX_SYS_SIGNAL</code> delivers a signal to a target process; v1 is
+polled (reads a <code>pending_signals</code> bitmask at every
+<code>sched_check_resched</code>) rather than async-interrupting the
+target.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Pipe = two HANDLE_CHANNEL endpoints with asymmetric
+rights, not a new handle type.</strong> Pipes are just channels with a
+POSIX dress code. Reusing HANDLE_CHANNEL means the slice-5.6 type-aware
+<code>sys_handle_close</code> destructor, the refcounted endpoint-pair
+lifecycle, and the message-ring transport all apply unchanged. The
+asymmetry is encoded as rights bits on the handles: fds[0] has
+<code>NX_RIGHT_READ</code> only, fds[1] has <code>NX_RIGHT_WRITE</code>
+only — no <code>NX_RIGHT_TRANSFER</code> in v1 because pipes don’t cross
+process boundaries via IPC cap transfer yet.</p></li>
+<li><p><strong>Handle-type-polymorphic read/write, not a separate
+<code>nx_posix_recv</code> / <code>send</code>.</strong> POSIX collapses
+file and pipe I/O into <code>read</code> / <code>write</code>; the
+wrappers should do the same. <code>sys_read</code> /
+<code>sys_write</code> now check the handle type at the top and dispatch
+to CHANNEL vs FILE accordingly. The rights check is unified (both want
+<code>READ</code> or <code>WRITE</code>); only the object-side plumbing
+differs.</p></li>
+<li><p><strong>Polled signals, not async delivery.</strong> Real signal
+semantics (POSIX says “arrives asynchronously”) require mucking with a
+target’s saved trap frame to inject a handler call at its next EL0
+return. v1 ducks that complexity: set a bit in
+<code>pending_signals</code>, check at every
+<code>sched_check_resched</code> — any timer preempt / yield / syscall
+return path routes a pending SIGKILL or SIGTERM into
+<code>nx_process_exit(128 + signo)</code> inline. Good enough for “kill
+a misbehaving process”; real signal handlers (sigaction, user-defined
+handlers, mask/restore) lands with a later slice.</p></li>
+<li><p><strong>Only SIGKILL + SIGTERM in v1.</strong> Every other POSIX
+signal either needs handler support (SIGUSR1/2, SIGCHLD, etc.), specific
+delivery semantics (SIGSEGV synchronous with faults), or kernel
+cooperation (SIGSTOP/SIGCONT + scheduler integration). v1 ships two
+terminating signals, both delivering identical behaviour
+(nx_process_exit with 128+signo) but reserving the right bit patterns
+for a future slice that distinguishes catchable SIGTERM from uncatchable
+SIGKILL.</p></li>
+<li><p><strong>ACTIVE-process guard in the signal poll is
+load-bearing.</strong> Without it, after nx_process_exit sets
+state=EXITED and parks in wfe, the next timer IRQ re-enters
+sched_check_resched, my signal check sees the still-set pending bit,
+re-enters nx_process_exit — we never reach the cpu_switch_to below, so
+the scheduler can’t rotate past this task to observe the EXITED state
+from a parent’s waitpid poll. Found the hard way: first pass of the
+signal test emitted <code>[signal-parent]   [signal-child]</code> and
+then hung forever. Adding
+<code>if   (curr-&gt;process-&gt;state == NX_PROCESS_STATE_ACTIVE)</code>
+as a guard on the poll fixed it (skip the check once the process is
+already EXITED — we just want to leave the task in its wfe loop and get
+back to the scheduler).</p></li>
+<li><p><strong>Single-process pipe demo.</strong> The cross-process
+`pipe + fork</p>
+<ul>
+<li>exec<code>flow requires fork to duplicate the parent's handle table — currently it doesn't (slice 7.4a deferred it).  Adding fork handle duplication is a few dozen lines for HANDLE_CHANNEL (bump</code>nx_channel_endpoint<code>'s refcount + re-alloc a handle entry in the child's table pointing at the same endpoint) but trickier for HANDLE_FILE (each</code>open`
+creates a per-open cursor that’s specific to that handle, not
+refcounted). The natural landing point for full handle duplication is
+slice 7.6 where busybox actually exercises the pattern. For v1, the pipe
+demo is single-process: same program opens the pipe, writes, reads,
+compares — proving NX_SYS_PIPE’s dispatch plumbing end-to-end without
+taking a dependency on handle-duplication.</li>
+</ul></li>
+<li><p><strong>C-compiled EL0 demos, same pattern as slice
+7.4d.</strong> Both <code>posix_pipe_prog.c</code> and
+<code>posix_signal_prog.c</code> follow the posix_prog.c shape:
+<code>_start</code> entry,
+<code>-ffreestanding -nostdlib   -mgeneral-regs-only -fno-pic</code>,
+linked at the user-window VA via <code>test/kernel/init_prog.ld</code>,
+embedded into <code>kernel-test.   bin</code> through a
+<code>.incbin</code>-style <code>posix_*_prog_blob.S</code> pair. No
+crt0 (argc/argv not in scope yet; drop_to_el0 gives us sp_el0
+directly).</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="frameworksyscall.hc"><code>framework/syscall.{h,c}</code></h3>
+<ul>
+<li><code>NX_SYS_PIPE = 15</code> and <code>NX_SYS_SIGNAL = 16</code>
+added to <code>enum nx_syscall_number</code>. <code>NX_SIGKILL</code>
+(9) and <code>NX_SIGTERM</code>
+<ol start="15" type="1">
+<li>constants in the header.</li>
+</ol></li>
+<li><code>sys_pipe(int *user_fds)</code>:
+<ul>
+<li><code>nx_channel_create</code> → endpoint pair.</li>
+<li><code>nx_handle_alloc(NX_HANDLE_CHANNEL, NX_RIGHT_READ, e0)</code> →
+read-side handle.</li>
+<li><code>nx_handle_alloc(NX_HANDLE_CHANNEL, NX_RIGHT_WRITE, e1)</code>
+→ write-side handle.</li>
+<li><code>copy_to_user</code> writes both handles as <code>int</code>s
+into the user <code>fds[2]</code> array.</li>
+<li>Failure at any point cleanly unwinds via
+<code>nx_handle_close</code> + <code>nx_channel_endpoint_close</code>
+mirror calls (same unwinding shape as
+<code>sys_channel_create</code>).</li>
+</ul></li>
+<li><code>sys_read</code> / <code>sys_write</code> refactored to look up
+the handle first (once), check READ or WRITE rights, then dispatch:
+<ul>
+<li><code>HANDLE_CHANNEL</code>: bounded by
+<code>NX_CHANNEL_MSG_MAX</code>, route to <code>nx_channel_recv</code> /
+<code>nx_channel_send</code>, stage via a 256-byte kernel buffer,
+<code>copy_to/from_user</code>.</li>
+<li><code>HANDLE_FILE</code>: existing vfs dispatch path, bounded by
+<code>NX_FILE_IO_MAX</code>.</li>
+<li>Anything else: <code>NX_EINVAL</code>.</li>
+</ul></li>
+<li><code>sys_signal(pid, signo)</code>:
+<ul>
+<li>Reject signo not in {SIGTERM, SIGKILL} with NX_EINVAL.</li>
+<li><code>nx_process_lookup_by_pid</code> — NX_ENOENT on unknown or
+kernel process.</li>
+<li><code>__atomic_fetch_or(&amp;target-&gt;pending_signals, 1u &lt;&lt; signo,   __ATOMIC_RELEASE)</code>.</li>
+<li>Does NOT modify the target’s scheduling — delivery is polled.</li>
+</ul></li>
+<li>Dispatch table gains <code>[NX_SYS_PIPE] = sys_pipe</code> +
+<code>[NX_SYS_SIGNAL] = sys_signal</code>.</li>
+</ul>
+<h3 id="frameworkprocess.hc"><code>framework/process.{h,c}</code></h3>
+<ul>
+<li><code>struct nx_process</code> grows an
+<code>_Atomic uint32_t   pending_signals</code> at the tail.
+Zero-initialised by <code>nx_process_create</code>’s
+<code>memset</code>/<code>calloc</code> and by the static initializer of
+<code>g_kernel_process</code> (fields not named in a
+designated-initializer default-init to 0 in C99/C11).</li>
+</ul>
+<h3 id="coreschedsched.c"><code>core/sched/sched.c</code></h3>
+<ul>
+<li><p>Signal-delivery poll added at the top of
+<code>sched_check_resched</code>:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>curr<span class="op">-&gt;</span>process <span class="op">&amp;&amp;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    curr<span class="op">-&gt;</span>process<span class="op">-&gt;</span>state <span class="op">==</span> NX_PROCESS_STATE_ACTIVE<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">uint32_t</span> pending <span class="op">=</span> __atomic_load_n<span class="op">(</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        <span class="op">&amp;</span>curr<span class="op">-&gt;</span>process<span class="op">-&gt;</span>pending_signals<span class="op">,</span> __ATOMIC_ACQUIRE<span class="op">);</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>pending <span class="op">&amp;</span> <span class="op">(</span><span class="dv">1</span><span class="bu">u</span> <span class="op">&lt;&lt;</span> NX_SIGKILL<span class="op">))</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>        nx_process_exit<span class="op">(</span><span class="dv">128</span> <span class="op">+</span> NX_SIGKILL<span class="op">);</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>pending <span class="op">&amp;</span> <span class="op">(</span><span class="dv">1</span><span class="bu">u</span> <span class="op">&lt;&lt;</span> NX_SIGTERM<span class="op">))</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        nx_process_exit<span class="op">(</span><span class="dv">128</span> <span class="op">+</span> NX_SIGTERM<span class="op">);</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Runs ahead of every other check (need_resched, preempt_count) so a
+pending terminating signal always wins over voluntary-yield contention.
+<code>framework/syscall.h</code> pulled in for <code>NX_SIGKILL</code> /
+<code>NX_SIGTERM</code>.</p></li>
+</ul>
+<h3
+id="componentsposix_shimposix.h"><code>components/posix_shim/posix.h</code></h3>
+<ul>
+<li><p><code>NX_POSIX_SYS_PIPE</code> / <code>_SIGNAL</code> constants
+added.</p></li>
+<li><p><code>NX_POSIX_SIGKILL = 9</code> /
+<code>NX_POSIX_SIGTERM = 15</code>.</p></li>
+<li><p>Two new wrappers:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">static</span> <span class="kw">inline</span> <span class="dt">int</span> nx_posix_pipe<span class="op">(</span><span class="dt">int</span> fds<span class="op">[</span><span class="dv">2</span><span class="op">]);</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="dt">static</span> <span class="kw">inline</span> <span class="dt">int</span> nx_posix_kill<span class="op">(</span>nx_posix_pid_t pid<span class="op">,</span> <span class="dt">int</span> signo<span class="op">);</span></span></code></pre></div></li>
+</ul>
+<h3 id="demos-ktests">Demos + ktests</h3>
+<ul>
+<li><p><code>test/kernel/posix_pipe_prog.c</code> — single-process
+round-trip. Creates a pipe, writes “hello” to fds[1], reads back from
+fds[0], compares the bytes, emits <code>[pipe-ok]</code>, exits 29. Exit
+codes 1..4 signal specific error points (pipe alloc, write count, read
+count, content mismatch); the ktest asserts the process ended EXITED
+with <code>exit_code == 29</code>.</p></li>
+<li><p><code>test/kernel/posix_signal_prog.c</code> — fork + kill +
+wait. Parent emits <code>[signal-parent]</code>, busy-waits to let the
+child emit its <code>[signal-child]</code>,
+<code>nx_posix_kill(child_pid,   SIGTERM)</code>,
+<code>nx_posix_waitpid(child_pid, &amp;status, 0)</code>, asserts
+<code>status == 128 + SIGTERM == 143</code>, emits
+<code>[signal-ok]</code>. Child’s body is
+<code>for (;;) g_dummy++</code> — no syscalls — so signal delivery
+relies entirely on timer preemption rolling through
+<code>sched_check_resched</code>.</p></li>
+<li><p><code>test/kernel/posix_pipe_prog_blob.S</code> +
+<code>test/kernel/posix_signal_prog_blob.S</code> — <code>.incbin</code>
+the matching <code>.elf</code> into <code>.rodata</code>.</p></li>
+<li><p><code>test/kernel/ktest_posix_pipe.c</code> +
+<code>ktest_posix_signal.c</code> — same load-and-drop shape as
+<code>ktest_posix.c</code> + exit-code assertion on the target
+process.</p></li>
+</ul>
+<h3 id="drive-by-frameworkipc.c">Drive-by:
+<code>framework/ipc.c</code></h3>
+<ul>
+<li><code>nx_ipc_reset</code> used to walk each per-slot message queue
+and clear <code>_next</code> on every message for tidiness. Messages are
+caller-owned (host tests typically stack-allocate them); once a test
+returns and its stack frame pops, the message memory may be reused.
+Walking the list therefore reads potentially-overwritten
+<code>_next</code> fields — and segfaults whenever stack reuse stomps on
+them. Dropped the walk: just <code>free</code> the queue bookkeeping and
+leave caller storage alone. Latent bug surfaced during this session’s
+full-suite run; unrelated to slice 7.5 but blocked
+<code>make test</code> from reporting green until fixed.</li>
+</ul>
+<h3 id="makefile">Makefile</h3>
+<ul>
+<li><p>New POSIX_PROG_CFLAGS rules for
+<code>posix_pipe_prog.o/elf</code> +
+<code>posix_signal_prog.o/elf</code>.</p></li>
+<li><p><code>KTEST_C += ktest_posix_pipe.c ktest_posix_signal.c</code>.</p></li>
+<li><p><code>KTEST_S += posix_pipe_prog_blob.S posix_signal_prog_blob.S</code>.</p></li>
+<li><p><code>clean</code> drops the two new <code>.elf</code>s.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Struct layout mismatches without header-dependency
+tracking are silent.</strong> First kernel boot after adding
+<code>pending_signals</code> to <code>struct nx_process</code> surfaced
+garbage values in the field (a random pointer read as
+<code>1074307488 =   0x40099EE0</code>). Root cause: the project
+Makefile doesn’t emit <code>-MMD</code>/<code>-MP</code> dependencies,
+so when I added the field but only <code>process.c</code> got rebuilt,
+every other TU (sched.c, syscall.c, process.h consumers) retained the
+OLD struct layout. sched.c’s signal check reached into memory past the
+old struct’s end. <code>make clean + make</code> fixed it. A future
+cleanup: add <code>-MMD -MP</code> to the CFLAGS and
+<code>-include *.d</code> in the Makefile so <code>.h</code> edits
+rebuild dependents automatically.</p></li>
+<li><p><strong>Signal poll mustn’t re-enter <code>nx_process_exit</code>
+once the process is EXITED.</strong> The first pass hung the signal test
+because the child’s task got stuck in an infinite loop: IRQ →
+sched_check_resched → see pending SIGTERM → exit → wfe → next IRQ →
+sched_check_resched → still see pending SIGTERM → exit again → wfe → …
+The scheduler never reached the <code>cpu_switch_to</code> below, so the
+parent in <code>sys_wait</code>’s yield loop never got picked to observe
+the child’s EXITED state. The fix is the ACTIVE guard: deliver signals
+only to ACTIVE processes. An EXITED process’s task just sits in wfe;
+subsequent scheduler rotations eventually pick other tasks because my
+signal check returns early and the <code>cpu_switch_to</code> below runs
+normally. Well worth a comment in the code; future readers will ask why
+the guard is there.</p></li>
+<li><p><strong>Timer-tick-driven signal delivery works for busy-loop
+children.</strong> <code>posix_signal_prog.c</code>’s child has no
+syscalls at all — just <code>for (;;) g_dummy++</code>. Delivery still
+works because every timer tick preempts the child, IRQ stub
+SAVE_TRAPFRAME + on_irq + sched_check_resched, and my poll fires on
+sched_check_resched. Good; means signals reach misbehaving CPU-bound
+processes without special cooperation.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Rebranded slice 7.5 from “signals with sigaction” to
+“polled terminating signals only”.</strong> The IMPLEMENTATION- GUIDE
+description matches this scope; the actual POSIX signal machinery
+(handlers, siginfo, mask/restore) is much larger. Keeping v1 minimal
+follows the project’s discipline of “ship working verticals, not
+comprehensive primitives”.</p></li>
+<li><p><strong>Handle-type polymorphism in sys_read/write, not a new
+syscall.</strong> POSIX collapses file + pipe + socket reads into one
+<code>read</code> syscall. Making <code>sys_read</code> /
+<code>sys_write</code> aware of handle type keeps the POSIX shim’s
+wrappers uniform and means adding more handle types later (sockets,
+devices) is adding a branch in the same functions. The alternative
+(separate <code>sys_pipe_read</code> / <code>sys_pipe_write</code>)
+would force posix_shim’s <code>nx_posix_read</code> to dispatch based on
+an fd-type tag we’d have to track separately.</p></li>
+<li><p><strong>Cross-process pipe demo deferred, don’t block on
+it.</strong> The slice’s exit criterion from the guide mentions
+<code>echo   hello | cat</code> working end-to-end, but that requires
+fork handle duplication AND real echo/cat binaries. Both are naturally
+slice 7.6 territory (musl + busybox). The single-process pipe demo still
+fully exercises <code>NX_SYS_PIPE</code> + the polymorphic dispatch;
+cross-process semantics layer on top once handle duplication lands.
+HANDOFF.md / next-actions calls out fork inheritance as the 7.6
+prereq.</p></li>
+<li><p><strong>Fix <code>nx_ipc_reset</code> in this slice even though
+it’s unrelated.</strong> The segfault blocked <code>make test</code>
+from reporting green — and once noticed, it’s a 5-line fix. Folding it
+in beats filing a follow-up against slice 3.6 or similar.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>396/396 pass (51 python + 274
+host + 71 kernel), 0 leaks, 0 errors, exit 0</strong>. +2 kernel
+tests.</p></li>
+<li><p><code>make run</code> boots cleanly.</p></li>
+<li><p>Live EL0 marker catalog (now 18 distinct milestones):
+<code>[el0] hello</code> · <code>[el0-chan-ok]</code> ·
+<code>[el0-file-ok]</code> · <code>[el0-rdr-ok]</code> ·
+<code>[el0-elf-ok]</code> · <code>[fork-parent]</code> ·
+<code>[fork-child]</code> · <code>[wait-parent]</code> ·
+<code>[wait-child]</code> · <code>[wait-ok]</code> ·
+<code>[exec-parent]</code> · <code>[exec-ok]</code> ·
+<code>[posix-parent]</code> · <code>[posix-child]</code> ·
+<code>[posix-ok]</code> · <code>[pipe-ok]</code> ·
+<code>[signal-parent]</code> · <code>[signal-child]</code> ·
+<code>[signal-ok]</code>.</p></li>
+<li><p>Phase 7 now has: process abstraction (7.1), per-process address
+spaces (7.2), ELF loader (7.3), fork/exec/wait/posix (7.4),
+pipes/signals (7.5). The POSIX surface is enough for any userspace doing
+the standard Unix primitives short of signal handlers.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p><strong>Slice 7.6 — busybox cross-compile + initramfs.</strong></p>
+<ul>
+<li><p>Write a minimal musl → NX_SYS_* adapter (C or asm file inside a
+musl build). musl already has a syscall table per arch; we patch
+<code>aarch64</code>’s to emit our SVC numbers.</p></li>
+<li><p>Cross-compile busybox against musl for aarch64.</p></li>
+<li><p>Define an initramfs format (cpio-newc is simplest), pack
+<code>/init</code> + a few applets.</p></li>
+<li><p>Ramfs learns to slurp the initramfs blob at bootstrap.</p></li>
+<li><p><code>/init</code> is busybox → <code>sh</code> applet.</p></li>
+<li><p>Exit: <code>make &amp;&amp; make run</code> boots to a busybox
+shell prompt.</p></li>
+</ul>
+<p>Blocks-of / handle-inheritance bookkeeping (needed for pipes to
+actually work across processes) can be done as a prereq inside the
+busybox slice since that’s where the pattern first matters.</p>
+<p><strong>Deferred (unchanged from slice 7.4d’s list):</strong></p>
+<ul>
+<li>C-level crt0 for <code>main(argc, argv)</code> entry.</li>
+<li>Proper cross-test task reap at end of <code>wait()</code>.</li>
+<li>Per-test <code>SCHED_RR_DEFAULT_QUANTUM_TICKS</code> override via
+kernel.json.</li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/framework/syscall.h</code> — NX_SYS_PIPE /
+_SIGNAL + signal number constants</li>
+<li><code>sources/nonux/framework/syscall.c</code> — sys_pipe +
+sys_signal + polymorphic sys_read/write + dispatch table</li>
+<li><code>sources/nonux/framework/process.h</code> —
+<code>_Atomic uint32_t pending_signals</code> field</li>
+<li><code>sources/nonux/framework/ipc.c</code> — drop dangling-message
+walk in nx_ipc_reset (drive-by fix)</li>
+<li><code>sources/nonux/core/sched/sched.c</code> — signal-delivery poll
+at top of sched_check_resched</li>
+<li><code>sources/nonux/components/posix_shim/posix.h</code> —
+nx_posix_pipe / kill + SIGKILL/SIGTERM constants</li>
+<li><code>sources/nonux/test/kernel/posix_pipe_prog.c</code> — new
+(single-process pipe roundtrip EL0 demo)</li>
+<li><code>sources/nonux/test/kernel/posix_pipe_prog_blob.S</code> — new
+(.incbin wrapper)</li>
+<li><code>sources/nonux/test/kernel/posix_signal_prog.c</code> — new
+(fork + kill + wait EL0 demo)</li>
+<li><code>sources/nonux/test/kernel/posix_signal_prog_blob.S</code> —
+new</li>
+<li><code>sources/nonux/test/kernel/ktest_posix_pipe.c</code> — new
+(ktest)</li>
+<li><code>sources/nonux/test/kernel/ktest_posix_signal.c</code> — new
+(ktest)</li>
+<li><code>sources/nonux/Makefile</code> — posix_pipe_prog.{o,elf} +
+posix_signal_prog.{o,elf} rules; KTEST_C/S updates; clean</li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.5
+filled in with as-built details</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 34 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

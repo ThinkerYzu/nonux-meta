@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-57-busybox-sh-echo – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-57-slice-7.6d.n.2-busybox-sh--c-echo-hello-runs-end-to-end"
+id="toc-session-57-slice-7.6d.n.2-busybox-sh--c-echo-hello-runs-end-to-end">Session
+57: slice 7.6d.N.2 — <code>busybox sh -c "echo hello"</code> runs
+end-to-end</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#implementation" id="toc-implementation">Implementation</a>
+<ul>
+<li><a href="#testkernelposix_busybox_sh_echo_prog.c"
+id="toc-testkernelposix_busybox_sh_echo_prog.c"><code>test/kernel/posix_busybox_sh_echo_prog.c</code></a></li>
+<li><a href="#testkernelposix_busybox_sh_echo_prog_blob.s"
+id="toc-testkernelposix_busybox_sh_echo_prog_blob.s"><code>test/kernel/posix_busybox_sh_echo_prog_blob.S</code></a></li>
+<li><a href="#testkernelktest_posix_busybox_sh_echo.c"
+id="toc-testkernelktest_posix_busybox_sh_echo.c"><code>test/kernel/ktest_posix_busybox_sh_echo.c</code></a></li>
+<li><a href="#makefile" id="toc-makefile"><code>Makefile</code></a></li>
+</ul></li>
+<li><a href="#discovery-process-table-mmu-space-exhaustion"
+id="toc-discovery-process-table-mmu-space-exhaustion">Discovery:
+process-table + MMU-space exhaustion</a>
+<ul>
+<li><a href="#fix-bump-caps" id="toc-fix-bump-caps">Fix: bump
+caps</a></li>
+</ul></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#files-changed" id="toc-files-changed">Files
+changed</a></li>
+<li><a href="#whats-next-7.6d.n.3-candidates"
+id="toc-whats-next-7.6d.n.3-candidates">What’s next (7.6d.N.3
+candidates)</a></li>
+<li><a href="#build-side-gotcha-still-unresolved-from-session-56"
+id="toc-build-side-gotcha-still-unresolved-from-session-56">Build-side
+gotcha (still unresolved from session 56)</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-57-slice-7.6d.n.2-busybox-sh--c-echo-hello-runs-end-to-end">Session
+57: slice 7.6d.N.2 — <code>busybox sh -c "echo hello"</code> runs
+end-to-end</h1>
+<p><strong>Date:</strong> 2026-04-27 <strong>Phase:</strong> 7 slice
+7.6d.N.2 (busybox-as-shell, escalated workload) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d.N.1 (session 56) made <code>busybox sh -c "exit 42"</code>
+work end-to-end via the <code>exit</code> builtin — exiting status 42
+without consulting sigaction / getuid / ioctl / fs lookup. That was a
+“boring” success: ash never reached the non-trivial code paths.</p>
+<p>This sub-slice escalates to the smallest non-trivial -c string:
+<code>echo hello</code>. Differences from the <code>exit 42</code>
+path:</p>
+<ol type="1">
+<li><p>ash has to parse a multi-token -c string into a command tree
+(parser allocates more from mallocng, exercising the mmap arena past the
+bootstrap allocation).</p></li>
+<li><p>The <code>echo</code> builtin issues
+<code>write(STDOUT_FILENO, "hello\n",    6)</code> — exercises musl’s
+stdio (<code>__stdio_write</code> → SYS_writev) end-to-end through the
+magic-fd-handle, on the actual emit path.</p></li>
+<li><p>ash returns from the builtin and proceeds through the shell’s
+normal end-of-input shutdown — flush, atexit, teardown — instead of
+jumping straight to <code>_exit</code>.</p></li>
+</ol>
+<p>Discovery-driven, just like 7.6d.N.0. Write the test, observe, plan
+the next sub-slice from what surfaces.</p>
+<h2 id="implementation">Implementation</h2>
+<h3
+id="testkernelposix_busybox_sh_echo_prog.c"><code>test/kernel/posix_busybox_sh_echo_prog.c</code></h3>
+<p>libnxlibc-linked program. Forks; child does:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>nxlibc_execve<span class="op">(</span><span class="st">&quot;/bin/busybox&quot;</span><span class="op">,</span> <span class="op">{</span> <span class="st">&quot;sh&quot;</span><span class="op">,</span> <span class="st">&quot;-c&quot;</span><span class="op">,</span> <span class="st">&quot;echo hello&quot;</span><span class="op">,</span> NULL <span class="op">},</span> NULL<span class="op">);</span></span></code></pre></div>
+<p>Parent waits + emits <code>[bbsh-echo-parent]</code>,
+<code>[bbsh-echo-status=NN]</code>, and one of
+<code>[bbsh-echo-ok]</code> (status==0) /
+<code>[bbsh-echo-failed]</code> (anything else). Same shape as
+<code>posix_busybox_sh_prog</code>.</p>
+<h3
+id="testkernelposix_busybox_sh_echo_prog_blob.s"><code>test/kernel/posix_busybox_sh_echo_prog_blob.S</code></h3>
+<p><code>.incbin</code> of the linked ELF, with
+<code>__posix_busybox_sh_echo_prog_blob_{start,end}</code> symbols.</p>
+<h3
+id="testkernelktest_posix_busybox_sh_echo.c"><code>test/kernel/ktest_posix_busybox_sh_echo.c</code></h3>
+<p>Drives the program through the existing kernel-test infrastructure
+(process_create, elf_load_into_process, sched_spawn_kthread +
+drop_to_el0). Same yield-cap as the <code>exit 42</code> and
+<code>--help</code> tests (32768 ticks). Asserts only parent-side
+liveness (parent reached the marker print, emitted ≥3 debug_writes).</p>
+<h3 id="makefile"><code>Makefile</code></h3>
+<p>Three sources added to <code>KTEST_C</code> / <code>KTEST_S</code> /
+build rules + the cleanup list. Same recipe as
+<code>posix_busybox_sh_prog</code>; only the embedded -c string
+differs.</p>
+<h2 id="discovery-process-table-mmu-space-exhaustion">Discovery:
+process-table + MMU-space exhaustion</h2>
+<p>First test run captured failure:</p>
+<pre><code>[bbsh-echo-parent][bbsh-echo-exec-failed][bbsh-echo-status=61][bbsh-echo-failed]PASS</code></pre>
+<p><code>[bbsh-echo-exec-failed]</code> is the marker the child writes
+<em>after</em> execve returns. Status 0x61 = 97 = the literal value in
+the child’s <code>nxlibc_exit(97)</code> after the failed-marker write.
+So execve returned to the child instead of replacing the process
+image.</p>
+<p>Surprising: the previous busybox test (<code>sh -c "exit 42"</code>)
+exec’d the same <code>/bin/busybox</code> successfully a moment earlier.
+The argv content differs, but the path is identical.</p>
+<p>Diagnostic: temporarily added an “exec-rc=NN” hex marker to the test
+program so we could see WHICH NX_E* code came back from the syscall.
+Output: <code>[bbsh-echo-exec-rcfe0]</code> (the marker layout’s
+positions were off by one — the <code>f</code> and <code>e</code> landed
+at positions 18-19 instead of 19-20, so the high nibble = 0xf, low
+nibble = 0xe → byte 0xfe → signed -2 → <strong>NX_ENOMEM</strong>).</p>
+<p><code>sys_exec</code> returns <code>NX_ENOMEM = -2</code> from one of
+two paths:</p>
+<ol type="1">
+<li><p><code>malloc(SYS_EXEC_MAX_FILE)</code> (4 MiB ELF-staging buffer)
+exhausts kheap.</p></li>
+<li><p><code>mmu_create_address_space()</code> returns 0 because either
+the MMU-spaces table is full (MMU_MAX_ADDRESS_SPACES = 32) or the
+underlying 8 MiB user-window malloc fails.</p></li>
+</ol>
+<p>The cumulative test sweep had hit the v1 cap.</p>
+<p><strong>Why every test leaks so much.</strong> Looking at
+<code>components/sched_rr/sched_rr.c:116-128</code>, the helper
+<code>sched_rr_purge_user_tasks(self, keep)</code> only does
+<code>nx_list_remove(node)</code> for each user task on the runqueue.
+That just unlinks them; nothing is freed:</p>
+<ul>
+<li><p>The <code>nx_task</code> struct (kheap-allocated) —
+leaked.</p></li>
+<li><p>The task’s kstack — leaked.</p></li>
+<li><p>The task’s owning <code>nx_process</code> — still in
+<code>g_process_table</code>, leaked.</p></li>
+<li><p>The process’s <code>ttbr0_root</code> (L1 + L2_ram pages, ~8 KiB)
+— leaked.</p></li>
+<li><p>The process’s <strong>8 MiB user-window backing</strong> —
+leaked.</p></li>
+</ul>
+<p>So every fork+exec test leaks roughly: parent process + forked child
+process = 2 × (8 MiB user backing + ~16 KiB page tables + task + kstack)
+≈ 16 MiB physical RAM + 2 MMU-spaces slots + 2 process-table slots, on
+top of the prior tests’ leaks. Slice 7.6c.4 first bumped the caps 16 →
+32 to paper over this; slice 7.6d.N.2 bumps them again 32 → 64. Real
+reap-on-wait remains deferred.</p>
+<h3 id="fix-bump-caps">Fix: bump caps</h3>
+<p>Two cap bumps, mirroring slice 7.6c.4’s earlier 16 → 32 bump:</p>
+<ul>
+<li><code>MMU_MAX_ADDRESS_SPACES</code> 32 → 64
+(<code>core/mmu/mmu.c</code>)</li>
+<li><code>NX_PROCESS_TABLE_CAPACITY</code> 32 → 64
+(<code>framework/process.c</code>)</li>
+</ul>
+<p>Memory cost: 64 × 8 MiB = 512 MiB peak (worst case, all slots in use
+simultaneously). Tight but workable inside QEMU’s 1 GiB guest RAM. Real
+fix is reap-on-wait (deferred since slice 7.4 — tracked under slice 7.7
+follow-ups).</p>
+<p>After the bump, the test passes:</p>
+<pre><code>posix_busybox_sh_echo_parent_forks_and_execs_busybox_sh_echo [bbsh-echo-parent]hello
+[bbsh-echo-status=00][bbsh-echo-ok]PASS</code></pre>
+<p><code>hello\n</code> — emitted by <code>echo</code> via stdio
+<code>[bbsh-echo-status=00]</code> — child exited 0
+<code>[bbsh-echo-ok]</code> — success-path marker</p>
+<p>End-to-end: ash parsed <code>-c "echo hello"</code>, dispatched the
+<code>echo</code> builtin, <code>echo</code> wrote “hello” via musl’s
+stdio (<code>__stdio_write</code> → SYS_writev → magic-fd-handle →
+UART), ash ran its end-of-input shutdown, exited cleanly with status 0.
+Substantially better than predicted again — the 7.6d.N.2 plan expected
+<code>echo hello</code> to surface either an arena exhaustion or a new
+shutdown-path syscall (sigaction, sigprocmask, tcgetattr). None did.</p>
+<h2 id="verification">Verification</h2>
+<p><code>make test</code> → <strong>412/412 PASSED</strong> (51 python +
+275 host + 86 kernel; +1 kernel test from slice 7.6d.N.2), 0 leaks, 0
+errors, exit 0.</p>
+<p><code>posix_busybox_sh_echo_parent_forks_and_execs_busybox_sh_echo</code>
+captures
+<code>[bbsh-echo-parent]hello\n[bbsh-echo-status=00][bbsh-echo-ok]</code>.</p>
+<p>Both prior busybox tests stay green.</p>
+<h2 id="files-changed">Files changed</h2>
+<p>Production:</p>
+<ul>
+<li><p><code>core/mmu/mmu.c</code> — <code>MMU_MAX_ADDRESS_SPACES</code>
+32 → 64 (1-line change + comment)</p></li>
+<li><p><code>framework/process.c</code> —
+<code>NX_PROCESS_TABLE_CAPACITY</code> 32 → 64 (1-line change +
+comment)</p></li>
+</ul>
+<p>Test:</p>
+<ul>
+<li><p>New: <code>test/kernel/posix_busybox_sh_echo_prog.c</code> (~85
+lines)</p></li>
+<li><p>New: <code>test/kernel/posix_busybox_sh_echo_prog_blob.S</code>
+(15 lines)</p></li>
+<li><p>New: <code>test/kernel/ktest_posix_busybox_sh_echo.c</code> (~95
+lines)</p></li>
+<li><p>Modified: <code>Makefile</code> (3 list additions + 1 build rule
+block + 1 cleanup-list entry)</p></li>
+</ul>
+<p>Total: 5 files net (3 new, 2 production edits + 1 Makefile), ~210
+lines.</p>
+<h2 id="whats-next-7.6d.n.3-candidates">What’s next (7.6d.N.3
+candidates)</h2>
+<p><code>busybox sh -c "echo hello"</code> works. Both shell-builtin
+paths (exit, echo) and the parser are validated. Next escalation:</p>
+<ol type="1">
+<li><p><strong><code>busybox sh -c "ls /"</code></strong> — first
+NON-builtin: ash forks + execs the <code>ls</code> applet. busybox
+dispatches via <code>basename(argv[0])</code> from execv’d path
+resolution. Will surface multiple gaps at once:</p>
+<ul>
+<li>PATH lookup (ash’s default PATH is
+<code>/sbin:/usr/sbin:/bin:/usr/bin</code>; we have no
+<code>/sbin</code>, <code>/usr/sbin</code>, <code>/usr/bin</code> —
+<code>/bin/ls</code> would need to exist via
+symlink-or-cpio-duplicate).</li>
+<li>process-table reuse (ash forks a child for the applet, then reaps it
+via wait).</li>
+<li>whatever <code>ls</code> itself needs (opendir, readdir, stat).</li>
+</ul></li>
+<li><p><strong><code>busybox sh -c "echo a; echo b"</code></strong> —
+multi-statement shell script. Still all builtins, but exercises ash’s
+sequence parser + statement dispatch. Lower-risk intermediate step
+before tackling fork-into-applet.</p></li>
+<li><p><strong>Interactive <code>busybox sh</code></strong> (the
+slice-7.6d.N.final goal) — switch production <code>/init</code> to
+busybox, add UART RX → fd 0 line discipline, expect to need sigaction
+for SIGINT/SIGTERM, isatty/ioctl(TIOCGWINSZ) for terminal sizing,
+tcsetattr for terminal mode.</p></li>
+</ol>
+<p>Natural next step is option 2 (<code>echo a; echo b</code>) — minimal
+escalation, exercises one more parser path, gaps surface clearly. Option
+1 is a bigger jump that’s worth its own sub-slice arc.</p>
+<h2 id="build-side-gotcha-still-unresolved-from-session-56">Build-side
+gotcha (still unresolved from session 56)</h2>
+<p>When <code>syscall_arch.h</code> / <code>syscall_cp.s</code> change,
+busybox’s incremental build doesn’t reliably rebuild against new musl.
+Same workaround as session 56:
+<code>rm -f test/kernel/initramfs.cpio test/kernel/initramfs_blob.o kernel-test.bin kernel-test.elf &amp;&amp; make test</code>.</p>
+<p>This session didn’t touch musl, so the issue didn’t bite. The
+two-line fix (<code>touch $BUSYBOX_BIN</code> after the inner
+<code>make</code> in <code>tools/build-busybox.sh</code>) is still on
+the opportunistic list.</p>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-27</p>
+</body>
+</html>

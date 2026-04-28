@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>README – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#nonux" id="toc-nonux">nonux</a>
+<ul>
+<li><a href="#project-documentation"
+id="toc-project-documentation">Project Documentation</a>
+<ul>
+<li><a href="#core-documentation" id="toc-core-documentation">Core
+Documentation</a></li>
+<li><a href="#testing-documentation"
+id="toc-testing-documentation">Testing Documentation</a></li>
+</ul></li>
+<li><a href="#overview" id="toc-overview">Overview</a></li>
+<li><a href="#recent-updates" id="toc-recent-updates">Recent
+Updates</a></li>
+<li><a href="#core-concepts" id="toc-core-concepts">Core Concepts</a>
+<ul>
+<li><a href="#components-and-slots"
+id="toc-components-and-slots">Components and Slots</a></li>
+<li><a href="#handles" id="toc-handles">Handles</a></li>
+<li><a href="#async-first-ipc" id="toc-async-first-ipc">Async-First
+IPC</a></li>
+<li><a href="#lifecycle-and-hot-swap"
+id="toc-lifecycle-and-hot-swap">Lifecycle and Hot-Swap</a></li>
+<li><a href="#component-graph-registry"
+id="toc-component-graph-registry">Component Graph Registry</a></li>
+<li><a href="#ai-operable-and-ai-verified"
+id="toc-ai-operable-and-ai-verified">AI-Operable and
+AI-Verified</a></li>
+</ul></li>
+<li><a href="#implementation-phases"
+id="toc-implementation-phases">Implementation Phases</a></li>
+<li><a href="#development-repository"
+id="toc-development-repository">Development Repository</a></li>
+<li><a href="#related-projects" id="toc-related-projects">Related
+Projects</a></li>
+<li><a href="#documentation-maintenance"
+id="toc-documentation-maintenance">Documentation Maintenance</a>
+<ul>
+<li><a href="#documentation-as-a-web"
+id="toc-documentation-as-a-web">Documentation as a Web</a></li>
+<li><a href="#agent-responsibilities"
+id="toc-agent-responsibilities">Agent Responsibilities</a></li>
+<li><a href="#handoff-as-complete-package"
+id="toc-handoff-as-complete-package">Handoff as Complete
+Package</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="nonux">nonux</h1>
+<p><strong>Status:</strong> Phases 3 + 4 + 5 + 6 complete. <strong>Phase
+7 in progress (slices 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0
++ 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a +
+7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4
++ 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 +
+7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 +
+7.6d.N.final.a + 7.6d.N.final.b + 7.6d.N.final.c (minimal) +
+7.6d.N.final.d + 7.6d.N.final.e + 7.7a done + 7.6d.N.16 deferred +
+7.6d.N.final.c-full deferred + opportunistic ENOSYS hygiene; 7.7b
+pending)</strong>. <strong><code>busybox sh -c "ls /"</code> runs
+end-to-end</strong> — ash forks + execve’s <code>/bin/ls</code>, busybox
+dispatches to the ls applet, ls calls <code>opendir("/")</code> +
+<code>getdents64</code> + sorts + prints all 9 ramfs entries on stdout,
+exits 0. Slice 7.6d.N.6a (this session) escalates toward
+<code>echo hello | cat</code> (first pipe): mapped
+<code>__NR_pipe2 (59) → NX_SYS_PIPE</code>,
+<code>__NR_clone (220) → NX_SYS_FORK</code>, added
+<code>NX_SYS_DUP3 (24)</code> + <code>NX_SYS_READV (25)</code>, made
+<code>sys_read</code> h=0 resolve slot-0 directly so
+<code>dup3(_, 0, 0)</code> round-trips through stdin reads — but the
+pipe ktest stays held out of <code>KTEST_C</code> until 7.6d.N.6b
+reserves slots 0/1/2 in <code>nx_handle_alloc</code> (pipe currently
+allocates at slots 0/1, colliding with POSIX STDOUT/STDERR).
+<strong>Slice 7.6d.2 morally closed (Session 54).</strong>
+Build-script-only change that closes 7.6d.2’s address-space-mismatch
+precondition: busybox 1.36.1’s kbuild default puts text at VA
+<code>0x400000</code> (<code>-static -no-pie</code> aarch64 default) but
+our user window sits at <code>0x48000000</code>; the ELF loader
+(<code>framework/elf.c</code>) honours <code>PT_LOAD.p_vaddr</code>
+verbatim so loading busybox-as-built would write into MMIO space and
+fault. Fix: <code>tools/build-busybox.sh</code> gains
+<code>-Wl,-Ttext-segment=0x48000000</code> in <code>EXTRA_LDFLAGS</code>
+(one-line change with a 14-line comment cross-referencing the other two
+places <code>0x48000000</code> is hardcoded — <code>init_prog.ld</code>
+and <code>core/mmu/mmu.c</code>’s <code>USER_WINDOW_INDEX = 64</code>
+arithmetic). After re-link, <code>readelf -h</code> shows entry
+<code>0x480005c0</code>; <code>readelf -l</code> shows segment 1 at
+<code>VirtAddr 0x48000000</code>, segment 2 at <code>0x481d9770</code>.
+Both segments now sit inside the user-window VA range
+(<code>0x48000000</code> – <code>0x48200000</code>). Binary is the same
+2,292,464 bytes — only segment headers + a few absolute addresses in
+text differ. busybox still doesn’t <em>fit</em> the 2 MiB window:
+segment 2 ends at <code>0x481e8930</code> (~1.91 MB into window),
+leaving only ~84 KiB for stack+heap — that’s 7.6d.2b’s job (grow window
+2 MiB → 8 MiB). <code>make test</code> runs 407/407 (51 python + 275
+host + 81 kernel) green — unchanged. Prior arc: slice 7.6d.1 vendored
+busybox 1.36.1 + committed minimal <code>nonux_defconfig</code> (1223
+lines, 659 enabled symbols, with
+networking/modutils/mailutils/printutils/runit/sysklogd/loginutils/selinux
++ PAM/FEATURE_USE_INITTAB/<em>RPC</em>/MOUNT_NFS force-disabled) + wrote
+<code>tools/build-busybox.sh</code> + wired Makefile
+<code>busybox / busybox-clean</code> targets. Slice 7.6c.3 closed musl
+integration with three kernel pieces — magic-fd-handle stdio in
+<code>sys_write</code> / <code>sys_read</code>,
+<code>NX_SYS_BRK = 17</code> with per-process <code>brk_addr</code>,
+<code>NX_SYS_WRITEV = 18</code> with iovec walker — bringing musl-linked
+printf + AUXV-consumption-via-sys_exec live end-to-end. Prior working
+arc: EL0 userspace creates a channel via SVC, sends bytes on one
+endpoint, receives them on the peer, and forwards the payload back to
+UART (<code>[el0-chan-ok]</code>) — full path from first instruction
+through MMU, syscall dispatcher, handle framework, rights attenuation,
+and IPC-style message passing is live. Kernel boots under QEMU with the
+MMU on at EL1 — 3-level 4 KiB-granule identity map (MMIO 0–1 GiB as
+Device-nGnRnE, RAM 1–2 GiB as Normal WB-WA Inner-Shareable), D-cache +
+I-cache on, <code>-mstrict-align</code> dropped. Brings up
+<code>uart_pl011</code> + <code>sched_rr</code> + <code>mm_buddy</code>
+to <code>NX_LC_ACTIVE</code>; mm_buddy is the first real
+<code>memory.page_alloc</code> component — classic power-of-two buddy on
+a 64 KiB per-instance pool, consumed via <code>interfaces/mm.h</code>.
+Boot context is promoted into an idle task; preemption drives through
+timer tick → <code>sched_tick</code> → IRQ-return reschedule shim →
+<code>cpu_switch_to</code>. A framework dispatcher kthread spawned at
+bootstrap drains a Vyukov-style MPSC inbox that async IPC senders (and
+<code>nx_ipc_enqueue_from_irq</code>) push to.
+<code>NX_HOOK_CONTEXT_SWITCH</code> + <code>NX_HOOK_IPC_RECV</code> +
+<code>NX_HOOK_SLOT_SWAPPED</code> fire on the right edges. Pause
+protocol rolls back cleanly on
+<code>pause_hook</code>/<code>ops-&gt;pause</code> failure and enforces
+a 1 ms wall-clock deadline on <code>pause_hook</code> via the
+<code>core/cpu/monotonic.h</code> deadline primitive.
+<code>timer_pause</code>/<code>timer_resume</code> land as the
+recomposition timer-quiescence primitive for Phase 8.
+<strong>Created:</strong> 2026-04-17 <strong>Last Updated:</strong>
+2026-04-28 (Session 73 — slice 7.7a: trivial interactive smoke tests.
+Two new files in <code>test/interactive/</code> —
+<code>ls_root.{script,expected}</code> and
+<code>echo_cat.{script,expected}</code> — promote slice 7.6d.N.5’s
+<code>ls /</code> and slice 7.6d.N.6b’s <code>echo MARKER | cat</code>
+workloads from ktest-only into the live UART harness shipped in slice
+7.6d.N.final.d. No kernel changes. First-iteration
+<code>ls_root.expected</code> had
+<code>/init</code>/<code>/bin/busybox</code> as expected substrings;
+updated to
+<code>argv_child</code>/<code>musl_prog</code>/<code>banner</code> after
+tracing through actual captured output (root cause:
+<code>sys_getdents64</code> strips one leading <code>/</code> per
+<code>framework/syscall.c:1925-1926</code>, then busybox ls treats
+embedded <code>/</code> as a path separator; recorded as cleanup target
+for slice 7.7b’s hierarchical-path rework). Slice 7.7’s
+<code>mkdir</code>+<code>ps</code> exit criteria sub-sliced into 7.7b
+(next session) — both need new kernel surface (vfs/ramfs
+<code>mkdir</code> + <code>NX_SYS_MKDIRAT</code> + hierarchical paths;
+procfs OR <code>NX_SYS_GETPROCS</code> + busybox patch).
+<code>make test-interactive</code> → <strong>5/5 pass</strong> (was
+3/3); <code>make test</code> unchanged at <strong>432/432 pass (51
+python + 277 host + 104 kernel)</strong>. See <a
+href="logs/session-73-7.7a-trivial-interactive-scripts.html">Session
+73</a>.) <strong>Goal:</strong> A composable, Lego-like microkernel for
+experimenting with OS design trade-offs, under a permissive license.</p>
+<hr />
+<h2 id="project-documentation">Project Documentation</h2>
+<h3 id="core-documentation">Core Documentation</h3>
+<ul>
+<li><strong>README.md</strong> (This document) - Project overview and
+getting started</li>
+<li><strong><a href="SPEC.html">SPEC.md</a></strong> — Problem statement,
+requirements, constraints, and success criteria</li>
+<li><strong><a href="DESIGN.html">DESIGN.md</a></strong> — Architecture,
+design decisions, and technical approach</li>
+<li><strong><a
+href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE.md</a></strong> —
+Detailed implementation guide with code examples</li>
+<li><strong><a href="HANDOFF.html">HANDOFF.md</a></strong> — Current
+status, next actions, session logs (the handoff package)</li>
+</ul>
+<h3 id="testing-documentation">Testing Documentation</h3>
+<ul>
+<li><strong><a href="TESTING-GUIDE.html">TESTING-GUIDE.md</a></strong> —
+Testing procedures, expected output, troubleshooting</li>
+</ul>
+<p><strong>Quick Links:</strong></p>
+<ul>
+<li><a href="#overview">Overview</a> | <a href="DESIGN.html">Design &amp;
+Architecture</a> | <a href="HANDOFF.html#current-status">Current
+Status</a> | <a href="TESTING-GUIDE.html">Testing</a></li>
+</ul>
+<hr />
+<h2 id="overview">Overview</h2>
+<p><strong>nonux</strong> (“No Linux” — a joke, and a statement) is a
+microkernel written in C/C++ from scratch, designed to be the Lego set
+of OS kernels. Every subsystem — scheduler, memory manager, filesystem,
+IPC — is a swappable component with a clean interface. You can snap
+different implementations together, benchmark them, and iterate on
+designs without fighting a monolithic codebase.</p>
+<p>Unlike traditional microkernels, nonux doesn’t force all services
+into userspace. Services can run in privileged mode for performance
+while still maintaining strict architectural boundaries. The isolation
+comes from well-defined interfaces and a comprehensive
+hooking/interception framework, not just hardware rings.</p>
+<p>The project targets ARM64 on QEMU first, with POSIX compatibility
+provided as a shim layer so standard Unix tools (busybox) work out of
+the box. Everything is MIT-licensed.</p>
+<h2 id="recent-updates">Recent Updates</h2>
+<p>See <a href="HANDOFF.html">HANDOFF.md</a> for the full changelog,
+session history, and next actions.</p>
+<hr />
+<h2 id="core-concepts">Core Concepts</h2>
+<h3 id="components-and-slots">Components and Slots</h3>
+<p>The kernel is built from <strong>components</strong> — self-contained
+modules that implement a typed interface (scheduler, memory manager,
+VFS, etc.). Each component lives in its own directory with source code,
+a JSON manifest, and documentation. Components plug into
+<strong>slots</strong> — the kernel config declares which implementation
+fills each slot. Swap an implementation by changing one line in
+<code>kernel.json</code>.</p>
+<h3 id="handles">Handles</h3>
+<p>Userspace interacts with kernel objects through <strong>typed
+handles</strong> with per-handle permissions. There’s no global syscall
+table — each process gets only the handles (and rights) it was given. A
+sandboxed process might have read-only file handles; a privileged
+service gets full control handles. The POSIX layer maps traditional
+calls onto handles underneath.</p>
+<h3 id="async-first-ipc">Async-First IPC</h3>
+<p>Components communicate through async messages by default. A
+composition parameter can make any connection synchronous — and this can
+be changed at runtime without restarting anything. Components don’t know
+or care which mode they’re in.</p>
+<h3 id="lifecycle-and-hot-swap">Lifecycle and Hot-Swap</h3>
+<p>Every component has a clean lifecycle: <code>init</code> →
+<code>enable</code> → <code>disable</code> → <code>destroy</code>.
+Resources are fully released at each boundary. Components can be swapped
+at runtime: drain messages, disable old, enable new. A mutability level
+(hot/warm/frozen) controls what can be changed live.</p>
+<h3 id="component-graph-registry">Component Graph Registry</h3>
+<p>The framework maintains an explicit registry of the running
+composition — every slot, every slot reference, every connection. It’s
+the single source of truth for “what is the kernel built out of right
+now?” Instrumentation, hot-swap, test harnesses, and AI reviewers all
+consume the same graph. A bounded append-only change log (“registrator”)
+records every mutation, so the composition at any past moment is
+recoverable. Slot references crossing IPC travel as typed capabilities
+with explicit <code>borrow</code>/<code>transfer</code> ownership —
+stashing a received slot pointer past the handler requires an explicit
+<code>slot_ref_retain</code> call that registers the new edge.</p>
+<h3 id="ai-operable-and-ai-verified">AI-Operable and AI-Verified</h3>
+<p>JSON manifests describe every component’s interface, config options,
+dependencies, and resource ownership. A declarative
+<code>kernel.json</code> drives the build. An AI agent can read the
+manifests, generate a valid config, build, and boot — no tribal
+knowledge required. Going further: the rules that govern composition are
+<strong>machine-checkable</strong>, and
+<code>make verify-registry</code> enforces them on every build like
+<code>-Werror</code>. Components are written <em>and</em> reviewed by AI
+against the same deterministic rubric, so compliance is not a matter of
+human discipline.</p>
+<hr />
+<h2 id="implementation-phases">Implementation Phases</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Phase</th>
+<th>Goal</th>
+<th>Key Deliverable</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>Boot to serial</td>
+<td>ARM64 boots in QEMU, prints to UART</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td>Test harness &amp; memory</td>
+<td>Memory tracking layer, PMM, GIC, timer ticks</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td>Component framework</td>
+<td>Lifecycle, IPC, hooks, config tooling</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td>Scheduler</td>
+<td>Preemptive multitasking, swappable schedulers</td>
+</tr>
+<tr class="odd">
+<td>5</td>
+<td>Virtual memory &amp; handles</td>
+<td>Per-process address spaces, handle-based syscalls</td>
+</tr>
+<tr class="even">
+<td>6</td>
+<td>VFS &amp; ramfs</td>
+<td>File operations on in-memory filesystem</td>
+</tr>
+<tr class="odd">
+<td>7</td>
+<td>Process model &amp; POSIX</td>
+<td>fork/exec, pipes, busybox shell</td>
+</tr>
+<tr class="even">
+<td>8</td>
+<td>Runtime recomposition</td>
+<td>Live hot-swap, runtime config changes</td>
+</tr>
+<tr class="odd">
+<td>9</td>
+<td>Test &amp; benchmarks</td>
+<td>Full test suite, IPC/context-switch benchmarks</td>
+</tr>
+<tr class="even">
+<td>10</td>
+<td>Docs &amp; AI operability</td>
+<td>AI agent can build a kernel from manifests alone</td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE.md</a> for
+detailed steps per phase.</p>
+<hr />
+<h2 id="development-repository">Development Repository</h2>
+<ul>
+<li><strong>Public repo:</strong> https://github.com/ThinkerYzu/nonux
+(MIT)</li>
+<li><strong>Local working directory:</strong>
+<code>sources/nonux/</code></li>
+<li><strong>Git branch:</strong> master</li>
+</ul>
+<p>Clone the public repo with:</p>
+<pre><code>git clone git@github.com:ThinkerYzu/nonux.git       # ssh
+git clone https://github.com/ThinkerYzu/nonux.git   # https</code></pre>
+<hr />
+<h2 id="related-projects">Related Projects</h2>
+<ul>
+<li><a href="https://github.com/mit-pdos/xv6-riscv">xv6</a> — MIT
+educational Unix kernel (inspiration for simplicity)</li>
+<li><a href="https://sel4.systems/">seL4</a> — Formally verified
+microkernel (inspiration for IPC design)</li>
+<li><a href="https://fuchsia.dev/fuchsia-src/concepts/kernel">Zircon</a>
+— Fuchsia’s kernel (inspiration for capability-based objects)</li>
+</ul>
+<hr />
+<h2 id="documentation-maintenance">Documentation Maintenance</h2>
+<h3 id="documentation-as-a-web">Documentation as a Web</h3>
+<p><strong>Core Principle:</strong> This project directory is maintained
+as a <strong>web of interconnected documents</strong>, not isolated
+files.</p>
+<ul>
+<li>Documents are connected through <strong>hyperlinks</strong> (both
+markdown and HTML)</li>
+<li>Every document includes <strong>navigation sections</strong> at the
+top</li>
+<li>Cross-references point to <strong>specific sections</strong> using
+anchor links (#section-name)</li>
+</ul>
+<h3 id="agent-responsibilities">Agent Responsibilities</h3>
+<p>The agent (Claude) must actively maintain both <strong>content and
+connections</strong> in this documentation web:</p>
+<p><strong>Content updates:</strong></p>
+<ul>
+<li><strong>Progress tracking</strong>: Update status and milestone
+achievements</li>
+<li><strong>Implementation details</strong>: Document design decisions,
+code structure, and technical approaches</li>
+<li><strong>Technical findings</strong>: Record measurements, results,
+and key learnings</li>
+<li><strong>Architecture evolution</strong>: Update design documents as
+the design evolves</li>
+<li><strong>Log maintenance</strong>: Keep HANDOFF.md current with
+development activities</li>
+</ul>
+<p><strong>Link maintenance:</strong></p>
+<ul>
+<li><strong>Add cross-references</strong>: When creating new content,
+link to related existing content</li>
+<li><strong>Update navigation</strong>: Add new documents to navigation
+bars on all pages</li>
+<li><strong>Verify links</strong>: Ensure links remain valid as
+documents evolve</li>
+<li><strong>HTML generation</strong>: Run
+<code>./scripts/convert_kb.sh</code> after updating markdown files</li>
+</ul>
+<h3 id="handoff-as-complete-package">Handoff as Complete Package</h3>
+<p><strong>Philosophy:</strong> HANDOFF.md should serve as a
+<strong>complete handoff package</strong> that enables anyone to pick up
+the task and push forward without asking questions.</p>
+<p><strong>Handoff quality test:</strong> “Could a new team member read
+this and implement the next phase without asking clarifying
+questions?”</p>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-28 (Session 73 — slice 7.7a:
+trivial interactive smoke tests. Two new files in
+<code>test/interactive/</code> (<code>ls_root.{script,expected}</code>
+and <code>echo_cat.{script,expected}</code>) push
+<code>make test-interactive</code> 3/3 → 5/5. No kernel changes. Slice
+7.7’s <code>mkdir</code>+<code>ps</code> exit criteria sub-sliced into
+7.7b — both need new kernel surface. <code>make test</code> unchanged at
+432/432. See <a
+href="logs/session-73-7.7a-trivial-interactive-scripts.html">Session
+73</a>.)</p>
+<p><strong>Previous:</strong> 2026-04-28 (Session 72 — slice
+7.6d.N.final.e: visible interactive busybox prompt.
+<code>make run-busybox</code> now shows <code>#</code> before the user
+types. One-line vendored-busybox patch in
+<code>libbb/lineedit.c:put_prompt_custom</code>
+(<code>fflush(stdout);</code> after <code>fputs_stdout(prompt)</code>) —
+root cause was musl’s line-buffered stdout holding ash’s no-newline
+prompt until the next newline retroactively flushed it. Side fix:
+<code>test/interactive/run.sh</code> switched to per-byte trickle (50 ms
+gap) — QEMU’s <code>-serial stdio</code> does not backpressure on PL011
+RX FIFO overflow. +1 regression script;
+<code>make test-interactive</code> 3/3 stable; <code>make test</code>
+unchanged at 432/432. See <a
+href="logs/session-72-N.final.e-visible-prompt.html">Session 72</a>.)</p>
+<p><strong>Previous:</strong> 2026-04-28 (Session 71 — slices
+7.6d.N.final.b + .c (minimal) + .d. <code>make run-busybox</code> boots
+an interactive busybox sh over QEMU UART. Sub-slice b ships
+<code>pack-initramfs.py --busybox-init</code>, an EL0 init stub that
+<code>execve</code>s <code>/init</code> with
+<code>argv = {"sh", NULL}</code>, a build-flag-gated <code>boot.c</code>
+init runner (<code>-DNX_INIT_BUSYBOX</code>), and the
+<code>kernel-busybox.bin</code> build target. Sub-slice c (minimal):
+Ctrl-C posts SIGTERM to all ACTIVE non-kernel processes via the existing
+polled path; Ctrl-D arms a one-shot EOF flag — full signal-handler
+trampoline deferred to <code>7.6d.N.final.c-full</code>. Sub-slice d
+ships <code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code> (2 canned scripts). +2 ktests;
+<code>make test</code> → 432/432 pass. See <a
+href="logs/session-71-N.final.b-c-d.html">Session 71</a>.)</p>
+<p><strong>Previous:</strong> 2026-04-28 (Session 69 — four slices in
+one session: 7.6d.N.12 (sigaction/sigprocmask stubs) + 7.6d.N.13
+(tolerable-syscall stubs sweep: getuid/euid/gid/egid + setuid/setgid +
+getpid/getppid + uname + set_tid_address) + 7.6d.N.14 (first 3-stage
+pipe <code>echo hello | tr a-z A-Z | wc -c</code> — surfaced + closed
+slot-position-preserving CHANNEL fork inheritance gap deferred since
+slice 7.6a) + 7.6d.N.15 (cross-process FILE-fd-through-fork via subshell
+<code>(cat) &lt; /banner</code> — extends slot-position-preserving
+inheritance to FILE handles). +4 ktests; <code>make test</code> →
+425/425 pass. N.16 deferred — proper POSIX-fd-to-slot alignment is
+bigger than the originally-scoped 30-line paydown, and skippable for
+slice 7.6d.N.final.)</p>
+</body>
+</html>

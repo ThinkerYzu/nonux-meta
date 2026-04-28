@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-02-registry-and-ai-verification – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-2-component-graph-registry-ai-verifiable-composition"
+id="toc-session-2-component-graph-registry-ai-verifiable-composition">Session
+2: Component Graph Registry + AI-Verifiable Composition</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#component-graph-registry-spec-design"
+id="toc-component-graph-registry-spec-design">Component Graph Registry
+(SPEC + DESIGN)</a></li>
+<li><a href="#slot-references-in-ipc-messages"
+id="toc-slot-references-in-ipc-messages">Slot References in IPC
+Messages</a></li>
+<li><a href="#ai-enforceable-compliance"
+id="toc-ai-enforceable-compliance">AI-Enforceable Compliance</a></li>
+<li><a href="#documentation-updates"
+id="toc-documentation-updates">Documentation Updates</a></li>
+<li><a href="#dependency-injection-mechanism-follow-up"
+id="toc-dependency-injection-mechanism-follow-up">Dependency Injection
+Mechanism (follow-up)</a></li>
+<li><a href="#v1-execution-model-follow-up-2"
+id="toc-v1-execution-model-follow-up-2">v1 Execution Model (follow-up
+2)</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-2-component-graph-registry-ai-verifiable-composition">Session
+2: Component Graph Registry + AI-Verifiable Composition</h1>
+<p><strong>Date:</strong> 2026-04-17 <strong>Phase:</strong> Design
+extension (ahead of Phase 3 implementation) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li>Introduce an explicit, first-class registry for the running
+composition so that instrumentation, hot-swap, and AI review have a
+single source of truth.</li>
+<li>Close the loophole where a component could receive a slot reference
+via IPC and hold it outside the registry’s view.</li>
+<li>Make every registry rule both <em>followable</em> and
+<em>verifiable</em> by AI agents, not just by human review.</li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="component-graph-registry-spec-design">Component Graph Registry
+(SPEC + DESIGN)</h3>
+<p>Added functional requirement #18 to <code>SPEC.md</code> and a new
+top-level section to <code>DESIGN.md</code>. Universal registration:
+every slot, every slot reference held by a component, and every
+connection between caller-slot and callee-slot is registered with the
+framework. The registry owns <code>struct graph_registry</code>
+containing hash-indexed <code>slot_node</code> and
+<code>component_node</code> collections plus a list of
+<code>connection</code> edges.</p>
+<p>Mutation goes through a fixed API surface
+(<code>slot_register</code>, <code>component_register</code>,
+<code>connection_register</code>, and their unregister/state-change
+siblings). Every mutation emits a <code>graph_event</code> and appends
+to a bounded append-only change log. Readers use a seqlock / RCU-style
+snapshot mechanism so instrumentation never blocks the kernel.</p>
+<p>Writes are serialized through the existing recomposition lock — the
+registry does not introduce a new synchronization domain.</p>
+<h3 id="slot-references-in-ipc-messages">Slot References in IPC
+Messages</h3>
+<p>Extended the message format with a typed <code>caps</code> array
+separate from payload bytes. Each <code>ipc_cap</code> has a
+<code>kind</code> (slot ref, handle, VMO chunk) and an
+<code>ownership</code> mode (<code>CAP_BORROW</code>,
+<code>CAP_TRANSFER</code>). Borrowed refs are dropped automatically when
+the handler returns; transferred refs must be claimed (via
+<code>slot_ref_retain</code>) or released before return. The IPC router
+scans the cap array on send (reject forged refs) and on receive (drop
+borrows, flag unclaimed transfers, verify retention calls registered new
+edges).</p>
+<p><code>slot_ref_retain</code> can fail when retention would violate
+concurrency contracts, mutability, cycle invariants, or policy. This is
+the sole path for a component to hold a received slot reference beyond
+the handler’s scope.</p>
+<h3 id="ai-enforceable-compliance">AI-Enforceable Compliance</h3>
+<p>The registry rules matter only if they’re mechanically enforced.
+Added an “AI-enforceable compliance” clause to SPEC #18 and an “AI
+Verification” subsection to DESIGN, naming seven static checks (R1–R7)
+for a <code>make verify-registry</code> analyzer:</p>
+<ol type="1">
+<li>R1 — no fabricated slot pointers</li>
+<li>R2 — no <code>struct slot *</code> field outside manifest
+declarations</li>
+<li>R3 — slot refs only in caps, never in payload fields</li>
+<li>R4 — retain/release pairing reachable from
+<code>disable</code>/<code>destroy</code></li>
+<li>R5 — sender owns every slot it passes in a cap</li>
+<li>R6 — handlers don’t stash borrowed caps</li>
+<li>R7 — generated registration code matches manifest (regenerate +
+diff)</li>
+</ol>
+<p>Runtime assertions are added to the test harness: pointer audit
+against registry, generation fence after swaps, event-trace matching.
+Every component’s <code>README.md</code> will carry a versioned AI
+review checklist regenerated when framework rules evolve.
+<code>make verify-registry</code> becomes a build prerequisite — failure
+to pass means the build fails, like <code>-Werror</code>.</p>
+<h3 id="documentation-updates">Documentation Updates</h3>
+<p>Beyond SPEC and DESIGN, updated:</p>
+<ul>
+<li><code>IMPLEMENTATION-GUIDE.md</code> — added
+<code>framework/registry.c/.h</code>,
+<code>tools/verify-registry.py</code>,
+<code>test/host/registry_assert.c/.h</code> to the file tree. Rewrote
+Phase 3 steps to name the registry, cap scanning, and retain/release
+explicitly. Added <code>make verify-registry</code> to the build/test
+section.</li>
+<li><code>HANDOFF.md</code> — new rows in the Key Design Decisions table
+(Registry, Change history, Slot refs in messages, AI verification).
+Session 2 log entry.</li>
+<li><code>README.md</code> — new “Component Graph Registry” Core Concept
+section; promoted “AI-Operable” to “AI-Operable and AI-Verified” noting
+the build-gate enforcement.</li>
+</ul>
+<h3 id="dependency-injection-mechanism-follow-up">Dependency Injection
+Mechanism (follow-up)</h3>
+<p>A gap surfaced during Q&amp;A after the initial registry work was
+documented: the docs named <code>resolve_deps()</code> but never showed
+how it knows the offset of each dep field inside a component’s state
+struct. SPEC #18 R7 asserts “generated registration code matches the
+manifest” — the <em>rule</em> was there but the <em>mechanism</em> was
+not.</p>
+<p>Closed the gap by adding a “Dependency Injection Mechanism”
+subsection to DESIGN.md under Dependency Management. Key pieces:</p>
+<ul>
+<li><strong><code>resolve_deps()</code> body</strong> — a fixed, generic
+loop that walks a <code>const struct component_descriptor *</code> and
+writes slot pointers into the component using descriptor-supplied
+offsets. Simultaneously calls <code>connection_register()</code> so the
+edge exists in the registry before <code>init()</code> runs.</li>
+<li><strong>Generated <code>gen/&lt;component&gt;_deps.h</code></strong>
+— <code>tools/gen-config.py</code> emits the typed
+<code>&lt;component&gt;_deps</code> struct (one
+<code>struct slot *</code> per manifest dep) plus a
+<code>_DEPS_TABLE(CONTAINER, FIELD)</code> macro that expands to
+<code>dep_descriptor</code> initializers with <code>offsetof()</code>
+into a caller-supplied container type.</li>
+<li><strong><code>COMPONENT_REGISTER</code> macro</strong> — single-line
+author-side expansion that builds a static
+<code>struct component_descriptor</code> in a dedicated
+<code>.components</code> linker section. The macro is where
+<code>offsetof()</code> gets evaluated, because only the component’s
+translation unit sees the container type’s full layout.</li>
+<li><strong>Framework types</strong> —
+<code>struct dep_descriptor</code> (name, offset, required, version,
+mode, stateful, policy) and <code>struct component_descriptor</code>
+(name, state_size, deps_offset, deps array, ops).</li>
+<li><strong>R7 enforcement</strong> — <code>verify-registry.py</code>
+regenerates the deps header on every build and byte-diffs it against the
+committed copy. Drift fails the build.</li>
+<li><strong>Runtime-acquired refs</strong> — slot refs obtained via
+<code>slot_ref_retain</code> or <code>slot_lookup</code> at runtime are
+not in the descriptor; the component must list them in its manifest’s
+<code>retains</code> array so the pointer audit covers both static and
+dynamic paths.</li>
+</ul>
+<p>Also updated <code>IMPLEMENTATION-GUIDE.md</code> Phase 3 step 6:
+<code>gen-config.py</code> output list now includes
+<code>gen/&lt;component&gt;_deps.h</code> with a diff-check note. File
+tree under <code>gen/</code> lists the same.</p>
+<h3 id="v1-execution-model-follow-up-2">v1 Execution Model (follow-up
+2)</h3>
+<p>Earlier sessions had named three concurrency modes
+(<code>single-threaded</code>, <code>thread-safe</code>,
+<code>thread-per-instance</code>) but never committed to <em>how
+components actually run</em>. A user question — “has each processor a
+dedicated thread to consume message queue? So, slot can be dereferenced
+only in these thread. It is impossible doing hot-swap while other
+threads are using the component from a slot” — surfaced that the design
+tacitly assumed an execution model without spelling it out.</p>
+<p>Followed the thread through:</p>
+<ol type="1">
+<li><strong>Per-CPU dispatcher</strong> is indeed the target model. Each
+CPU runs one pinned kernel thread whose loop is
+<code>dequeue → resolve slot → handler → repeat</code>. Only the
+dispatcher ever executes component code on that CPU.</li>
+<li><strong>Preemption needs a clear rule.</strong> Handlers run
+non-preemptibly (preempt_disable across the handler body). Interrupts
+still fire, but ISRs can only enqueue messages, never call into a
+component. User tasks (EL0) stay preemptible — the scheduler runs on the
+dispatcher in its own handler and preempts EL0 normally.</li>
+<li><strong>Bounded-handler discipline.</strong> Long operations must
+split into “start op” → later “completion” message. This is the
+project’s answer to the question “what if a handler blocks?”: it isn’t
+allowed to.</li>
+<li><strong>Thread-per-component rejected.</strong> The user asked
+whether giving each component its own thread would solve the blocking
+concern more cleanly. It would, but at the cost of 30× more kernel
+threads, ~3× more context switches on every sync chain, and ~240 KB of
+stacks sitting idle — all to solve a case that bounded-handler + async
+split already solves. Accepted <code>dedicated</code> as an explicit
+escape hatch for the rare component that genuinely cannot bound its
+handlers; v1 minimum config uses zero.</li>
+</ol>
+<p>New concurrency mode vocabulary replacing the old three:</p>
+<ul>
+<li><strong><code>shared</code></strong> (default) — single instance,
+any CPU’s dispatcher may enter concurrently. Component owns its
+cross-CPU sync (atomics preferred).</li>
+<li><strong><code>serialized</code></strong> — single instance,
+framework holds a per-slot spinlock across each handler call. Used by
+components that don’t want to manage their own sync.</li>
+<li><strong><code>per-cpu</code></strong> — N instances, each CPU’s
+dispatcher only reaches its local instance. No cross-CPU races.</li>
+<li><strong><code>dedicated</code></strong> — own private thread and
+queue (escape hatch).</li>
+</ul>
+<p>Code changes:</p>
+<ul>
+<li><code>SPEC.md</code> #13 — “Concurrency mode” bullet rewritten; new
+“Execution model” bullet added above it with the dispatcher /
+non-preemptible-handler / bounded-handler rules. Manifest field list
+updated.</li>
+<li><code>DESIGN.md</code> — replaced the “Concurrency Enforcement”
+subsection with a full “Execution Model (v1)” subsection: dispatcher
+loop in code, preemption rule, bounded-handler rule with before/after
+code example, concurrency-mode table, <code>slot_dispatch</code> switch
+covering all four modes, framework-enforcement notes, “Why this shape”
+rationale. Stale references to old mode names elsewhere in DESIGN.md
+updated. TOC gained the Execution Model entry.</li>
+<li><code>HANDOFF.md</code> — replaced the “Concurrency” row in Key
+Design Decisions with two rows (Execution model + Concurrency
+modes).</li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li>The slot registry already needed to exist for hot-swap to work (it’s
+what <code>component_swap</code> mutates), but it was implicit —
+documented as “framework maintains a slot → active component mapping”
+with no API surface for instrumentation or history. Promoting it to a
+first-class entity clarified that most of the existing design already
+assumed it.</li>
+<li>Slot references carried in IPC are a real leak in the original
+design. Without typed caps, a receiver could obtain a slot pointer
+through <code>memcpy</code>ing a payload byte range — the framework
+would have no visibility into the resulting edge. Typed caps make the
+scan target explicit.</li>
+<li>AI verification is qualitatively different from human review: the
+rubric has to be enumerable and deterministic, so rules like “no
+fabricated slot pointers” must be expressible as a static check, not a
+judgment call.</li>
+<li>The original DESIGN.md described the <em>rule</em> for dep injection
+(R7 manifest-as-source-of-truth) and the <em>interface</em>
+(<code>resolve_deps()</code> is called) but skipped the
+<em>mechanism</em> (how offsets flow from manifest to framework). This
+is the kind of gap that breaks AI-driven development: an AI writing
+<code>gen-config.py</code> or a new component has to invent a
+convention, and different invocations will pick different ones. Every
+design doc needs to go down to the offset-level mechanism when AI is a
+primary implementer.</li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><strong>Registry is v1, not deferred</strong> — The hooking
+framework (SPEC #9) is v1, and hooks target composition boundaries.
+Those boundaries must be enumerable at runtime, which requires an
+explicit registry. Deferring the registry would mean deferring
+meaningful instrumentation.</li>
+<li><strong>Slot refs travel as typed capabilities, not payload
+pointers</strong> — Scannability for the router and localized
+translation for future dynamic loading both argue for typed caps.</li>
+<li><strong>Retention is explicit, not inferred</strong> — Keeping a
+received slot ref past handler return requires
+<code>slot_ref_retain</code>. The framework does not guess intent based
+on whether the pointer was written to <code>self</code>.</li>
+<li><strong>AI compliance is a build gate</strong> —
+<code>make verify-registry</code> must pass before <code>make</code> /
+<code>make test</code> succeed. Parallels <code>-Werror</code> —
+framework rules are not optional suggestions.</li>
+<li><strong>Change log is bounded and in-kernel</strong> — A ring buffer
+keyed by generation, readable from userspace via a
+<code>kstat</code>-like file. Offline analysis uses the JSON snapshot of
+the log.</li>
+<li><strong>Offset comes from the component’s TU, not the
+generator</strong> — <code>offsetof()</code> is evaluated inside the
+component’s compilation unit via the <code>COMPONENT_REGISTER</code>
+macro because only that TU sees the full container layout. The generator
+emits the deps struct and the <code>_DEPS_TABLE(CONTAINER, FIELD)</code>
+macro; it cannot emit <code>offsetof(struct sched_component, ...)</code>
+because it does not know the container type. This keeps the generator
+component-agnostic and the component’s container type a local
+concern.</li>
+<li><strong>Descriptor covers static deps only; <code>retains</code>
+array covers dynamic</strong> — Slot refs acquired at runtime via
+<code>slot_ref_retain</code> or <code>slot_lookup</code> are declared in
+the manifest’s <code>retains</code> array, not the
+<code>requires</code>/<code>optional</code> lists. The test harness’s
+pointer audit consults both so nothing escapes registration.</li>
+<li><strong>Per-CPU dispatcher with non-preemptible handlers is the v1
+execution model</strong> — Component code only runs on a pinned per-CPU
+dispatcher thread. The handler body is non-preemptible (interrupts
+enabled but forbidden from calling into components). User tasks (EL0)
+remain fully preemptible. This is what makes hot-swap tractable, the
+registry’s pointer-audit invariant enforceable, and the no-re-entrancy
+guarantee hold.</li>
+<li><strong>Bounded-handler rule + async split is the v1 blocking
+answer</strong> — Handlers must complete in bounded time; anything long
+splits into “start op” → “later completion message.” Rejected
+thread-per-component as the answer to the blocking concern: it is
+over-engineered for v1 at substantial cost (many threads, many context
+switches, no real payoff when handlers are naturally short).
+<code>dedicated</code> mode is the documented escape hatch; zero v1
+components use it.</li>
+<li><strong>Concurrency modes rewritten</strong> — <code>shared</code>
+(default) / <code>serialized</code> (framework lock) /
+<code>per-cpu</code> / <code>dedicated</code> replaces the prior
+<code>single-threaded</code> / <code>thread-safe</code> /
+<code>thread-per-instance</code> vocabulary. Reason: the old names
+conflated “how the component is instantiated” with “who provides the
+lock”, and <code>thread-safe</code> suggested general thread safety
+while really meaning “skip framework lock.”</li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li>SPEC.md, DESIGN.md, IMPLEMENTATION-GUIDE.md, HANDOFF.md, README.md
+all updated.</li>
+<li>No code changes this session — design-only.</li>
+<li>Phase 1 code still written-but-unbuilt (blocker unchanged:
+cross-compiler not installed).</li>
+<li>Registry implementation work is folded into Phase 3 steps; no new
+phase added.</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li>Install cross-compiler and boot Phase 1 in QEMU (unchanged from
+Session 1).</li>
+<li>When Phase 3 begins, follow the expanded step list in
+<code>IMPLEMENTATION-GUIDE.md</code>: write
+<code>framework/registry.c</code> first (it’s the substrate for
+lifecycle, IPC, and hooks), then the rest of the framework on top of
+it.</li>
+<li>Draft the AI review checklist template for <code>README.md</code> in
+new components (will be generated from the registry rule set).</li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>SPEC.md</code> — requirement #18 (Component Graph Registry)
+added, including AI-enforceable compliance clause. Requirement #13
+concurrency rewritten: new “Execution model” bullet (per-CPU dispatcher,
+non-preemptible handlers, bounded handlers) and new four-mode
+concurrency vocabulary (<code>shared</code> / <code>serialized</code> /
+<code>per-cpu</code> / <code>dedicated</code>); manifest field list
+updated.</li>
+<li><code>DESIGN.md</code> — new top-level section “Component Graph
+Registry” with structs, APIs, invariants, slot-refs-in-messages
+subsection, AI Verification subsection; TOC entry added. Follow-up: new
+“Dependency Injection Mechanism” subsection under Dependency Management
+covering <code>resolve_deps()</code> body, generated
+<code>gen/&lt;component&gt;_deps.h</code>,
+<code>COMPONENT_REGISTER</code> macro,
+<code>struct dep_descriptor</code> /
+<code>struct component_descriptor</code>, and <code>.components</code>
+linker section. Follow-up 2: replaced “Concurrency Enforcement”
+subsection with a full “Execution Model (v1)” subsection (dispatcher
+loop, non-preemptible-handler rule, bounded-handler rule with code
+example, four-mode table, <code>slot_dispatch</code> switch,
+framework-enforcement notes, “Why this shape” rationale); stale
+references to old mode names updated; TOC entry added.</li>
+<li><code>IMPLEMENTATION-GUIDE.md</code> — Phase 3 expanded; file tree
+updated with registry, verify-registry, registry_assert;
+<code>make verify-registry</code> added to build pipeline. Follow-up:
+Phase 3 step 6 now names <code>gen/&lt;component&gt;_deps.h</code> as a
+generator output; <code>gen/</code> tree entry lists the per-component
+deps header.</li>
+<li><code>HANDOFF.md</code> — Key Design Decisions table gained four
+rows for registry work; “Concurrency” row replaced by two rows
+(Execution model + Concurrency modes); Session 2 log entry inserted at
+top with three follow-up paragraphs; status stamp updated.</li>
+<li><code>README.md</code> — new Component Graph Registry concept
+section; AI-Operable section renamed to AI-Operable and
+AI-Verified.</li>
+<li><code>logs/session-02-registry-and-ai-verification.md</code> — this
+session log.</li>
+</ul>
+</body>
+</html>

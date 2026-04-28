@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>HANDOFF – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#handoff-nonux" id="toc-handoff-nonux">Handoff: nonux</a>
+<ul>
+<li><a href="#navigation" id="toc-navigation">Navigation</a></li>
+<li><a href="#current-status" id="toc-current-status">Current Status</a>
+<ul>
+<li><a href="#what-we-have" id="toc-what-we-have">What We Have</a></li>
+</ul></li>
+<li><a href="#next-actions" id="toc-next-actions">Next Actions</a></li>
+<li><a href="#session-logs" id="toc-session-logs">Session Logs</a></li>
+<li><a href="#document-web" id="toc-document-web">Document Web</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="handoff-nonux">Handoff: nonux</h1>
+<p><strong>Project:</strong> nonux <strong>Started:</strong>
+2026-04-17</p>
+<hr />
+<h2 id="navigation">Navigation</h2>
+<p><strong>Project Docs:</strong> <a href="README.html">README</a> | <a
+href="SPEC.html">SPEC</a> | <a href="DESIGN.html">DESIGN</a> | <a
+href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE</a> | <a
+href="HANDOFF.html">HANDOFF</a> <em>(you are here)</em></p>
+<p><strong>Quick Jump:</strong> <a href="#current-status">Current
+Status</a> | <a href="#next-actions">Next Actions</a> | <a
+href="#session-logs">Session Logs</a></p>
+<hr />
+<h2 id="current-status">Current Status</h2>
+<p><strong>Phase:</strong> Phases 1–6 complete. <strong>Phase 7 in
+progress</strong> — slice 7.6d.N.final closed at v1 quality (Session
+72); <strong>slice 7.7a closed (Session 73)</strong>; slice 7.7b pending
+(mkdir + ps; needs new kernel surface). The full slice-by-slice
+breakdown lives in the Phase checklist below; per-slice deliverables
+live in the linked <a href="#session-logs">Session Logs</a>.</p>
+<p><strong>Headline (Session 73):</strong> <strong>Slice 7.7a closes —
+<code>make test-interactive</code> is now 5/5</strong> (was 3/3): added
+<code>ls_root.{script,expected}</code> and
+<code>echo_cat.{script,expected}</code> to
+<code>test/interactive/</code>, exercising the <code>ls /</code> (slice
+7.6d.N.5) and <code>echo MARKER | cat</code> (slice 7.6d.N.6b) workloads
+through the live UART stream rather than just at the ktest level. No
+kernel changes. First-iteration <code>ls_root.expected</code> had
+<code>/init</code>/<code>/bin/busybox</code> as expected substrings —
+wrong, because <code>sys_getdents64</code> strips one leading
+<code>/</code> (<code>framework/syscall.c:1925-1926</code>) and busybox
+ls then treats embedded <code>/</code> as a path separator, displaying
+<code>busybox</code> rather than <code>bin/busybox</code>. Updated to
+<code>argv_child</code>/<code>musl_prog</code>/<code>banner</code> —
+entries that are visible in ls’s coloured columnar output and don’t
+false-match against kernel boot tags. Slice 7.7’s other two exit
+criteria (<code>mkdir /tmp</code> + <code>ls /tmp</code>,
+<code>ps</code>) are sub-sliced into 7.7b because both need new kernel
+surface: vfs/ramfs <code>mkdir</code> op + <code>NX_SYS_MKDIRAT</code> +
+hierarchical-path support for mkdir; procfs OR
+<code>NX_SYS_GETPROCS</code> + busybox patch for ps.
+<code>make test</code> unchanged at 432/432.</p>
+<p><strong>Tests:</strong> <code>make test</code> → <strong>432/432 pass
+(51 python + 277 host + 104 kernel), 0 leaks, 0 errors, exit 0</strong>.
+<code>make test-interactive</code> → <strong>5/5 pass</strong> (echo_cat
++ echo_hello + echo_pipe + ls_root + visible_prompt).</p>
+<p><strong>Latest session log:</strong> <a
+href="logs/session-73-7.7a-trivial-interactive-scripts.html">Session
+73</a> — slice 7.7a (trivial interactive smoke tests).</p>
+<p><strong>Blockers:</strong> None. Slice 7.7a is closed; slice 7.7b
+(mkdir + ps with their kernel work) is the next forward step.</p>
+<p><strong>Next Milestone:</strong></p>
+<ul>
+<li><p><strong>7.7b (NEXT) — <code>mkdir /tmp</code> +
+<code>ls /tmp</code> + <code>ps</code>.</strong> Real kernel work. Needs
+(a) new <code>nx_vfs_ops.mkdir</code> op + ramfs implementation; (b)
+<code>NX_SYS_MKDIRAT = N</code> syscall (musl
+<code>__NR_mkdirat = 34</code>); (c) hierarchical paths in ramfs (cracks
+the slice-6.2 flat-namespace assumption per
+<code>components/ramfs/ramfs.c:405-409</code>) — also the right time to
+clean up the <code>sys_getdents64</code> leading-<code>/</code> strip
+hack at <code>framework/syscall.c:1925-1926</code>; (d) procfs component
+(preferred — busybox’s stock ps applet just works against
+<code>/proc/&lt;pid&gt;/stat</code> views and benefits from the same
+path rework) OR <code>NX_SYS_GETPROCS</code> syscall + vendored busybox
+patch. Two new interactive scripts
+(<code>mkdir_tmp.{script,expected}</code>,
+<code>ps_smoke.{script,expected}</code>) push
+<code>make test-interactive</code> 5/5 → 7/7. See <a
+href="IMPLEMENTATION-GUIDE.html#slice-77b--mkdir-tmp--ls-tmp--ps">IMPLEMENTATION-GUIDE.md
+§Slice 7.7b</a>.</p></li>
+<li><p><strong>7.6d.N.final (sub-slices a/b/c-minimal/d/e done; c-full
+deferred).</strong> Interactive <code>busybox sh</code> over UART RX is
+<strong>live with a visible prompt</strong> as of Session 72 —
+<code>make run-busybox</code> boots a usable shell that looks like a
+shell. The remaining <code>7.6d.N.final.c-full</code> work (full
+signal-handler dispatch trampoline) is scoped as a focused
+future-session deliverable; it isn’t blocking slice 7.7 because the
+minimal v1 Ctrl-C / Ctrl-D semantics shipped in Session 71 give a usable
+enough interactive experience for the scripted smoke tests.</p>
+<ul>
+<li>:ballot_box_with_check: <strong>7.6d.N.final.a (Session 70)</strong>
+— RX IRQ + console RX ring + blocking <code>nx_console_read</code> +
+termios/ioctl stubs. ~150 lines kernel + 3 ktests + 2 host tests;
+<code>make test</code> 430/430. <code>isatty(0)</code> reports 1 via the
+ioctl stub; bytes typed at QEMU UART end up in <code>read(0, ...)</code>
+from EL0.</li>
+<li>:ballot_box_with_check: <strong>7.6d.N.final.b (Session 71)</strong>
+— <code>/init</code> swap policy + interactive busybox boot.
+<code>pack-initramfs.py --busybox-init</code> rewrites the
+<code>/init</code> cpio entry; new EL0 init stub <code>execve</code>s
+<code>/init</code> with <code>argv = {"sh", NULL}</code>;
+<code>boot.c</code> gains an <code>-DNX_INIT_BUSYBOX</code> init runner;
+new <code>kernel-busybox.bin</code> build target.
+<code>make run-busybox</code> boots an interactive busybox sh. See <a
+href="logs/session-71-N.final.b-c-d.html">Session 71</a>.</li>
+<li>:ballot_box_with_check: <strong>7.6d.N.final.c MINIMAL (Session
+71)</strong> — Ctrl-C / Ctrl-D side channels in the RX ISR. Ctrl-C
+(0x03) arms a flag that <code>nx_console_drain_intr()</code> (called
+from <code>sys_read</code> entry) consumes by posting SIGTERM to all
+ACTIVE non-kernel processes; Ctrl-D (0x04) arms a one-shot EOF flag that
+<code>nx_console_read</code> returns 0 on. +2 ktests. v1 caveats (no
+process groups, no per-process signal handlers): Ctrl-C kills the whole
+shell session rather than just the foreground command.</li>
+<li><strong>7.6d.N.final.c-full (deferred — focused future
+session).</strong> Real signal-handler dispatch trampoline. Promote
+<code>sys_rt_sigaction</code> from no-op stub to
+actually-installs-handler (per-process <code>sigaction[NSIG]</code>
+table). On EL0-return, when a pending signal has a handler installed,
+push the saved trap_frame onto the user stack, set PC to handler, set x0
+= signo, set LR to a small EL0 trampoline (or use musl’s
+<code>sa_restorer</code>) that issues <code>NX_SYS_RT_SIGRETURN</code>
+to restore. Switch Ctrl-C from “kill everyone” to “post SIGINT, deliver
+via handler — ash’s installed handler then resets line-edit state and
+re-prompts.” Estimated ~200-300 lines kernel + ktest using mock-RX 0x03
+injection that confirms an EL0 handler actually ran. Best done in a
+dedicated session — the trap-frame manipulation, AAPCS preservation
+across handler invocation, sigreturn semantics from user-stack-corrupted
+state, and re-entrancy concerns each want careful focus.</li>
+<li>:ballot_box_with_check: <strong>7.6d.N.final.d (Session 71)</strong>
+— Scriptable QEMU stdin injection + <code>make test-interactive</code>.
+<code>tools/qemu-stdin-feed.sh</code> wraps
+<code>qemu -serial stdio</code> piping stdin from a script.
+<code>test/interactive/run.sh</code> drives every <code>*.script</code>
+through QEMU; substring-matches the captured log against
+<code>*.expected</code>. Two seed scripts (<code>echo_hello</code>,
+<code>echo_pipe</code>). Trickle-pace input (line-burst, originally
+sleep 3 initial + sleep 1 between lines) to dodge PL011’s 16-byte FIFO
+depth. Opt-in target — not part of <code>make test</code>.</li>
+<li>:ballot_box_with_check: <strong>7.6d.N.final.e (Session 72)</strong>
+— Visible interactive prompt. Single-line vendored-busybox patch:
+<code>fflush(stdout);</code> after <code>fputs_stdout(...)</code> in
+<code>libbb/lineedit.c:put_prompt_custom</code> (mirrors the
+<code>fflush_all()</code> already in the <code>!FEATURE_EDITING</code>
+path). Without this, musl’s line-buffered-on-tty stdout
+(<code>.lbf = '\n'</code>) held ash’s prompt (which has no trailing
+newline) until the next newline-terminated write retroactively flushed
+it — the user typed blind. Side fix:
+<code>test/interactive/run.sh</code> switched from line-burst to
+per-byte trickle (50 ms gap) because QEMU’s <code>-serial stdio</code>
+chardev does not backpressure when PL011’s 16-byte hardware FIFO is
+full; visible prompts double the per-line UART traffic and exposed the
+silent byte-drop that line-bursts had been getting away with. +1
+regression script (<code>visible_prompt.{script,expected}</code>);
+<code>make test-interactive</code> 3/3 stable; <code>make test</code>
+unchanged at 432/432. See <a
+href="logs/session-72-N.final.e-visible-prompt.html">Session 72</a>.
+<strong>Cleanup debt:</strong> the <code>fflush(stdout)</code> patch is
+a tactical workaround for our missing <code>ppoll</code> syscall —
+busybox’s intended flush path (<code>ask_terminal</code> calling
+<code>fflush_all()</code> after the <code>\e[6n</code> cursor-position
+query) is gated on <code>safe_poll(stdin, 0) == 0</code>, which fails on
+nonux because <code>__NR_ppoll = 73</code> is unmapped in our musl
+translation table. The patch is scheduled for removal in <strong>slice
+7.8c</strong> (see Next Action 0.1) once <code>NX_SYS_PPOLL</code> is
+wired and busybox’s intended path runs again.</li>
+</ul></li>
+<li><p><strong>7.6d.N.16 (deferred) — Drop in-handle generation encoding
++ POSIX-fd-to-slot alignment.</strong> Originally framed as a 30-line
+paydown for slice 7.6d.N.11’s <code>sys_fcntl</code> band-aid (replace
+<code>(generation &lt;&lt; 8) | (idx + 1)</code> with
+<code>idx + 1</code>). Slice 7.6d.N.15’s investigation showed the
+originally-scoped fix is incomplete: with <code>idx + 1</code> encoding,
+encoded value 3 still maps to slot 2 (the pre-installed CONSOLE STDIN
+slot), so <code>dup2(_, 3)</code> still aliases onto fd 0 instead of
+giving the caller a usable fd 3. A proper POSIX-fd-to-slot alignment
+requires choosing a non-zero sentinel for <code>NX_HANDLE_INVALID</code>
+(e.g. <code>0xFFFFFFFF</code>) so encoded value 0 can name fd 0; ripples
+through every <code>NX_HANDLE_INVALID</code> comparison and the
+slice-5.3 stale-handle invariants. Skippable for N.final (interactive
+shell uses fd 0/1/2 only — already special-cased); lands when a workload
+demands <code>exec 3&lt; file</code> or similar literal-fd-3+
+idioms.</p></li>
+<li><p><strong>slice-7.7b follow-up (low priority):
+reap-on-wait.</strong> Have <code>sys_wait</code> call
+<code>nx_process_destroy(child)</code> after collecting exit status,
+freeing the process struct + handle table + MMU address space + 8 MiB
+user backing. Would let us drop <code>NX_PROCESS_TABLE_CAPACITY</code> +
+<code>MMU_MAX_ADDRESS_SPACES</code> from 128 back to 32 and stop the
+every-few-slices cap-bump pattern. Not blocking 7.7b (cap is 128 now,
+plenty of headroom).</p></li>
+</ul>
+<blockquote>
+<p><strong>Phase checklist</strong> (slice-level detail in <a
+href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE.md</a> and the <a
+href="#session-logs">Session Logs</a> / <a
+href="HANDOFF-ARCHIVE.html">HANDOFF-ARCHIVE.md</a>): -
+:ballot_box_with_check: Spec, Design, Implementation guide -
+:ballot_box_with_check: Phase 1 (boot to serial), Phase 2 (test harness
++ PMM + GIC + timer) - :ballot_box_with_check: Phase 3 (component
+framework: 3.1–3.9b.2) - :ballot_box_with_check: Phase 4 (scheduler:
+4.1–4.4) - :ballot_box_with_check: Phase 5 (VM + handles: 5.1–5.6) -
+:ballot_box_with_check: Phase 6 (VFS + ramfs: 6.1–6.4) - Phase 7
+(process model + POSIX shim, in progress): - :ballot_box_with_check:
+7.1, 7.2, 7.3, 7.3.5, 7.4 (a/b/c/d), 7.5 - :ballot_box_with_check: 7.6a,
+7.6b, 7.6c.0, 7.6c.1, 7.6c.2, 7.6c.3 (a/b/c), 7.6c.4 -
+:ballot_box_with_check: 7.6d.1, 7.6d.2 (a/b/c), 7.6d.3a, 7.6d.3b,
+7.6d.3c - :ballot_box_with_check: 7.6d.N.0 – 7.6d.N.15 -
+:ballot_box_with_check: 7.6d.N.final.a, .b, .c-minimal, .d, .e -
+:white_large_square: 7.6d.N.16 (deferred — POSIX-fd-to-slot alignment) -
+:white_large_square: 7.6d.N.final.c-full (deferred — signal-handler
+trampoline) - :white_large_square: 7.6d.3.x (later — only if busybox
+<code>sh</code> needs more syscalls) - :ballot_box_with_check: 7.7a
+Interactive smoke tests — <code>ls /</code> + <code>echo \| cat</code>
+(Session 73) - :white_large_square: 7.7b Interactive smoke tests —
+<code>mkdir /tmp</code> + <code>ls /tmp</code> + <code>ps</code> (NEXT —
+needs new kernel surface) - :white_large_square: 7.8 Wait queues +
+<code>poll</code>/<code>ppoll</code> (a/b/c — foundation slice; see <a
+href="#next-actions">Next Actions</a> 0.1) - :white_large_square: Phases
+8–10 (runtime recomposition, integration tests + benchmarks, docs + AI
+operability)</p>
+</blockquote>
+<h3 id="what-we-have">What We Have</h3>
+<p>Build state and infra (per-slice detail is in the <a
+href="#session-logs">Session Logs</a> and authoritative docs live in <a
+href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE.md</a>; architecture
+in <a href="DESIGN.html">DESIGN.md</a>):</p>
+<ul>
+<li><strong>Source repo</strong> — local <code>sources/nonux/</code> ↔︎
+public https://github.com/ThinkerYzu/nonux (MIT, default branch
+<code>master</code>, pushed 2026-04-22)</li>
+<li><strong>Toolchain (verified 2026-04-20)</strong> —
+<code>aarch64-linux-gnu-gcc</code> 15.2.0,
+<code>qemu-system-aarch64</code> 10.1.0</li>
+<li><strong>Build / run</strong> — <code>make</code> →
+<code>kernel.bin</code>; <code>make test</code> → 392/392 (51 python +
+274 host + 67 kernel); <code>tools/run-qemu.sh [-t SECONDS]</code> boots
+in QEMU; <code>make validate-config</code> /
+<code>make verify-registry</code> gate the build</li>
+<li><strong>kernel.json</strong> — declarative config currently wiring
+five slots: <code>char_device.serial ← uart_pl011</code>,
+<code>scheduler ← sched_rr</code>,
+<code>memory.page_alloc ← mm_buddy</code>,
+<code>filesystem.root ← ramfs</code>, <code>vfs ← vfs_simple</code>
+(slices 3.9a, 4.3, 5.2, 6.2). Booted kernel reports
+<code>composition (gen=25, 5 slots, 5 components)</code> with all five
+ACTIVE</li>
+<li><strong>Directory structure</strong> — <code>core/</code> (boot,
+cpu, pmm, irq, lib), <code>framework/</code>, <code>interfaces/</code>,
+<code>components/</code>, <code>test/</code> (host + conformance,
+kernel, bench), <code>tools/</code>, <code>docs/</code></li>
+<li><strong>MIT License</strong></li>
+</ul>
+<p>Key design decisions — see <a
+href="DESIGN.html#key-design-decisions">DESIGN.md §Key Design
+Decisions</a> and the topical sections it cross-references (Component
+Graph Registry, Pause Implementation, Slot-Based Indirection, AI
+Verification, Dependency Injection Mechanism, Component-Spawned
+Threads).</p>
+<hr />
+<h2 id="next-actions">Next Actions</h2>
+<ol start="0" type="1">
+<li><strong>Slice 7.7b (NEXT) — Interactive smoke tests for
+<code>mkdir</code> + <code>ps</code>.</strong> Slice 7.7a closed in
+Session 73 — <code>ls_root</code> and <code>echo_cat</code> interactive
+scripts are live, <code>make test-interactive</code> is 5/5. Slice 7.7b
+lands the other two exit criteria from IMPLEMENTATION-GUIDE.md slice
+7.7: <code>mkdir /tmp</code> + <code>ls /tmp</code> (directory ops) and
+<code>ps</code> (process listing). Both need new kernel surface:
+<ul>
+<li><strong>mkdir</strong>: new <code>nx_vfs_ops.mkdir</code> op + ramfs
+implementation; new <code>NX_SYS_MKDIRAT = N</code> syscall (musl
+<code>__NR_mkdirat = 34</code>); hierarchical paths in ramfs (cracks the
+slice-6.2 flat-namespace assumption per
+<code>components/ramfs/ramfs.c:405-409</code> — also the right time to
+clean up the <code>sys_getdents64</code> leading-<code>/</code> strip
+hack at <code>framework/syscall.c:1925-1926</code>).
+<code>sys_open</code> / <code>sys_fstatat</code> /
+<code>sys_getdents64</code> need to recognise non-<code>/</code>
+directory paths (each special-cases just <code>/</code> today).</li>
+<li><strong>ps</strong>: either a procfs component plumbed into vfs as
+<code>/proc/&lt;pid&gt;/stat</code> (preferred — busybox’s stock ps
+applet just works, benefits from the same hierarchical-path rework as
+mkdir) OR new <code>NX_SYS_GETPROCS</code> syscall + vendored busybox
+patch teaching ps to use it. Test deliverables:
+<code>test/interactive/mkdir_tmp.{script,expected}</code>
+(<code>mkdir /tmp; touch /tmp/x; ls /tmp</code> should print
+<code>x</code>) +
+<code>test/interactive/ps_smoke.{script,expected}</code>
+(<code>ps</code> should print at least one row containing
+<code>init</code> or <code>sh</code>). Estimated 1–2 sessions depending
+on whether path-rework lands in 7.7b or splits into 7.7b.1 (mkdir) /
+7.7b.2 (ps). See <a
+href="IMPLEMENTATION-GUIDE.html#slice-77b--mkdir-tmp--ls-tmp--ps">IMPLEMENTATION-GUIDE.md
+§Slice 7.7b</a>.</li>
+</ul></li>
+</ol>
+<p>0.1. <strong>Slice 7.8 (after 7.7b) — Wait queues +
+<code>poll</code>/<code>ppoll</code> (foundation slice).</strong>
+Promotes the v1 yield-loop pattern in <code>sys_read</code> CHANNEL arm
+(slice 7.6d.N.6b), <code>sys_wait</code> (slice 7.4b), and
+<code>nx_console_read</code> (slice 7.6d.N.final.a) into a real kernel
+blocking primitive, then lands <code>NX_SYS_PPOLL</code> on top of it.
+Sequenced <em>after</em> 7.7 to avoid half-migrating yield-loop call
+sites mid-flight. See <a
+href="IMPLEMENTATION-GUIDE.html#slice-78--wait-queues--pollppoll">IMPLEMENTATION-GUIDE.md
+§Slice 7.8</a> for the full per-sub-slice plan. Three sub-slices: -
+<strong>7.8a</strong> (~150 lines, 1 session): wait-queue primitive in
+<code>core/sched/waitq.{h,c}</code> + new <code>NX_TASK_BLOCKED</code>
+task state + <code>sched_rr_pick_next</code> BLOCKED-skip + 4-5
+conformance cases. No callers yet — pure framework addition. -
+<strong>7.8b</strong> (~150 lines, 1 session): <code>NX_SYS_PPOLL</code>
+syscall built on 7.8a, with per-handle-type <code>add_to_pollset</code>
+ops for CHANNEL/FILE/DIR/CONSOLE; producer-side wakes (channel_send,
+channel_close, console RX ISR); musl translation
+<code>__NR_ppoll = 73 → NX_SYS_PPOLL</code>. Closes the busybox-prompt
+root cause for real (busybox’s intended <code>ask_terminal()</code>
+<code>\e[6n</code> + <code>fflush_all()</code> path runs again once
+<code>safe_poll(stdin, 0)</code> returns 0=success). -
+<strong>7.8c</strong> (~50 lines per site, opportunistic): migrate the
+three existing yield-loop call sites onto waitqs + <strong>revert the
+slice 7.6d.N.final.e busybox patch</strong> (drop the
+<code>fflush(stdout);</code> we added in
+<code>third_party/busybox/libbb/lineedit.c:put_prompt_custom</code>,
+restore upstream lineedit; the prompt visibility comes from busybox’s
+own <code>ask_terminal</code> flush path now that <code>ppoll</code>
+works). Keep the
+<code>test/interactive/visible_prompt.{script,expected}</code>
+regression script as a guard against re-introduction. Outcome after .c:
+yield-loop CPU waste under load is gone (Phase 9 benchmarks no longer
+noisy); the lineedit patch is removed (no vendored-busybox local diff to
+maintain). Why this is its own slice family rather than bundled with
+7.7b or c-full: the yield-loop pattern is the same shortcut in three
+places — needs an abstraction. The waitq primitive is also load-bearing
+for <code>c-full</code> (clean EINTR semantics on signal delivery to a
+blocked syscall) and Phase 8 (drain points during runtime
+recomposition). Tier 3 in the discussion that produced this plan.</p>
+<ol type="1">
+<li><p><strong>Slice 7.6d — busybox cross-compile + boot to shell
+(CLOSED AT v1).</strong> Sub-sliced 7.6d.1 (done) / 7.6d.2 (done) /
+7.6d.3+ (done) / 7.6d.N (done at v1, sub-slices a/b/c-minimal/d/e
+closed; c-full + N.16 deferred). See <a
+href="IMPLEMENTATION-GUIDE.html#slice-77--interactive-smoke-tests">IMPLEMENTATION-GUIDE.md
+§Slice 7.6d</a> for the per-sub-slice plan.</p>
+<ol type="1">
+<li>:ballot_box_with_check: <strong>7.6d.1 — Cross-compile
+busybox</strong> (Session 49). Vendored busybox 1.36.1 +
+<code>nonux_defconfig</code> (1223 lines, 659 enabled symbols) +
+<code>tools/build-busybox.sh</code> + private musl sysroot + Makefile
+<code>busybox / busybox-clean</code> targets; output 2.29 MB static
+aarch64 ELF.</li>
+<li><strong>7.6d.2 (in progress) — Try to boot busybox
+<code>--help</code></strong> (further sliced 7.6d.2a (done) / 7.6d.2b
+(done) / 7.6d.2c (NEXT)). Original split was based on two preconditions:
+(1) busybox’s static link layout puts text at VA <code>0x400000</code>
+while our user window is at <code>0x48000000</code> — addressed by
+7.6d.2a; (2) busybox’s <code>~1.91 MB</code> text+data segments don’t
+fit our <code>2 MiB</code> user window alongside heap+stack — addressed
+by 7.6d.2b. 7.6d.2c is now the actual discovery sub-slice.
+<ol type="1">
+<li>:ballot_box_with_check: <strong>7.6d.2a — Re-link busybox at
+<code>0x48000000</code></strong> (Session 50).
+<code>tools/build-busybox.sh</code> gained
+<code>-Wl,-Ttext-segment=0x48000000</code> in
+<code>EXTRA_LDFLAGS</code>. <code>readelf -l</code> confirms segment 1
+at <code>VirtAddr 0x48000000</code> (entry <code>0x480005c0</code>),
+segment 2 at <code>0x481d9770</code>. Same 2,292,464-byte binary;
+<code>make test</code> 407/407 unchanged.</li>
+<li>:ballot_box_with_check: <strong>7.6d.2b — Grow user window 2 MiB → 8
+MiB + relocate brk + fix 3 latent address-space bugs</strong> (Session
+51). <code>USER_WINDOW_BLOCKS = 4</code>;
+<code>USER_WINDOW_SIZE = 8 MiB</code>; per-process L2 populates 4 slots;
+<code>NX_PROCESS_HEAP_OFFSET</code> 1 MiB → 6 MiB,
+<code>NX_PROCESS_HEAP_LIMIT</code> 1.5 MiB → 7.5 MiB; alignment slack
+trimmed <code>*2 → +USER_BLOCK_SIZE</code> (10 MiB raw / 8 MiB usable
+per process). Three latent bugs uncovered + fixed: spawn race in
+<code>sched_spawn_kthread</code> (extended to 4-arg form with explicit
+<code>process *</code>, all 23 call sites updated), self-aliasing memcpy
+in <code>mmu_copy_user_backing</code> (switch to kernel TTBR0 around the
+memcpy via raw msrs), kernel allocations at PA in user-window range
+silently aliasing under per-process TTBR0 (new
+<code>pmm_reserve_range</code> API, called from boot.c right after
+<code>pmm_init</code> to permanently exclude the 8 MiB). TTBR1 high-half
+kernel mapping is the long-term real fix — Phase 8+ follow-up.
+<code>make test</code> 407/407 unchanged.</li>
+<li>:ballot_box_with_check: <strong>7.6d.2c — First busybox-exec attempt
++ failure capture</strong> (Session 52). <code>RAMFS_FILE_CAP</code>
+8192 → 4 MiB (32 MiB static cost — v1 hack, long-term ramfs rework will
+dynamic-allocate per-file); <code>SYS_EXEC_MAX_FILE</code> 8192 → 4 MiB;
+busybox added to initramfs as <code>/bin/busybox</code>; new
+libnxlibc-linked <code>posix_busybox_help_prog.c</code> (forks +
+<code>nxlibc_execve("/bin/busybox", { "/bin/busybox", "--help", NULL }, NULL)</code>)
++ matching <code>ktest_posix_busybox.c</code> + blob.S. <strong>Captured
+failure mode</strong>: EL0 data abort, write to FAR=<code>0x20</code>
+from <code>__memset_generic+0xa0</code> (<code>str q0, [x0]</code>),
+ESR=<code>0x9200004e</code> ELR=<code>0x48002460</code>. musl’s TLS
+pointer (<code>TPIDR_EL0</code>) is uninitialized at EL0 entry →
+<code>errno</code> and other TLS-relative vars resolve to small
+NULL-derived offsets → busybox touches errno on every syscall return →
+first memset of a TLS-relative struct trips the fault. Test held out of
+<code>KTEST_C</code> until 7.6d.3a (signal-on-fault) lands so the kernel
+doesn’t <code>halt_forever</code> and break <code>make test</code>
+407/407. Discovery deliverable lives in tree as
+<code>posix_busybox_help_prog.{c,_blob.S}</code> +
+<code>ktest_posix_busybox.c</code>; comment in <code>KTEST_C</code>
+explains the omission + cross-references the session log.</li>
+<li><strong>7.6d.2b — Grow user window 2 MiB → 8 MiB; relocate brk
+region.</strong> <code>USER_WINDOW_SIZE</code> bumps to 4 contiguous L2
+ram blocks (indexes 64..67); per-process backing alloc footprint scales
+4×; brk region moves from <code>[base+1 MiB .. base+1.5 MiB)</code> to
+<code>[base+6 MiB .. base+7.5 MiB)</code> (well past busybox’s segment-2
+end at ~<code>base+1.91 MiB</code>); <code>sp_el0</code> formula stays
+<code>top - 16</code> (no change since the formula references
+<code>mmu_user_window_base() + mmu_user_window_size()</code>). Risk
+surface: every existing EL0 ktest (15+ drop_to_el0 sites, exec chains,
+fork demos) depends on the 2 MiB layout — has to stay green. Exit:
+<code>mmu_user_window_size() == 8 MiB</code>; <code>make test</code>
+407/407 unchanged.</li>
+<li><strong>7.6d.2c — Bump caps + ramfs-seed busybox + try to
+exec.</strong> <code>RAMFS_FILE_CAP</code> 8192 → 4 MiB (watch the
+static <code>data[RAMFS_FILE_CAP] × RAMFS_MAX_FILES = 8</code> array:
+<code>32 MiB</code> of static .bss in the ramfs component, kernel image
+absorbs); <code>SYS_EXEC_MAX_FILE</code> 8192 → 4 MiB (per-call kheap
+alloc, no static cost); <code>tools/pack-initramfs.py</code>’s entry
+list gains <code>third_party/busybox/busybox:/bin/busybox</code>;
+<code>posix_busybox_help_prog.c</code> (libnxlibc-linked parent) forks +
+<code>nxlibc_execve("/bin/busybox", argv, NULL)</code> with
+<code>argv = { "/bin/busybox", "--help", NULL }</code>. Likely outcomes:
+<ul>
+<li>musl tries <code>mmap</code> for mallocng’s first slab →
+ENOSYS-from-translation-table → musl bails to brk fallback; question is
+whether the <code>--help</code> codepath fits in the 1.5 MiB brk
+region.</li>
+<li>musl’s <code>__clone</code> reachable through some pthread-init code
+path → un-translated x8 in <code>svc 0</code> → <code>-ENOSYS</code>
+propagates up. busybox’s NOFORK applet table for <code>--help</code>
+should mean we don’t actually fork, but the pthread-init path runs
+unconditionally.</li>
+<li>musl’s <code>__init_libc</code> walks AUXV looking for AT_HWCAP /
+AT_PLATFORM that we don’t push (only AT_PAGESZ / AT_RANDOM / AT_NULL
+today). Probably doesn’t trap; might just get garbled feature
+flags.</li>
+<li>Process-table or address-space caps exhaust after a few iterations
+of the wider ktest sweep. Deliverable: kernel test that captures the
+trap/exit behaviour plus a written enumeration of 7.6d.3+ sub-slices in
+this same Next-Actions block.</li>
+</ul></li>
+</ol></li>
+<li><strong>7.6d.3+ — Add scaffolding</strong> based on what 7.6d.2c
+actually surfaced. Now grounded in observed behaviour rather than
+crystal-ball speculation:
+<ol type="1">
+<li>:ballot_box_with_check: <strong>7.6d.3a — Signal-on-fault</strong>
+(Session 53). <code>on_sync</code> converts lower-EL fault EC values
+into <code>nx_process_exit(128 + signo)</code>: EC
+<code>0x20</code>/<code>0x24</code> → SIGSEGV (139), EC
+<code>0x00</code> from EL0 (per saved <code>tf-&gt;pstate.M</code>) →
+SIGILL (132). Current-EL EC values + EL1 undef stay as kernel panic. +2
+ktests (<code>posix_segfault</code>, <code>posix_undef</code>);
+<code>ktest_posix_busybox</code> re-enabled and now passes with the
+busybox child cleanly exiting 139 from the captured TLS-gap fault.
+<code>make test</code> 410/410.</li>
+<li>:ballot_box_with_check: <strong>7.6d.3b + 7.6d.3c — Make busybox
+actually run</strong> (Session 54). Combined three gaps into one
+session: (a) per-process TLS area at user-window offset 5 MiB + per-task
+<code>tpidr_el0</code> save/restore in <code>sched_check_resched</code>
++ <code>sys_exec</code> reset to fresh TLS_ADDR + fork inherits parent’s
+TPIDR_EL0; (b) <code>sys_exec</code> AUXV layout extended with
+<code>AT_PHDR</code> / <code>AT_PHENT</code> / <code>AT_PHNUM</code> so
+musl’s <code>static_init_tls</code> can walk the program-header table;
+(c) discovered + fixed a build-side gap — busybox was being
+<strong>glibc-linked, not musl-linked</strong> because the
+cross-toolchain’s bundled-glibc lib paths come before
+<code>--sysroot=$MUSL_SYSROOT</code> for <code>-lc</code> resolution.
+Fix: new <code>tools/musl-aarch64-gcc.sh</code> wrapper that uses
+<code>-nostdinc -isystem $SYSROOT/include</code> +
+<code>-isystem /usr/aarch64-linux-gnu/include</code> (kernel headers) +
+<code>-B $SYSROOT/lib/</code>; sysroot symlinks
+<code>lib&lt;m,pthread,rt,dl,util,resolv,crypt&gt;.a → libc.a</code>.
+Side effects: busybox shrinks 2.29 MB → 1.22 MB;
+<code>__libc_setup_tls</code> (glibc-only) gone. busybox
+<code>--help</code> now runs end-to-end with status 0; full
+<code>BusyBox v1.36.1</code> banner in the live ktest log. <strong>Slice
+7.6d.2 is morally closed.</strong> <code>make test</code> 410/410.</li>
+</ol></li>
+<li><strong>7.6d.N — <code>/init = busybox sh</code> boots to a shell
+prompt over serial</strong> (further sliced 7.6d.N.0 (done) / 7.6d.N.1+
+— discovery-driven, just like 7.6d.2/7.6d.3 was). Final form:
+<code>tools/pack-initramfs.py</code> gains a busybox-aware mode that
+emits <code>/bin/busybox</code> + applet symlinks
+(<code>/bin/sh -&gt; busybox</code>, <code>/bin/ls -&gt; busybox</code>,
+etc. — busybox dispatches to the right applet by reading argv[0]);
+<code>/init</code> becomes busybox; production <code>make run</code>
+lands on a shell prompt. Closes slice 7.6d.
+<ol type="1">
+<li><p>:ballot_box_with_check: <strong>7.6d.N.0 — First attempt at
+exec’ing busybox AS A SHELL + capture failure</strong> (Session 55). New
+libnxlibc-linked <code>posix_busybox_sh_prog.c</code> forks +
+<code>nxlibc_execve("/bin/busybox", { "sh", "-c", "exit 42", NULL }, NULL)</code>;
+<code>argv[0] = "sh"</code> routes busybox’s main into the ash applet
+via <code>basename(argv[0])</code> (no
+<code>/bin/sh -&gt; busybox</code> symlink needed for in-process applet
+dispatch — busybox’s applet table is keyed on the basename only). No
+kernel changes — observation only. <strong>Captured failure</strong>:
+ash exits status 1 with <code>sh: out of memory</code>. busybox got far
+enough into ash startup to print its OOM diagnostic
+(<code>bb_msg_memory_exhausted</code> from
+<code>libbb/messages.c:17</code>) and exit cleanly — no kernel fault, no
+SIGSEGV, no SIGILL. Root cause: musl 1.2.5 uses mallocng exclusively
+(<code>MALLOC_DIR = mallocng</code>); mallocng calls
+<code>mmap(MAP_PRIVATE|MAP_ANON)</code> for every slab allocation (no
+brk-only fallback inside mallocng); our
+<code>arch/aarch64/syscall_arch.h</code> doesn’t map
+<code>__NR_mmap (222)</code> so mmap returns -ENOSYS, malloc returns
+NULL, xmalloc bails to OOM exit. brk IS implemented (slice 7.6c.3c) but
+mallocng doesn’t use it. +1 ktest
+(<code>posix_busybox_sh_parent_forks_and_execs_busybox_sh</code>);
+<code>make test</code> 411/411.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.1 — Minimal anonymous
+<code>mmap</code></strong> (Session 56). <code>NX_SYS_MMAP = 19</code>
+handles the mallocng shape only:
+<code>MAP_PRIVATE | MAP_ANON | (-1 fd)</code>, length rounded up to 4
+KiB, kernel-chosen address from a per-process bump arena over
+<code>[base + 2 MiB, base + 5 MiB)</code> (3 MiB unused window region
+between busybox text+data+bss end at +1.91 MiB and the TLS area at +5
+MiB). MAP_ANONYMOUS-zeroed pages. <code>NX_SYS_MUNMAP = 20</code> is a
+no-op success (mallocng treats failure as fatal).
+<code>nx_process.mmap_bump</code> per-process state — initialized in
+<code>nx_process_create</code> / <code>sys_exec</code>, inherited across
+fork (matches <code>brk_addr</code>). musl translation table:
+<code>__NR_mmap (222) → 19</code>, <code>__NR_munmap (215) → 20</code>
+(in both <code>syscall_arch.h</code> and <code>syscall_cp.s</code>).
+<strong>Outcome substantially better than predicted</strong>:
+<code>posix_busybox_sh</code> ktest now captures
+<code>[bbsh-status=2a][bbsh-ok]</code> — ash startup ran without OOM,
+parsed <code>-c "exit 42"</code>, ran the <code>exit</code> builtin,
+exited cleanly with status 42. The 7.6d.N.0 plan predicted that mmap
+would unblock malloc but ash would then hit a sigaction / getuid / ioctl
+gap; for the simple <code>exit 42</code> builtin path, none of those
+were needed. <code>make test</code> 411/411.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.2 — Escalate to
+<code>busybox sh -c "echo hello"</code></strong> (Session 57). ash
+parses multi-token -c string + dispatches <code>echo</code> builtin;
+<code>echo</code> writes <code>hello\n</code> via musl stdio
+(<code>__stdio_write</code> → SYS_writev → magic-fd-handle → UART); ash
+runs end-of-input shutdown + exits 0. First-run captured exec failure
+with <code>[bbsh-echo-exec-rc]</code> byte 0xfe = -2 = NX_ENOMEM from
+<code>mmu_create_address_space()</code>. Per-test leak is the full
+process state: <code>sched_rr_purge_user_tasks</code> only unlinks tasks
+from the runqueue (no free of task struct, kstack, process, MMU root, or
+8 MiB user backing); cumulative usage from 4 fork+exec busybox tests
+(7.6d.2c <code>--help</code>, 7.6d.N.0/.1 <code>sh exit 42</code>,
+7.6d.N.2 <code>sh echo hello</code>) plus all the prior fork/exec tests
+crossed the 32-slot cap. Fix: bump <code>MMU_MAX_ADDRESS_SPACES</code>
+32 → 64 (<code>core/mmu/mmu.c</code>) +
+<code>NX_PROCESS_TABLE_CAPACITY</code> 32 → 64
+(<code>framework/process.c</code>). Mirrors slice 7.6c.4’s 16 → 32 bump;
+same v1 hack (real fix is reap-on-wait, deferred since slice 7.4). Live
+ktest log:
+<code>[bbsh-echo-parent]hello\n[bbsh-echo-status=00][bbsh-echo-ok]</code>.
++1 ktest (<code>posix_busybox_sh_echo</code>); <code>make test</code>
+412/412.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.3 —
+<code>busybox sh -c "echo a; echo b"</code></strong> (Session 58).
+Multi-statement shell script — still all builtins, but exercises ash’s
+<code>;</code> separator parser + statement-sequence dispatch. Clean
+first try — no kernel changes, no cap exhaustion, no new syscalls. Live
+ktest log:
+<code>[bbsh-seq-parent]a\nb\n[bbsh-seq-status=00][bbsh-seq-ok]</code>.
++1 ktest; <code>make test</code> 413/413.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.4 —
+<code>busybox sh -c "ls /"</code> reaches the <code>ls</code>
+applet</strong> (Session 59). First non-builtin escalation.
+Lowest-friction approach: cpio-duplicate <code>/bin/busybox</code> as
+<code>/bin/ls</code> so ash’s PATH walk finds it (no symlink machinery
+yet). Diagnostic instrumentation (temporary musl pass-through of
+unmapped syscall numbers + kernel <code>kprintf("[svc?=N]")</code>, both
+reverted before commit) confirmed <code>[svc?=79]</code> (newfstatat)
+was the blocking syscall during ash’s PATH walk. Fix: new
+<code>NX_SYS_FSTATAT = 21</code> (~70 lines): opens path through vfs to
+check existence, seeks SEEK_END for file size, fills 128-byte aarch64
+struct stat with <code>st_mode = S_IFREG | 0755</code>, returns Linux
+errno values (<code>-2</code> for ENOENT) directly — ash’s PATH-walk
+loop distinguishes ENOENT-as-“next-candidate” from other errnos as
+fatal, our internal NX_E* don’t match Linux numbering. musl translation:
+<code>__NR_newfstatat (79) → NX_SYS_FSTATAT (21)</code> in both
+<code>syscall_arch.h</code> and <code>syscall_cp.s</code>. Drive-bys:
+<code>RAMFS_MAX_FILES</code> 8 → 16 (cpio-duplicate <code>/bin/ls</code>
++ 5 prior + 3 test-side creates = 9 &gt; 8; static cost 32 → 64 MiB),
+host-test ATTEMPTS bumps in <code>component_ramfs_test.c</code> (12 → 24
+file-table, 64 → 96 open-pool to remain past the new 16 / 64 caps), QEMU
+<code>test-kernel</code> timeout 15s → 90s (busybox tests now ~30s
+wall). Live ktest log:
+<code>[bbsh-ls-parent]ls: /: No such file or directory[bbsh-ls-status=01][bbsh-ls-failed]</code>
+— ash walked PATH (4 fstatat calls), forked, execve’d /bin/ls, ls
+reached its own stat(“/”) and bailed because vfs has no <code>/</code>
+directory entry. Test parent exits 0 cleanly so kernel-test KASSERT
+passes. +1 ktest; <code>make test</code> 414/414.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.5 — Directory listing for
+<code>ls /</code></strong> (Session 60). Closed three gaps in one slice:
+(a) <code>sys_fstatat</code> special-cases <code>/</code> →
+<code>S_IFDIR | 0755</code>; (b) new <code>NX_HANDLE_DIR</code> type
+with per-handle readdir cursor + <code>sys_open</code> <code>/</code>
+branch + <code>sys_handle_close</code> HANDLE_DIR branch; (c) new
+<code>NX_SYS_GETDENTS64 = 22</code> packs Linux
+<code>struct linux_dirent64</code> records. Plus new
+<code>NX_SYS_OPENAT = 23</code> Linux-shape wrapper (musl’s
+<code>open()</code> becomes <code>openat(AT_FDCWD, ...)</code> on
+aarch64 — <code>__NR_openat (56)</code> was unmapped, distinct from our
+<code>NX_SYS_OPEN</code>). ls now lists all 9 ramfs entries.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.6a — First-pipe
+scaffolding + capture failure</strong> (Session 61). Mapped
+<code>__NR_pipe2 (59) → NX_SYS_PIPE</code>,
+<code>__NR_clone (220) → NX_SYS_FORK</code> (closes session 59’s
+fork-mystery: musl’s fork is
+<code>clone(SIGCHLD, NULL, NULL, NULL, NULL)</code>, we drop the args),
+<code>__NR_dup3 (24) → NX_SYS_DUP3</code> (new),
+<code>__NR_readv (65) → NX_SYS_READV</code> (new). <code>sys_dup3</code>
+(~95 lines) does close-then-replace at the destination slot,
+special-cases newfd=0 since encoded value 0 is reserved for
+HANDLE_INVALID, and forces the destination slot’s generation to match
+newfd’s encoded gen so the return value equals what the caller passed
+in. <code>sys_readv</code> (~35 lines) mirrors <code>sys_writev</code>.
+<code>sys_read</code> magic-fd path extended: h=0 (POSIX STDIN) resolves
+slot-0 directly so a <code>dup3(_, 0, 0)</code> round-trips through
+subsequent stdin reads. Initramfs adds <code>/bin/cat</code> +
+<code>/bin/echo</code> cpio duplicates. Pipe ktest held out of
+<code>KTEST_C</code> (Makefile #-comment block) until 7.6d.N.6b.
+<strong>Captured failure modes:</strong> (a) Pipe currently allocates at
+slots 0/1, encoded handles 1/2 — colliding with POSIX STDOUT_FILENO=1 /
+STDERR_FILENO=2. Stage 1’s <code>dup2(p[1]=2, 1)</code> overwrites the
+pipe READ end with the pipe write end, then close(p[0])+close(p[1])
+drops both pipe-write refs in stage 1 without ever wiring the pipe read
+into stage 2’s stdin — echo’s stdout falls through magic-fd to UART
+instead of the pipe. (b) cat hangs in its read loop after taking the
+sendfile fast-path (<code>__NR_sendfile = 71</code> unmapped) —
+<code>sys_fstatat</code> reports <code>S_IFREG</code> for everything
+(chosen 7.6d.N.4) so cat thinks stdin is a regular file; sendfile
+returns -EPERM (= NX_EINVAL collision); cat falls back to read-loop and
+(per the diagnostic trace) busy-loops somewhere downstream — exact
+failure not pinned. <strong>Side discovery:</strong>
+<code>NX_EINVAL = -1</code> collides with Linux <code>EPERM = -1</code>,
+so unmapped syscalls show “Operation not permitted” instead of “Function
+not implemented” — opportunistic cleanup is to return
+<code>-ENOSYS = -38</code> for unknown syscall numbers. No new ktests in
+test list (the new pipe ktest is held out); <code>make test</code>
+414/414.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.6b — Console device +
+magic-fd-removal + waitpid-any + pipe-EOF</strong> (Session 63).
+<code>busybox sh -c "echo hello | cat"</code> runs end-to-end. Closed
+all three structural gaps from 7.6d.N.6a (slot 0/1/2 collision, sys_read
+EOF, cat hang) plus three more surfaced during bring-up (waitpid-any,
+ECHILD numbering, pipe peer-closed→EOF). Concrete deliverables:</p>
+<ul>
+<li><strong><code>framework/console.{h,c}</code></strong> (new):
+singleton <code>g_nx_console</code> sentinel +
+<code>nx_console_write</code> (per-byte <code>uart_putc</code>) +
+<code>nx_console_read</code> (returns 0 = EOF in v1) +
+<code>nx_console_write_calls</code> test counter.</li>
+<li><strong><code>NX_HANDLE_CONSOLE</code></strong> enum entry in
+<code>framework/handle.h</code> between <code>NX_HANDLE_DIR</code> and
+<code>NX_HANDLE_TYPE_COUNT</code>.</li>
+<li><strong><code>nx_process_create</code></strong> pre-installs CONSOLE
+handles at slots 0/1/2 (encoded values 1/2/3 = POSIX
+STDOUT/STDERR/STDIN). <code>pipe()</code> allocations naturally land at
+slot 3+ (encoded 4+).</li>
+<li><strong>Syscall layer:</strong> <code>sys_read</code> /
+<code>sys_write</code> / <code>sys_handle_close</code> /
+<code>sys_dup3</code> route POSIX <code>STDIN_FILENO=0</code> to slot 2
+(since encoded 0 is reserved for <code>NX_HANDLE_INVALID</code>); other
+fds via standard handle lookup. <code>sys_write</code> magic-fd fallback
+to <code>sys_debug_write</code> deleted. <code>sys_read</code> CHANNEL
+arm wraps <code>nx_channel_recv</code> in a yield-loop converting
+<code>NX_EAGAIN</code> into POSIX-blocking read. <code>sys_dup3</code>’s
+<code>newfd == 0</code> repurposed: was slot 0, now slot 2.</li>
+<li><strong><code>nx_channel_recv</code></strong> returns 0=EOF (instead
+of NX_EAGAIN) when queue empty AND peer endpoint closed. POSIX pipe
+semantic.</li>
+<li><strong><code>nx_process_exit</code></strong> walks the exiting
+process’s handle table and closes CHANNEL endpoints (so peer EOF
+semantics propagate when the writer exits). CONSOLE entries’
+“destructor” is a no-op (singleton).</li>
+<li><strong><code>sys_wait</code></strong> supports
+<code>pid == -1</code> (POSIX waitpid-any-child) via new
+<code>nx_process_find_exited_child</code> helper that scans
+<code>g_process_table</code> for non-reaped children of the caller.
+Returns Linux <code>-ECHILD = -10</code> directly when no children
+remain — NOT <code>NX_ENOENT = -4</code>, which would translate to musl
+<code>errno = EINTR</code> and cause an infinite spin.</li>
+<li><strong><code>nx_process</code> struct gains
+<code>parent_pid</code></strong> (set in <code>nx_process_fork</code>)
+<strong>+ <code>reaped</code></strong> (set after <code>sys_wait</code>
+delivers status, hides zombies from subsequent <code>waitpid(-1)</code>
+since v1 doesn’t free zombie structs).</li>
+<li><strong>Test updates:</strong> 3 host tests + 4 kernel tests
+adjusted for the new layout.
+ktest_posix_musl/musl_exec/posix_musl_printf switched from
+<code>nx_syscall_debug_write_calls</code> to
+<code>nx_console_write_calls</code> (musl write fd 1 now routes through
+CONSOLE, not debug_write fallback).</li>
+</ul>
+<p>Sys_exec slot preservation isn’t needed: the existing
+<code>sys_exec</code> doesn’t reset the handle table at all (it carries
+over verbatim), so slots 0/1/2 + any dup3’d redirections survive
+automatically. The plan called for sys_fork to also inherit CONSOLE; in
+practice <code>nx_process_create</code> pre-installs CONSOLE in the
+child with the same shape as the parent’s defaults, so no explicit
+inheritance is needed for the workloads in this slice. Fork inheritance
+for CONSOLE-overridden-with-CHANNEL (parent dup3’d before fork) is a
+follow-up.</p>
+<p>Live ktest log:
+<code>posix_busybox_sh_pipe_parent_forks_and_execs_busybox_sh_pipe [bbsh-pipe-parent]hello\n[bbsh-pipe-status=00][bbsh-pipe-ok]PASS</code>.
+Kernel 89 (+1); host 275 (unchanged); python 51; <code>make test</code>
+<strong>415/415</strong>.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.7 —
+<code>busybox sh -c "cat /banner"</code></strong> (Session 64).
+Test-only escalation drives cat against a real ramfs file: ash forks
+once, child execve’s <code>/bin/cat /banner</code>, cat opens
+<code>/banner</code> (HANDLE_FILE at slot 3+), loops <code>read</code>
+against the FILE arm of <code>sys_read</code>, sees EOF at end-of-file,
+writes through CONSOLE. No production code changed, no new syscalls, no
+cap bumps. cat correctly fell off the
+unmapped-<code>__NR_sendfile (71)</code> fast path and the read-write
+fall-through worked end-to-end — confirms slice 6.3’s FILE arm of
+<code>sys_read</code> composes cleanly with slice 7.6d.N.6b’s CONSOLE
+arm of <code>sys_write</code>. Live ktest log:
+<code>[bbsh-cat-parent]hello from initramfs\n[bbsh-cat-status=00][bbsh-cat-ok]</code>.
++1 ktest; <code>make test</code> 416/416.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.8 —
+<code>busybox sh -c "echo a &gt; /tmp/foo"</code></strong> (Session 65).
+First stdout-redirection-to-file escalation: ash opens
+<code>/tmp/foo</code> (HANDLE_FILE), stashes original stdout via
+<code>fcntl(F_DUPFD_CLOEXEC, 10)</code>, <code>dup3</code>s the FILE
+handle onto fd 1, runs the echo builtin (writes <code>"a\n"</code>),
+restores stdout, exits 0. Production changes: new
+<code>NX_SYS_FCNTL = 26</code> (~95 lines, F_DUPFD / F_DUPFD_CLOEXEC +
+GETFD/SETFD/GETFL/SETFL stubs); <code>sys_dup3</code> FILE retain
+branch; new vfs <code>retain</code> op (refcounted
+<code>struct ramfs_open</code> — open=1, retain bumps, close decrements
++ frees at 0); musl <code>__NR_fcntl (25) → 26</code> translation. Test
+asserts <code>/tmp/foo</code> contains <code>"a\n"</code> via vfs_simple
+read-back. Discovery used heavy temporary kernel-side trace + musl
+pass-through; actual blocker was a stale <code>initramfs.cpio</code>
+failing to pick up the rebuilt busybox. +1 ktest; <code>make test</code>
+417/417.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.9 —
+<code>busybox sh -c "cat /banner &gt; /tmp/copy"</code></strong>
+(Session 66). First stdout-redirection-to-file escalation against an
+EXTERNAL command (cat — not a builtin). Test-only escalation past N.8:
+ash forks once, the child opens <code>/tmp/copy</code>
+(<code>O_CREAT|O_WRONLY|O_TRUNC</code> HANDLE_FILE), <code>dup3</code>s
+onto fd 1 (FILE retain bumps refs to 2), closes the original FILE fd
+(refs back to 1), <code>execve</code>s <code>/bin/cat /banner</code>.
+<code>sys_exec</code> swaps address space + ELF image but leaves the
+handle table alone — cat runs in a process where slot 0 still holds the
+FILE pointing at <code>/tmp/copy</code>; cat opens /banner, reads it,
+writes through the FILE arm of <code>sys_write</code> into /tmp/copy,
+exits 0. No production code changed, no new syscalls. Confirms
+<code>sys_exec</code> preserves a HANDLE_FILE entry across the
+address-space swap and slice 7.6d.N.8’s refcounted vfs per-open carries
+through unchanged. <strong>Caveat:</strong> this workload doesn’t
+exercise <code>sys_fork</code>’s FILE inheritance — ash opens the
+redirect file in the <em>child</em> after fork, so no fork-time
+inheritance is needed. The original “forces fork to dup-and-retain a
+FILE handle” framing was structurally wrong; cross-process
+FILE-fd-through-fork is still deferred. +1 ktest
+(<code>posix_busybox_sh_copy</code>); <code>make test</code>
+418/418.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.10 — Bundled FILE-on-stdin
+workloads</strong> (Session 67). Two test-only workloads exercising new
+kernel compositions, ran clean first try with no kernel changes. (a)
+<code>cat &lt; /banner</code> — first FILE handle install at slot 2
+(POSIX STDIN_FILENO) via <code>dup3(_, 0, 0)</code> newfd=0
+special-case; ash dup3s an O_RDONLY FILE onto fd 0, execs cat with no
+path arg, cat reads via FILE arm of <code>sys_read</code> through slot 2
+→ CONSOLE. (b) <code>echo $(cat /banner)</code> — first non-exec’d
+parent shell as pipe consumer, inverse of N.6b’s exec’d-cat consumer;
+ash + pipe + fork-cat-redirected, parent reads CHANNEL arm of
+<code>sys_read</code> + <code>NX_EAGAIN</code>-yield-loop until
+peer-EOF, tokenises, dispatches outer echo → CONSOLE. No production code
+changed. +2 ktests (<code>posix_busybox_sh_stdin</code>,
+<code>posix_busybox_sh_cmdsub</code>); <code>make test</code>
+420/420.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.11 —
+<code>echo a &gt;&gt; /tmp/ap; echo b &gt;&gt; /tmp/ap</code></strong>
+(Session 68). First append-redirect. Append flag plumbing was the easy
+part (~12 lines across <code>interfaces/fs.h</code> + <code>vfs.h</code>
++ <code>framework/syscall.c</code> +
+<code>components/ramfs/ramfs.c</code>). The unexpected discovery: ash’s
+<code>xdup_CLOEXEC_above(fd, avoid_fd)</code> calls
+<code>fcntl(fd, F_DUPFD_CLOEXEC, avoid_fd + 1)</code>; with
+<code>avoid_fd = 260</code> (slot 3, gen 1 = encoded
+<code>(1 &lt;&lt; 8) | 4</code>), our <code>sys_fcntl</code> rejected
+<code>arg = 261</code> as
+<code>&gt; NX_HANDLE_TABLE_CAPACITY = 64</code>. Pragmatic fix: when
+<code>min_idx &gt;= NX_HANDLE_TABLE_CAPACITY</code>, fall back to
+<code>min_idx = 0</code> (find lowest free slot); ash’s intent is
+preserved because the loop skips non-INVALID slots, so avoid_fd’s slot
+stays occupied. Strict POSIX violation; opaque-handles design
+accommodates it. +1 ktest (<code>posix_busybox_sh_append</code>); kernel
+95 (+1); host 275; python 51; <code>make test</code> 421/421.</p></li>
+<li><p><strong>7.6d.N.12 (NEXT) — sigaction + rt_sigprocmask +
+signal-handler dispatch.</strong> ash unconditionally installs
+SIGINT/SIGCHLD handlers during interactive startup (and during
+interactive trap-builtin in non-interactive mode); without
+<code>rt_sigaction</code>/<code>rt_sigprocmask</code> returning 0 plus a
+real kernel→user-handler trampoline, ash bails before the prompt at
+N.final and <code>trap</code> builtin no-ops in <code>sh -c</code>.
+Workload: <code>busybox sh -c "trap 'echo bye' EXIT; echo body"</code> —
+<code>trap</code> builtin uses sigaction underneath; EXIT pseudo-signal
+is dispatched by ash itself at exit so it forces real handler dispatch.
+Production: new <code>NX_SYS_RT_SIGACTION</code> +
+<code>NX_SYS_RT_SIGPROCMASK</code> (~80 lines combined); per-process
+<code>sigaction[NSIG]</code> table (already exists from slice 7.5’s
+<code>pending_signals</code> mask — extend with per-signal
+handler/flags); kernel→user trampoline in
+<code>framework/syscall.c</code> that pushes a synthetic stack frame on
+return-to-EL0 when a pending signal has a handler installed (saves trap
+frame, sets PC to user handler, sets x0 = signo, sets LR to a tiny stub
+that issues <code>NX_SYS_SIGRETURN</code> to restore). Real kernel work,
+~200 lines. Builds the dispatch hook that N.final’s Ctrl-C path will
+reuse.</p></li>
+<li><p><strong>7.6d.N.13 — Tolerable-syscall stubs sweep.</strong> Maps
+the 11 ash-startup-touched syscalls captured in slice 7.6d.N.4’s
+diagnostic instrumentation: <code>set_tid_address</code> (returns 1),
+<code>getuid</code>/<code>geteuid</code>/<code>getgid</code>/<code>getegid</code>
+(return 0 — single-user kernel), <code>setuid</code>/<code>setgid</code>
+(return 0 success), <code>getpid</code> (returns
+<code>nx_process-&gt;pid</code>), <code>getppid</code> (returns
+<code>nx_process-&gt;parent_pid</code> from slice 7.6d.N.6b),
+<code>uname</code> (fills <code>struct utsname</code> with
+<code>sysname="nonux"</code> / <code>nodename="nonux"</code> /
+<code>release="v0"</code> / <code>version="aarch64-qemu-virt"</code> /
+<code>machine="aarch64"</code>). Without them the interactive prompt has
+garbled values, <code>id</code>/<code>whoami</code> fail,
+<code>uname -a</code> returns ENOSYS. Workload:
+<code>busybox sh -c "id; uname -a"</code> — checks both the per-call
+return values land in ash’s environment + the formatted <code>id</code>
+output is <code>uid=0(root) gid=0(root)</code> and <code>uname -a</code>
+formats correctly. Pure stub work, no kernel composition gaps — best
+done as one batch slice; adds 9–11 new <code>NX_SYS_*</code> numbers (or
+one shared dispatcher with sub-opcode), one block in
+<code>framework/syscall.c</code>, 11 entries each in
+<code>syscall_arch.h</code> + <code>syscall_cp.s</code>. ~80 lines +
+manifest entries.</p></li>
+<li><p><strong>7.6d.N.14 — First 3-stage pipe</strong>
+(quality-of-coverage, skippable if N.final is the only goal). Workload:
+<code>busybox sh -c "echo hello | tr a-z A-Z | wc -c"</code>. Verifies
+the CHANNEL→CHANNEL→CONSOLE composition holds at three stages;
+<code>tr</code> and <code>wc</code> are both non-builtin applets
+exercising the read-loop-on-CHANNEL-stdin pattern in two distinct
+consumer roles (tr forwards transformed bytes; wc counts and emits a
+single number at EOF). New kernel composition vs. N.6b’s two-stage
+<code>echo hello | cat</code>. Likely clean first try (compose-only, no
+production code). Initramfs needs cpio duplicates for
+<code>/bin/tr</code> and <code>/bin/wc</code> (cheap — same busybox
+blob).</p></li>
+<li><p><strong>7.6d.N.15 — Cross-process FILE-fd-through-fork</strong>
+(quality-of-coverage; deferred since slice 7.6a, finally surfaced).
+Workload:
+<code>busybox sh -c "exec 3&lt; /banner; head &lt;&amp;3"</code> — ash
+opens fd 3 in the parent, then <code>exec</code> replaces the image with
+<code>head</code> which inherits fd 3 and dup2s onto stdin; OR
+<code>(cat) &lt; /banner</code> (subshell — ash forks, redirect happens
+in the child via dup3 BEFORE the exec, but the parent’s open straddles
+fork). N.9–N.11 all dodged this path because ash’s natural redirect
+idiom does the open in the post-fork child. Surfaces vfs_simple’s
+missing <code>dup</code> op (clone a per-open with its own cursor — see
+Next Action #5). Production: new <code>nx_vfs_ops.dup</code> (~30 lines
+vfs_simple + ~30 lines ramfs) that allocates a new
+<code>struct ramfs_open</code> with the same backing file but an
+independent cursor + refs=1; <code>sys_fork</code>’s handle-table walk
+grows a HANDLE_FILE branch that calls <code>vops-&gt;dup</code> (mirrors
+the existing CHANNEL retain branch from slice 7.6a). Real kernel work,
+~50 lines.</p></li>
+<li><p><strong>7.6d.N.16 — Drop in-handle generation encoding</strong>
+(technical-debt paydown surfaced by 7.6d.N.11; skippable if no other
+workload hits the band-aid). Replace
+<code>(generation &lt;&lt; 8) | (idx + 1)</code> with
+<code>idx + 1</code>; encoded handles become POSIX-style “lowest
+available fd” exactly. Per-slot in-table <code>entry.generation</code>
+stays purely for stale-handle detection — the lookup path compares
+<code>entry.generation</code> against a kernel-side side channel (e.g.,
+the <code>nx_process</code> records the generation it received when the
+slot was allocated, and the lookup compares them) NOT against bits in
+the encoded value. Removes the N.11 fcntl high-arg fallback; matches
+Linux’s “reuse small fd numbers across close+open” behaviour; prevents
+the same arithmetic-overflow gap in <code>select(maxfd+1, ...)</code> /
+<code>dup2(fd, 1024)</code>-style paths. Slice 5.3’s stale-handle
+invariants need restating against the new encoding (the test that
+handle-after-close fails to lookup still holds, but via the in-table
+generation comparison rather than encoded-value mismatch). ~30 lines +
+slice-5.3 test churn.</p></li>
+<li><p>:ballot_box_with_check: <strong>7.6d.N.final —
+<code>/init = busybox sh</code> actually boots to a prompt over
+UART</strong> (sub-slices a/b/c-minimal/d/e done; c-full deferred — see
+<a href="#current-status">Next Milestone</a>). As of Session 72,
+<code>make run-busybox</code> is live, the prompt is <em>visible</em>
+before the user types, and <code>make test-interactive</code> runs
+canned scripts (3/3 stable). Closes slice 7.6d at v1 quality.</p></li>
+</ol></li>
+</ol></li>
+<li><p><strong>Slice 7.7 (after 7.6d) — interactive smoke
+tests.</strong> Scripted harness drives <code>ls /</code>,
+<code>echo hello | cat</code>, <code>ps</code>, <code>mkdir /tmp</code>
+against the busybox shell over the serial console; captured output is
+compared against expected. Closes Phase 7.</p></li>
+<li><p><strong>Fork inheritance for HANDLE_FILE — scheduled into slice
+7.6d.N.15.</strong> Slice 7.6a left files behind because vfs_simple’s
+per-open cursor is owned by the per-handle object pointer. Fixing it
+cleanly needs vfs_simple to grow a <code>dup</code> op (clone a per-open
+with its own cursor) or the framework to track cursors outside the
+driver. N.9 + N.10 + N.11 all dodged this path because ash’s natural
+redirect idiom does the open in the post-fork child. N.15’s workload
+(<code>busybox sh -c "exec 3&lt; /banner; head &lt;&amp;3"</code>)
+finally puts a FILE handle in the parent before fork.</p></li>
+<li><p><strong>Vector I/O syscalls beyond writev/readv (opportunistic,
+not blocking).</strong> Slice 7.6c.3c added <code>NX_SYS_WRITEV</code>
+and slice 7.6d.N.6a added <code>NX_SYS_READV</code> because musl’s
+<code>__stdio_write</code> and <code>__stdio_read</code> require them.
+The natural follow-on family stays unimplemented — programs that hit any
+of these get <code>-ENOSYS</code> from the syscall-translation
+layer:</p>
+<ul>
+<li><strong><code>pwritev</code> / <code>preadv</code></strong>
+(<code>__NR_pwritev = 70</code> / <code>__NR_preadv = 69</code>) —
+positional vector I/O (read/write at an offset without modifying the
+seek cursor). Pulled in by programs that want lock-free seeking from
+multiple threads to one fd; busybox doesn’t use them. Add when a real
+demo forces it.</li>
+<li><strong><code>pwritev2</code> / <code>preadv2</code></strong>
+(<code>__NR_pwritev2 = 287</code> / <code>__NR_preadv2 = 286</code>) —
+Linux-specific extensions with RWF_* flags (O_DSYNC, O_APPEND,
+RWF_HIPRI). Almost no userspace uses them; defer indefinitely.</li>
+<li><strong><code>process_vm_writev</code> /
+<code>process_vm_readv</code></strong>
+(<code>__NR_process_vm_writev = 271</code> /
+<code>__NR_process_vm_readv = 270</code>) — cross-process memory access.
+Only useful with multi-process debuggers/tracers (gdb, strace). Big
+departure from our current “user-window-per-process” memory model —
+defer until a real cross-process tool lands in the project.</li>
+</ul>
+<p>Implementation pattern is already established by sys_writev:
+copy_from_user the iovec array (cap 16 entries), dispatch each entry,
+stop on first short transfer per Linux convention, return running total.
+Each addition is ~30 lines of kernel + 1 line each in syscall_arch.h’s
+translation table and syscall_cp.s’s asm switch.</p></li>
+<li><p><strong>Tolerable-syscall stubs sweep — split between slices
+7.6d.N.12 (sigaction family) and 7.6d.N.13 (everything else).</strong>
+Slice 7.6d.N.4’s diagnostic instrumentation (temporary musl pass-through
++ kernel <code>kprintf("[svc?=N]")</code>, both reverted before commit)
+captured 11 unmapped Linux syscalls that ash’s startup hits. Two of them
+— <code>rt_sigaction</code> (134) and <code>rt_sigprocmask</code> (135)
+— need real handler dispatch infrastructure for the interactive Ctrl-C
+path at N.final, so they’re scheduled into N.12 with the dispatch
+trampoline + per-process <code>sigaction[NSIG]</code> table. The
+remaining 9 are pure stubs scheduled into N.13:</p>
+<ul>
+<li><strong><code>set_tid_address</code></strong>
+(<code>__NR_set_tid_address = 96</code>) — return a fake tid (e.g., 1).
+musl’s <code>__post_Fork</code> calls this in the child to register
+robust-mutex cleanup; we don’t have robust mutexes, so the value is
+don’t-care.</li>
+<li><strong><code>getuid</code> / <code>geteuid</code> /
+<code>getgid</code> / <code>getegid</code></strong>
+(<code>__NR_getuid = 174</code>, <code>geteuid = 175</code>,
+<code>getgid = 176</code>, <code>getegid = 177</code>) — return 0
+(single-user kernel, root by default). ash and <code>id</code> both
+consult these; returning 0 lets <code>id</code> print
+<code>uid=0(root) gid=0(root)</code>.</li>
+<li><strong><code>setuid</code> / <code>setgid</code></strong>
+(<code>__NR_setuid = 146</code>, <code>setgid = 144</code>) — return 0
+success. Single-user kernel, no actual privilege boundary; ash calls
+these defensively.</li>
+<li><strong><code>getpid</code> / <code>getppid</code></strong>
+(<code>__NR_getpid = 172</code>, <code>getppid = 173</code>) — return
+current <code>nx_process-&gt;pid</code> /
+<code>nx_process-&gt;parent_pid</code> (the latter wired in slice
+7.6d.N.6b). <code>ps</code>/<code>pgrep</code> need real values
+eventually.</li>
+<li><strong><code>uname</code></strong> (<code>__NR_uname = 160</code>)
+— fill <code>struct utsname</code> with <code>sysname="nonux"</code>,
+<code>nodename="nonux"</code>, <code>release="v0"</code>,
+<code>version="aarch64-qemu-virt"</code>,
+<code>machine="aarch64"</code>. ash and many shell scripts consult
+this.</li>
+</ul>
+<p>Slice 7.6d.N.13 is mostly one big <code>framework/syscall.c</code>
+block + 9 entries each in <code>syscall_arch.h</code> and
+<code>syscall_cp.s</code>. Adds 9 new <code>NX_SYS_*</code> numbers (or
+one shared dispatcher number with a sub-opcode if we want to keep the
+table small).</p></li>
+<li><p><strong>Handle encoding’s generation-in-high-bits collides with
+POSIX-fd arithmetic — scheduled into slice 7.6d.N.16.</strong> Slice
+7.6d.N.11 uncovered: ash’s <code>xdup_CLOEXEC_above(fd, avoid_fd)</code>
+issues <code>fcntl(fd, F_DUPFD_CLOEXEC, avoid_fd + 1)</code>; with our
+encoding <code>(generation &lt;&lt; 8) | (idx + 1)</code>, an avoid_fd
+whose slot has been closed-and-reopened encodes as ≥ 257 even though the
+table only has 64 slots — so <code>arg + 1</code> overflows the cap and
+<code>sys_fcntl</code> returns <code>EINVAL</code>. Patched in 7.6d.N.11
+by falling back to <code>min_idx = 0</code> when
+<code>arg ≥ NX_HANDLE_TABLE_CAPACITY</code>; preserves ash’s intent
+(loop skips non-INVALID slots) but strictly violates POSIX F_DUPFD’s
+“lowest fd ≥ arg” guarantee. N.16 drops the in-handle generation
+entirely and relies on per-slot in-table generation strictly for
+stale-handle detection — encoded value becomes <code>idx + 1</code>,
+matching POSIX <code>lowest fd</code> semantics and Linux’s “reuse small
+fd numbers across close+open” behaviour. Slice 5.3’s stale-handle
+invariants restated against the new encoding (the test that
+handle-after-close fails to lookup still holds, but via the in-table
+generation comparison rather than encoded-value mismatch). Skippable if
+N.final’s path doesn’t surface a second arithmetic-overflow (the N.11
+fcntl band-aid covers the only case currently observed).</p></li>
+<li><p><strong>Test-harness follow-ups (opportunistic, not
+blocking):</strong></p>
+<ul>
+<li>Proper cross-test task + process reap. Each slice-7.4 / 7.5 / 7.6a /
+7.6d ktest today leaks the full child stack:
+<code>sched_rr_purge_user_tasks</code> only <code>nx_list_remove</code>s
+tasks from the runqueue — it doesn’t free the <code>nx_task</code>
+struct, the kstack, the owning <code>nx_process</code>, the process’s
+MMU address space, or the 8 MiB user-window backing. All of that stays
+allocated until kernel halt. Slice 7.6c.4 first bumped the MMU-spaces /
+process-table caps 16 → 32 to paper over the leak; slice 7.6d.N.2 bumped
+them again 32 → 64. Real reap-on-wait (when <code>sys_wait</code>
+collects an EXITED child’s status, also call
+<code>nx_process_destroy(child)</code> — which already frees everything)
+is the right fix, deferred since slice 7.4. Lands when the next round of
+busybox-shell escalations refills the 64-slot waterline.</li>
+<li>Per-test quantum override.
+<code>SCHED_RR_DEFAULT_QUANTUM_TICKS = 2</code> is a compromise. A
+<code>kernel.json</code> knob (once gen-config emits per-component
+config macros) lets tests tune per-build.</li>
+<li>C-compiled EL0 crt0 for <code>main(argc, argv)</code> entry — needed
+when busybox expects POSIX main semantics.</li>
+</ul></li>
+<li><p><strong>Phase 5 follow-ups (deferred across 5.5 /
+5.6):</strong></p>
+<ul>
+<li>Per-task TTBR0 page table (kernel moves to high half via TTBR1).
+Needed before multiple concurrent EL0 processes can have private address
+spaces.</li>
+<li><code>nx_process_exit(code)</code> + scheduler TASK_ZOMBIE handling
+so EL0 tasks can retire cleanly instead of stranding in a
+<code>wfe</code> loop.</li>
+<li>Reserve the user window’s physical range in the PMM so a future
+large allocation can’t collide. <strong>Done in slice 7.6d.2b</strong>
+via <code>pmm_reserve_range</code> called from <code>boot.c</code> after
+<code>pmm_init</code>.</li>
+<li>Handle-duplicate vs channel-refcount interaction: duplicate a
+CHANNEL handle today doesn’t bump the underlying refcount, so a
+duplicate-then-close breaks the invariant. Land a type-aware duplicate
+before any test duplicates a CHANNEL.</li>
+<li>Blocking channel recv (scheduler wait-queue on an endpoint) — pairs
+with the first real service that needs to sleep pending a message.</li>
+<li><code>copy_from_user</code> with page-fault fixup — the current
+version bounds-checks but doesn’t handle faults gracefully.</li>
+</ul></li>
+<li><p><strong>Real per-process memory management (long-term,
+post-Phase-7).</strong> The current “every process gets one contiguous 8
+MiB physical block, mapped via four 2 MiB L2 blocks” model is functional
+but wasteful and rigid:</p>
+<ul>
+<li><strong>Over-commit:</strong> every process eats 8 MiB of physical
+RAM regardless of actual use. <code>init_prog</code> is ~800 bytes;
+signal demo ~250 bytes. Most of the per-process backing is never
+touched.</li>
+<li><strong>PMM fragmentation:</strong> each process_create needs 10 MiB
+physically contiguous (8 MiB usable + 2 MiB alignment slack). After many
+fork/exec cycles, PMM may not find a contiguous 10 MiB run even with
+hundreds of MiB free elsewhere. Eventually a long-running system can’t
+fork.</li>
+<li><strong>Fork is O(USER_WINDOW_SIZE) memcpy</strong> even when the
+child overwrites two bytes and exits. No COW.</li>
+<li><strong>Hard 8 MiB ceiling per process.</strong> Any binary whose
+code+data+heap+stack would exceed ~6 MiB of mapped memory just can’t
+run, and we can’t grow the heap past <code>NX_PROCESS_HEAP_LIMIT</code>
+without resizing the entire window.</li>
+<li><strong>Wasted alignment slack.</strong> Each malloc carries 2 MiB
+of slack that’s allocated to the process but unused — locked away from
+PMM until the process is destroyed.</li>
+</ul>
+<p>The right direction is the standard one: <strong>drop 2 MiB block
+descriptors for L3 4 KiB pages, give each region (text / data / heap /
+stack) its own VMA, and add demand paging + copy-on-write for
+fork.</strong> Concrete shape:</p>
+<ul>
+<li>Per-process page tables grow a third level (L3 4 KiB pages instead
+of L2 2 MiB blocks). 4 KiB granularity makes per-page demand-paging and
+per-page COW natural.</li>
+<li><code>nx_process</code> gains a list of VMAs
+(<code>{vaddr_lo, vaddr_hi, prot, file_or_anon, offset}</code>). ELF
+loader populates one VMA per PT_LOAD; brk grows a heap VMA up; mmap
+creates new VMAs.</li>
+<li>Page-fault handler upgrades from “panic” to “look up VMA, allocate
+one PMM page, populate L3 entry, return.” COW pages get a “copy on
+write” flag; first write demotes the entry from RO to RW with a fresh
+page.</li>
+<li><code>mmu_copy_user_backing</code> becomes
+<code>mmu_clone_user_backing_cow</code>: walks parent’s L3, marks each
+entry RO in both parent and child, no memcpy. First write in either side
+faults, copies one page, splits.</li>
+<li><code>mmap(NULL, size, PROT_*, MAP_ANON|MAP_PRIVATE, ...)</code>
+falls out for free as a new VMA + lazy population. busybox + most real
+userspace stops needing brk.</li>
+</ul>
+<p>This is a multi-slice rework — page table layout (4 KiB granule), VMA
+framework, fault handler, fork rework, mmap, and migration of existing
+tests off the contiguous-block assumption. Phase 7 explicitly stays on
+the simple model so we can ship busybox; the rework lands in a dedicated
+phase, probably between Phase 8 (recomposition) and Phase 9 (benchmarks)
+or as part of Phase 9’s perf-oriented pass. Worth a one-line callout in
+DESIGN.md so future readers don’t think the current scheme is the
+long-term plan.</p></li>
+<li><p><strong>Opportunistic extensions to
+<code>verify-registry.py</code> (any time, not blocking):</strong></p>
+<ul>
+<li>pycparser-backed R1 / R6 (deep-dataflow, gated behind
+<code>--deep</code> so default <code>make test</code> stays fast).</li>
+<li>R4 control-flow extension so “retain in enable, release only in
+error path” is flagged.</li>
+<li>R8 call-graph once ISR / kthread entry points have a tagging
+convention.</li>
+</ul></li>
+<li><p><strong>Infrastructure polish (opportunistic, not
+blocking):</strong></p>
+<ul>
+<li>Add a proper AArch64 Linux Image header so <code>-kernel</code>
+self-describes the load offset instead of hardcoding
+<code>0x40080000</code> in linker.ld.</li>
+<li><code>make test-host COMPONENT=X</code> filter (SPEC documents it;
+trivial once 3.4 introduces components).</li>
+<li>Fix the <code>LOAD segment with RWX permissions</code> linker
+warning — unlocks with slice 5.2’s split-permission kernel pages (MMU is
+on; we just need different PXN/AP on the kernel text vs data
+blocks).</li>
+</ul></li>
+</ol>
+<p><strong>Deferred:</strong></p>
+<ul>
+<li>GUI support — long-term goal, not near-term</li>
+</ul>
+<hr />
+<h2 id="session-logs">Session Logs</h2>
+<p>Each log captures that session’s goals, decisions, findings, and next
+steps — the canonical narrative lives in the linked file.</p>
+<ol type="1">
+<li><strong><a
+href="logs/session-73-7.7a-trivial-interactive-scripts.html">Session
+73</a></strong> (2026-04-28) — slice 7.7a: trivial interactive smoke
+tests. Promoted slice 7.6d.N.5’s <code>ls /</code> workload and slice
+7.6d.N.6b’s <code>echo MARKER | cat</code> workload from ktest-only into
+the live UART harness (<code>tools/qemu-stdin-feed.sh</code> from slice
+7.6d.N.final.d). Two new files in <code>test/interactive/</code>:
+<code>ls_root.{script,expected}</code> (asserts ramfs entry names appear
+in the captured log) and <code>echo_cat.{script,expected}</code>
+(asserts the marker survives the <code>pipe(2)</code> → fork →
+<code>dup3</code> → exec(echo) → CHANNEL → fork → <code>dup3</code> →
+exec(cat) → CONSOLE chain). No kernel changes, no new ktests, no new
+musl translations — pure harness escalation. First-iteration
+<code>ls_root.expected</code> had
+<code>/init</code>/<code>/bin/busybox</code> as expected substrings;
+updated to
+<code>argv_child</code>/<code>musl_prog</code>/<code>banner</code> after
+tracing through the actual captured output. Root cause of the
+discrepancy: <code>sys_getdents64</code> strips one leading
+<code>/</code> (<code>framework/syscall.c:1925-1926</code>, slice
+7.6d.N.5 hack) and busybox ls then treats embedded <code>/</code> as a
+path separator, displaying just basenames. Recorded as a v1 cleanup
+target for slice 7.7b’s hierarchical-path rework. Slice 7.7’s other two
+exit criteria (<code>mkdir /tmp</code> + <code>ls /tmp</code>,
+<code>ps</code>) sub-sliced into 7.7b — both need new kernel surface
+(vfs/ramfs <code>mkdir</code> op + <code>NX_SYS_MKDIRAT</code> +
+hierarchical paths; procfs OR <code>NX_SYS_GETPROCS</code> + busybox
+patch). <code>make test-interactive</code> → <strong>5/5 pass</strong>
+(was 3/3); <code>make test</code> unchanged at
+<strong>432/432</strong>.</li>
+<li><strong><a
+href="logs/session-72-N.final.e-visible-prompt.html">Session
+72</a></strong> (2026-04-28) — slice 7.6d.N.final.e: visible interactive
+busybox prompt. <strong><code>make run-busybox</code> now shows
+<code>#</code> before the user types</strong> (was: prompt invisible
+until first command output retroactively flushed musl’s line buffer).
+Root-cause traced through ash + lineedit + musl stdio: with
+<code>CONFIG_FEATURE_EDITING=y</code>, ash’s prompt write goes through
+<code>libbb/lineedit.c:put_prompt_custom</code> which calls
+<code>fputs_stdout(prompt)</code> <em>without</em> an
+<code>fflush</code>; musl’s stdout is line-buffered when
+<code>isatty(1) == 1</code> and ash’s prompt has no <code>\n</code>, so
+the bytes sat in the FILE buffer until the next newline-terminated write
+retroactively flushed them. Discovery cross-checked: the
+<code>!FEATURE_EDITING</code> path at <code>lineedit.c:3027</code>
+already calls <code>fflush_all()</code> after the same
+<code>fputs_stdout(prompt)</code>; only the EDITING path was missing it.
+Fix: one-line patch — add <code>fflush(stdout);</code> after the prompt
+write in <code>put_prompt_custom</code>. Used
+<code>fflush(stdout)</code> (not <code>fflush_all()</code> aka
+<code>fflush(NULL)</code>) because <code>fflush(NULL)</code> also
+discards unread bytes in any stdin FILE buffer, which would race with
+the trickle-fed test harness. Side fix:
+<code>test/interactive/run.sh</code> switched from line-burst
+(<code>printf '%s\n' "$line"; sleep 1</code>) to per-byte trickle
+(<code>printf '%s' "$c"; sleep 0.05</code>) because QEMU’s
+<code>-serial stdio</code> chardev does not backpressure when PL011’s
+16-byte hardware RX FIFO is full — full-line bursts like
+<code>echo PIPE_INPUT | tr a-z A-Z\n</code> (29 B) silently dropped
+characters at the host/guest boundary. Line-burst trickle had been
+getting away with it because baseline (slice .d) busybox ran without a
+visible prompt and the test only grep’d for the final pipe output; once
+the prompt is visible, ash echoes typed input back through CONSOLE →
+UART, doubling per-line UART traffic and exposing the silent byte-drop.
++1 regression script
+(<code>test/interactive/visible_prompt.{script,expected}</code> — feeds
+<code>exit\n</code>, asserts <code>#</code> appears in the captured
+log). No kernel changes. <code>make test-interactive</code> 3/3 pass,
+stable across 3× consecutive runs; <code>make test</code> unchanged at
+<strong>432/432 pass</strong>.</li>
+<li><strong><a href="logs/session-71-N.final.b-c-d.html">Session
+71</a></strong> (2026-04-28) — slices 7.6d.N.final.b + .c (minimal) +
+.d. Three sub-slices in one session. <strong>(b)</strong>
+<code>/init</code> swap policy:
+<code>pack-initramfs.py --busybox-init</code> rewrites the
+<code>/init</code> cpio entry; new EL0 init stub <code>execve</code>s
+<code>/init</code> with <code>argv = {"sh", NULL}</code>;
+<code>boot.c</code> gains an <code>-DNX_INIT_BUSYBOX</code> init runner
+that creates an “init” process + drops_to_el0 with the stub; new
+<code>kernel-busybox.bin</code> build target +
+<code>make run-busybox</code> invokes QEMU with <code>-nographic</code>.
+<code>make run-busybox</code> now boots an interactive busybox sh.
+<strong>(c) MINIMAL</strong>: spec-deviation — full signal-handler
+dispatch trampoline scoped down to a v1 polled approximation (Ctrl-C
+posts SIGTERM to all ACTIVE non-kernel processes; Ctrl-D arms a one-shot
+EOF flag) because the trampoline work (per-process
+<code>sigaction[NSIG]</code> + EL0 signal frame on return path +
+<code>NX_SYS_RT_SIGRETURN</code>) is genuinely 200-300 lines of careful
+kernel work that wants a focused session — deferred as
+<code>7.6d.N.final.c-full</code>. <strong>(d)</strong>:
+<code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code> drive canned scripts through QEMU
+stdio (line-by-line trickle to dodge PL011’s 16-byte FIFO depth); 2 seed
+scripts (<code>echo_hello</code>, <code>echo_pipe</code>). +2 ktests
+(<code>console_eof_returns_zero</code>,
+<code>console_intr_posts_sigterm</code>); <code>make test</code> →
+<strong>432/432 pass</strong>.</li>
+<li><strong><a href="logs/session-70-N.final.a-rx-ring.html">Session
+70</a></strong> (2026-04-28) — slice 7.6d.N.final.a: kernel-side
+mechanical core for the interactive shell. Wired PL011 RX IRQ on QEMU
+virt SPI 1 (= IRQ 33) → fixed-size single-producer/single-consumer byte
+ring (256 entries, head/tail with C11 atomics);
+<code>nx_console_read</code> becomes a yield-loop instead of returning
+0=EOF (drain whatever is in the ring; if empty and no bytes returned
+yet, <code>nx_task_yield</code>; on wake, drain again). New
+<code>nx_console_init</code> registers the ISR via
+<code>irq_register(33, ...)</code> + enables IRQ 33 at the GIC +
+programs PL011 IMSC (RXIM | RTIM) and IFLS (1/8 threshold so first byte
+fires). ISR drains the FIFO into the ring and clears RXIM/RTIM in ICR.
+Wired into <code>boot_main</code> between <code>timer_init(10)</code>
+and <code>nx_framework_bootstrap</code> (after gic_init so the
+distributor is up; before irq_enable_local so the first key press
+doesn’t fall into a masked vector). New <code>NX_SYS_IOCTL = 39</code>
+(~95 lines) recognises five musl/busybox cmds against a
+<code>NX_HANDLE_CONSOLE</code> fd: TCGETS (fills 36 zero bytes, return
+0); TCSETS / TCSETSW / TCSETSF (ignore + return 0); TIOCGWINSZ (fills
+24×80 winsize). Non-CONSOLE fd or unknown cmd → Linux
+<code>-ENOTTY = -25</code> (delivered through musl’s
+<code>__syscall_ret</code> which preserves Linux errno values regardless
+of our NX errno table). <code>isatty(0)</code> reports 1 (musl
+implements isatty as a <code>tcgetattr</code> = TCGETS probe).
+<code>sys_read</code> CONSOLE arm rewritten to copy_to_user through a
+<code>NX_FILE_IO_MAX = 256</code> staging buffer (the v1
+NULL-buf-because-always-EOF hack is gone). musl translation
+<code>__NR_ioctl (29) → 39</code> in both
+<code>arch/aarch64/syscall_arch.h</code> and
+<code>src/thread/aarch64/syscall_cp.s</code>. Test deliverables: new
+<code>test/kernel/ktest_console_rx.c</code> (3 ktests —
+<code>console_rx_inject_drain</code>,
+<code>console_rx_wraps_around</code>,
+<code>console_rx_drop_on_full</code>); 2 new host TESTs in
+<code>test/host/file_syscall_test.c</code>
+(<code>sys_ioctl_console_termios_stubs_succeed</code>,
+<code>sys_ioctl_on_non_console_handle_returns_enotty</code>). Build
+gotcha: changing <code>NX_SYSCALL_COUNT</code> (39 → 40) requires
+<code>make clean</code> because the test Makefile doesn’t track header
+dependencies through to test object files; first <code>make test</code>
+after the change reported two false failures
+(<code>syscall_unknown_number_returns_enosys_*</code>) until the test
+objects were rebuilt. Sub-slices b (build-flag <code>/init</code> swap),
+c (Ctrl-C/Ctrl-D + signal trampoline), d (scriptable QEMU stdin
+injection) remain. +5 tests; kernel 102 (+3); host 277 (+2); python 51;
+<code>make test</code> <strong>430/430</strong>.</li>
+<li><strong><a href="logs/session-69-N.12-through-N.15-runs.html">Session
+69</a></strong> (2026-04-28) — slices 7.6d.N.12 + N.13 + N.14 + N.15.
+Four slices in one session. N.12: sigaction + rt_sigprocmask stubs
+(no-op returning 0; ash’s <code>setsignal</code> walks its trap table at
+startup and bails on ENOSYS without these); workload
+<code>busybox sh -c "trap 'echo bye' EXIT; echo body"</code> prints
+<code>body\nbye</code>. N.13: tolerable-syscall stubs sweep — ten new
+syscalls (<code>getuid</code> / <code>geteuid</code> /
+<code>getgid</code> / <code>getegid</code> return 0; <code>setuid</code>
+/ <code>setgid</code> no-op success; <code>getpid</code> /
+<code>getppid</code> / <code>set_tid_address</code> return current pid;
+<code>uname</code> copies a 6×65-byte hardcoded
+<code>nonux 0.1 v1 aarch64</code> struct); initramfs gains
+<code>/bin/{id,uname,tr,wc,head}</code> aliases;
+<code>RAMFS_MAX_FILES</code> 16 → 24; workload
+<code>busybox sh -c "id; uname -a"</code> prints
+<code>uid=0 gid=0</code> +
+<code>nonux nonux 0.1 v1 aarch64 GNU/Linux</code>. N.14: first 3-stage
+pipe — surfaced + closed a real kernel composition gap deferred since
+slice 7.6a. <code>sys_fork</code>’s CHANNEL inheritance was densely
+re-allocating into the child’s first INVALID slots, which only worked
+when the parent’s CHANNELs were dense. ash closes its own pipe ends
+right after each fork in a multi-stage pipeline, leaving gaps in the
+parent’s table; the dense re-allocation then assigned CHANNELs to
+<em>different</em> child slot indices than the parent’s pre-fork values
+— and the child’s user code, holding the parent’s encoded handles
+verbatim, dup3’d the wrong slot. Result: middle stage’s stdout went to a
+different endpoint than the next stage’s stdin, second pipe carried no
+data. Fix: write CHANNELs at the parent’s exact slot index, overwriting
+any pre-installed CONSOLE. Workload
+<code>echo hello | tr a-z A-Z | wc -c</code> now prints <code>6</code>.
+N.15: cross-process FILE-fd-through-fork — extends N.14’s
+slot-position-preserving inheritance to also handle
+<code>NX_HANDLE_FILE</code> (using slice N.8’s
+<code>vops-&gt;retain</code>). Workload deliberately uses
+<code>(cat) &lt; /banner</code> (subshell idiom) instead of the
+originally-proposed <code>exec 3&lt; /banner; head &lt;&amp;3</code>
+because the latter hits a separate gap (encoded handle 3 == slot 2 ==
+CONSOLE STDIN, so <code>dup2(_, 3)</code> aliases onto fd 0 — that’s a
+slice 7.6d.N.16 issue, see the deferral note). Cap bumps:
+<code>NX_PROCESS_TABLE_CAPACITY</code> 64 → 128,
+<code>MMU_MAX_ADDRESS_SPACES</code> 64 → 128 (cumulative test sweep
+accumulates more processes than previous caps allowed;
+sched_rr_purge_user_tasks doesn’t free processes — real fix is
+reap-on-wait). +4 ktests
+(<code>posix_busybox_sh_{trap,id_uname,pipe3,xfile}</code>); kernel 99
+(+4); host 275 (unchanged); python 51; <code>make test</code>
+<strong>425/425</strong>. Older entries: see <a
+href="HANDOFF-ARCHIVE.html">HANDOFF-ARCHIVE.md</a> (Sessions 1–68).</li>
+</ol>
+<hr />
+<h2 id="document-web">Document Web</h2>
+<p><strong>Related Documents:</strong></p>
+<ul>
+<li><a href="SPEC.html">SPEC.md</a> - Requirements and constraints</li>
+<li><a href="DESIGN.html">DESIGN.md</a> - Architecture and design
+decisions</li>
+<li><a href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE.md</a> -
+Code-level details</li>
+<li><a href="README.html">README.md</a> - Project overview</li>
+</ul>
+<p><strong>When adding new entries:</strong></p>
+<ul>
+<li>Create new session log in <code>logs/</code> directory</li>
+<li>Update <a href="#session-logs">Session Logs</a> section with link
+(keep last 5; move older to archive)</li>
+<li>Update <a href="#current-status">Current Status</a> with
+progress</li>
+<li>Regenerate HTML: <code>./scripts/convert_kb.sh</code></li>
+</ul>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-28 (Session 73 — slice 7.7a:
+trivial interactive smoke tests. Two new files in
+<code>test/interactive/</code> — <code>ls_root.{script,expected}</code>
+and <code>echo_cat.{script,expected}</code> — promote slice 7.6d.N.5’s
+<code>ls /</code> and slice 7.6d.N.6b’s <code>echo MARKER | cat</code>
+workloads from ktest-only into the live UART harness. No kernel changes,
+no new ktests. First-iteration <code>ls_root.expected</code> had
+<code>/init</code>/<code>/bin/busybox</code> as expected substrings;
+updated to
+<code>argv_child</code>/<code>musl_prog</code>/<code>banner</code> after
+tracing through actual captured output (root cause:
+<code>sys_getdents64</code> strips one leading <code>/</code> per
+<code>framework/syscall.c:1925-1926</code>, then busybox ls treats
+embedded <code>/</code> as a path separator; recorded as cleanup target
+for slice 7.7b’s hierarchical-path rework). Slice 7.7’s
+<code>mkdir</code>+<code>ps</code> exit criteria sub-sliced into 7.7b
+(next session) — both need new kernel surface.
+<code>make test-interactive</code> → 5/5 pass (was 3/3);
+<code>make test</code> unchanged at 432/432)</p>
+<p><strong>Previous:</strong> 2026-04-28 (Session 72 — slice
+7.6d.N.final.e: visible interactive busybox prompt.
+<code>make run-busybox</code> now shows <code>#</code> before the user
+types. One-line vendored-busybox patch: <code>fflush(stdout);</code>
+after <code>fputs_stdout(prompt)</code> in
+<code>libbb/lineedit.c:put_prompt_custom</code> (mirrors the
+<code>fflush_all()</code> already present in the
+<code>!FEATURE_EDITING</code> path at <code>lineedit.c:3027</code>).
+Side fix: <code>test/interactive/run.sh</code> switched line-burst →
+per-byte trickle (50 ms gap) because QEMU’s <code>-serial stdio</code>
+chardev does not backpressure on PL011 RX FIFO overflow. +1 regression
+script; <code>make test-interactive</code> 3/3 stable;
+<code>make test</code> unchanged at 432/432 — no kernel changes)</p>
+<p><strong>Previous:</strong> 2026-04-28 (Session 71 — slices
+7.6d.N.final.b + .c (minimal) + .d. <code>/init</code> swap policy:
+<code>pack-initramfs.py --busybox-init</code> rewrites
+<code>/init</code> cpio entry; new EL0 init stub <code>execve</code>s
+<code>/init</code> with <code>argv = {"sh", NULL}</code>;
+<code>boot.c</code> <code>-DNX_INIT_BUSYBOX</code> init runner; new
+<code>kernel-busybox.bin</code> build target. c-MINIMAL: Ctrl-C posts
+SIGTERM to all ACTIVE non-kernel processes; Ctrl-D arms one-shot EOF
+flag. c-full deferred. d: <code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code> drive canned scripts; 2 seed scripts.
++2 ktests; <code>make test</code> → 432/432 pass)</p>
+<p><strong>Earlier:</strong> 2026-04-28 (Session 66 — slice 7.6d.N.9:
+<code>busybox sh -c "cat /banner &gt; /tmp/copy"</code> runs end-to-end.
+First stdout-redirection-to-file escalation against an EXTERNAL command
+(cat). ash forks once, child opens <code>/tmp/copy</code> (HANDLE_FILE),
+<code>dup3</code>s onto fd 1 (FILE retain bumps refs to 2), closes
+original FILE fd, <code>execve</code>s <code>/bin/cat /banner</code>.
+<code>sys_exec</code> swaps address space + ELF image but leaves the
+handle table alone, so cat runs in a process where slot 0 still holds
+the FILE pointing at /tmp/copy; cat opens /banner, reads it, writes
+through the FILE arm of <code>sys_write</code> into /tmp/copy, exits 0.
+No production code changed, no new syscalls — pure test escalation,
+mirroring slice 7.6d.N.7. Confirms <code>sys_exec</code> preserves a
+HANDLE_FILE entry across the address-space swap and slice 7.6d.N.8’s
+refcounted vfs per-open carries through unchanged. Cross-process
+FILE-fd-through-fork is still deferred (this workload doesn’t actually
+exercise that path; ash opens the file in the child after fork). +1
+ktest; <code>make test</code> → 418/418 pass (51 python + 275 host + 92
+kernel), 0 leaks, 0 errors)</p>
+<p><strong>Earlier:</strong> 2026-04-28 (Session 65 — slice 7.6d.N.8:
+<code>busybox sh -c "echo a &gt; /tmp/foo"</code> runs end-to-end. First
+stdout-redirection-to-file escalation. Production: new
+<code>NX_SYS_FCNTL = 26</code> (F_DUPFD / F_DUPFD_CLOEXEC +
+GETFD/SETFD/GETFL/SETFL stubs); <code>sys_dup3</code> FILE retain
+branch; new vfs <code>retain</code> op (refcounted ramfs per-open); musl
+<code>__NR_fcntl (25) → 26</code> translation. Test asserts
+<code>/tmp/foo</code> contains exactly <code>"a\n"</code> via vfs_simple
+read-back. +1 ktest; <code>make test</code> → 417/417 pass (51 python +
+275 host + 91 kernel), 0 leaks, 0 errors)</p>
+</body>
+</html>

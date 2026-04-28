@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-65-busybox-sh-redir-runs – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-65-slice-7.6d.n.8-busybox-sh--c-echo-a-tmpfoo-runs-end-to-end"
+id="toc-session-65-slice-7.6d.n.8-busybox-sh--c-echo-a-tmpfoo-runs-end-to-end">Session
+65: slice 7.6d.N.8 — <code>busybox sh -c "echo a &gt; /tmp/foo"</code>
+runs end-to-end</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#implementation" id="toc-implementation">Implementation</a>
+<ul>
+<li><a href="#test-deliverable" id="toc-test-deliverable">Test
+deliverable</a></li>
+<li><a href="#production-changes" id="toc-production-changes">Production
+changes</a></li>
+</ul></li>
+<li><a href="#discovery-bring-up" id="toc-discovery-bring-up">Discovery
++ bring-up</a></li>
+<li><a href="#outcome" id="toc-outcome">Outcome</a></li>
+<li><a href="#next-milestone" id="toc-next-milestone">Next
+milestone</a></li>
+<li><a href="#lessons-notes" id="toc-lessons-notes">Lessons /
+Notes</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-65-slice-7.6d.n.8-busybox-sh--c-echo-a-tmpfoo-runs-end-to-end">Session
+65: slice 7.6d.N.8 — <code>busybox sh -c "echo a &gt; /tmp/foo"</code>
+runs end-to-end</h1>
+<p><strong>Date:</strong> 2026-04-28 <strong>Phase:</strong> 7 slice
+7.6d.N.8 (busybox-as-shell, first stdout-to-file redirection)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d.N.7 (session 64) drove cat against a real ramfs file —
+<code>HANDLE_FILE</code> on the read side, <code>HANDLE_CONSOLE</code>
+on the write side. Clean first try, no kernel gaps.</p>
+<p>This sub-slice flips the FILE handle to the <strong>write</strong>
+side and onto <strong>stdout</strong>, which is exactly the path slice
+7.6a deferred: a FILE handle inherited / dup’d onto fd 1 and used by a
+builtin without forking. Workload:
+<code>busybox sh -c "echo a &gt; /tmp/foo"</code>.</p>
+<p>Concretely this exercises four things at once:</p>
+<ol type="1">
+<li><p><code>sys_openat</code> with
+<code>O_CREAT | O_WRONLY | O_TRUNC</code> against a path that doesn’t
+exist (ash’s <code>openredirect()</code> of “/tmp/foo”).</p></li>
+<li><p>A redirection bookkeeping path that goes through
+<code>fcntl</code> — <code>save_fd_on_redirect()</code> calls
+<code>fcntl(1, F_DUPFD_CLOEXEC, 10)</code> to stash the original stdout
+before installing the redirection. <code>__NR_fcntl (25)</code> is
+unmapped today; the previous slice’s ENOSYS hygiene means ash sees a
+real -ENOSYS rather than “Operation not permitted”, which
+<code>xfunc_die</code>s ash on entry to redirect. So we have to map
+fcntl at minimum for F_DUPFD_CLOEXEC.</p></li>
+<li><p><code>sys_dup3</code> on a <code>HANDLE_FILE</code> source —
+slice 7.6d.N.6a wrote the close-then-replace logic but only
+<code>HANDLE_CHANNEL</code> was retained. With FILE in the mix, the
+per-open struct now lives in two slots and must survive the first close
+— needs a vfs <code>retain</code> op.</p></li>
+<li><p>Redirected stdout itself — the echo builtin writes “a” through
+<code>sys_write</code> to a <code>HANDLE_FILE</code> (not the CONSOLE
+fallback). Slice 6.3’s FILE arm of <code>sys_write</code> already covers
+this, but exercising it through ash’s redirection setup is new.</p></li>
+</ol>
+<p>Discovery-driven again: write the slice, observe what actually
+surfaces, fix the gaps that block.</p>
+<h2 id="implementation">Implementation</h2>
+<h3 id="test-deliverable">Test deliverable</h3>
+<ul>
+<li><p><code>test/kernel/posix_busybox_sh_redir_prog.c</code> —
+libnxlibc-linked program; forks + child execs
+<code>busybox sh -c "echo a &gt; /tmp/foo"</code>; parent emits
+<code>[bbsh-redir-parent]</code>, waits, emits
+<code>[bbsh-redir-status=NN]</code> + one of
+<code>[bbsh-redir-{ok,failed}]</code>.</p></li>
+<li><p><code>test/kernel/posix_busybox_sh_redir_prog_blob.S</code> —
+<code>.incbin</code> of the linked ELF, weak start/end symbols.</p></li>
+<li><p><code>test/kernel/ktest_posix_busybox_sh_redir.c</code> —
+KASSERTs parent exits 0, then re-opens <code>/tmp/foo</code> through
+<code>vfs_simple</code> and asserts the contents are exactly
+<code>"a\n"</code>.</p></li>
+<li><p><code>Makefile</code> — three new build rules (object, ELF,
+blob), <code>KTEST_C</code> and <code>KTEST_S</code> lists extended,
+<code>clean</code> target updated.</p></li>
+</ul>
+<h3 id="production-changes">Production changes</h3>
+<h4
+id="nx_sys_fcntl-26-frameworksyscall.hc-95-lines"><code>NX_SYS_FCNTL = 26</code>
+(<code>framework/syscall.{h,c}</code>, ~95 lines)</h4>
+<p>Minimal cmd set covering exactly what ash uses during builtin
+redirection setup:</p>
+<ul>
+<li><p><strong>F_DUPFD (0)</strong> / <strong>F_DUPFD_CLOEXEC
+(1030)</strong> — find the lowest free slot whose encoded handle is ≥
+<code>arg</code>, install a copy of fd’s
+<code>(type, rights, object)</code>, retain the underlying object
+(CHANNEL endpoint refcount, FILE per-open refcount), and return the new
+encoded handle. CLOEXEC is moot in v1 since exec rebuilds the handle
+table from scratch in <code>sys_exec</code>, so both commands collapse
+to the same body.</p></li>
+<li><p><strong>F_GETFD (1) / F_SETFD (2) / F_GETFL (3) / F_SETFL
+(4)</strong> — return 0. We don’t track per-handle FD or open-file
+flags. ash treats this as “the bit you asked about was clear / was set
+successfully” and continues — exactly the behaviour we need without
+having to actually plumb FD_CLOEXEC.</p></li>
+<li><p>anything else — return <code>-ENOSYS = -38</code>. Programs that
+need real fcntl surface the gap explicitly.</p></li>
+</ul>
+<p>Encoded-handle reminder:
+<code>(generation &lt;&lt; 8) | (idx + 1)</code>. For a fresh slot we
+use generation 0, so the encoded value is <code>idx + 1</code>.
+F_DUPFD’s <code>arg</code> is the minimum POSIX fd; with gen 0 that maps
+to <code>idx ≥ arg - 1</code> (clamped to 0 for <code>arg ≤ 0</code>).
+Special case skipped: <code>arg &lt;= 0</code> would make the loop start
+at <code>min_idx = 0</code>, which is fine (slot 0 is reserved at
+<code>nx_process_create</code> for STDIN, so the search always passes
+through it without finding a free slot until slot 3+).</p>
+<p>Linux errno values returned directly (<code>-EBADF = -9</code>,
+<code>-EINVAL = -22</code>, <code>-EMFILE = -24</code>) — fcntl’s
+failure modes are programs-visible through musl’s errno translation, so
+they need the standard Linux numbering, not our internal
+<code>NX_E*</code>. Same pattern as session 59’s
+<code>sys_fstatat</code>.</p>
+<h4
+id="sys_dup3-file-retain-branch-frameworksyscall.c-5-lines"><code>sys_dup3</code>
+FILE retain branch (<code>framework/syscall.c</code>, ~5 lines)</h4>
+<p>Slice 7.6d.N.6a’s <code>sys_dup3</code> retained CHANNEL endpoints.
+This slice adds the FILE arm: when the source is
+<code>HANDLE_FILE</code>, call <code>vops-&gt;retain</code> on the
+per-open object so it survives the first close. Mirrors the existing
+CHANNEL branch one-to-one.</p>
+<h4 id="vfs-retain-op-interfacesfsvfs.h-componentsramfsvfs_simple.c">vfs
+<code>retain</code> op (<code>interfaces/{fs,vfs}.h</code> +
+components/{ramfs,vfs_simple}/*.c)</h4>
+<p>New <code>nx_fs_ops.retain(self, file)</code> and matching
+<code>nx_vfs_ops.retain</code>. Drivers that don’t refcount may leave
+the op NULL; the syscall layer falls back to “no retain” — semantically
+a leak in v1, but no driver currently needs that fallback.</p>
+<p>ramfs: <code>struct ramfs_open</code> gains a <code>refs</code>
+counter. <code>open()</code> returns <code>refs = 1</code>,
+<code>retain()</code> bumps, <code>close()</code> decrements and frees
+the slot only when <code>refs</code> reaches 0. POSIX semantic: dup’d
+fds share the cursor + flags.</p>
+<p>vfs_simple: <code>vfs_simple_retain</code> forwards to the active
+mount’s driver.</p>
+<h4 id="musl-translation">musl translation</h4>
+<p><code>__NR_fcntl (25) → NX_SYS_FCNTL (26)</code> in both
+<code>arch/aarch64/syscall_arch.h</code> (C-level
+<code>__syscallN</code>) and
+<code>src/thread/aarch64/syscall_cp.s</code> (asm-level
+<code>__syscall_cp_asm</code>).</p>
+<h2 id="discovery-bring-up">Discovery + bring-up</h2>
+<p>Started by writing the test program + ktest and running
+<code>make test</code>. Observed parent exits cleanly,
+<code>[bbsh-redir-status=01]</code> (ash exited 1),
+<code>/tmp/foo</code> did NOT exist or was empty.</p>
+<p>To pin where ash gave up I added a heavy diagnostic stack —
+<em>temporary</em>, all reverted before the commit:</p>
+<ul>
+<li><p>Kernel-side <code>kprintf("[&gt;%u(%x,%x,%x)]", ...)</code> and
+<code>kprintf("[&lt;%u-&gt;%d]", ...)</code> brackets in
+<code>nx_syscall_dispatch</code> to log every entry/exit (skipping svc 1
+to keep debug_write spam tractable).</p></li>
+<li><p>Kernel-side <code>kprintf("[svc?=%u]")</code> for the diagnostic
+syscall range (see below).</p></li>
+<li><p>Kernel-side <code>kprintf("[openat-path:\"%s\"]")</code> in
+<code>sys_openat</code>.</p></li>
+<li><p>Musl pass-through: <code>__nx_translate(n)</code>’s
+<code>default</code> returns <code>n + 1000</code> (instead of
+<code>-1</code>); kernel handles <code>1000 ≤ num &lt;   1500</code> by
+logging <code>[svc?=N]</code> and returning <code>-ENOSYS</code>. This
+passes the unmapped Linux syscall numbers through to the kernel so they
+show up in the trace. Same trick for the asm switch in
+<code>syscall_cp.s</code>
+(<code>add x8, x1, #1000; b .Lnx_run</code>).</p></li>
+<li><p>ash-side: direct svc 0 instructions in
+<code>openredirect()</code> and <code>redirect()</code>, plus inlined
+<code>write(2, ...)</code> calls before/after each <code>open()</code>
+and at the entry of <code>save_fd_on_redirect()</code>.</p></li>
+</ul>
+<p>First instrumented run: trace showed openat for “/tmp/foo” → fd 4
+followed <em>immediately</em> by <code>exit(1)</code> with NONE of the
+ash-side markers firing. Half-an-hour theorising “where did
+<code>openredirect()</code> go” and grepping the busybox binary for the
+markers (<code>readelf -p .rodata</code> confirmed they were in the
+rodata section).</p>
+<p>Root cause: <strong>stale initramfs.cpio</strong>. busybox had been
+rebuilt with my ash debug code, but
+<code>test/kernel/initramfs.cpio</code> was older than busybox and
+<code>make test</code> didn’t trigger a rebuild. The cpio rule does
+declare <code>$(BUSYBOX_BIN)</code> as a prerequisite, but on a
+fresh-from-distclean build the rule chain didn’t kick in — the binary
+was still 1224448 bytes from a prior session. Forcing
+<code>rm -f test/kernel/initramfs.cpio &amp;&amp; make test</code>
+rebuilt the cpio and re-embedded the new busybox.</p>
+<p>Second instrumented run: trace finally showed the full ash flow:</p>
+<pre><code>[REDIR-call] [oR-direct] [oR-NCLOBBER]
+[&gt;23(...)][openat-path:&quot;/tmp/foo&quot;][&lt;23-&gt;4]   openat → fd 4
+[oR-f+004]                                    open returned 4
+[sFR-enter]                                   save_fd_on_redirect
+[&gt;26(1,406,a)][&lt;26-&gt;10]                       fcntl(1, F_DUPFD_CLOEXEC, 10) → 10
+[&gt;26(a,2,1)][&lt;26-&gt;0]                          fcntl(10, F_SETFD, 1) → 0
+[&gt;24(4,1,0)][&lt;24-&gt;1]                          dup3(4, 1, 0) → 1
+[&gt;2(4,0,0)][&lt;2-&gt;0]                            close(4)
+[&gt;8(1,...,2)][&lt;8-&gt;2]                          write(1, &quot;a\n&quot;, 2) → 2
+[&gt;24(a,1,0)][&lt;24-&gt;1]                          dup3(10, 1, 0) → 1 (restore)
+[&gt;2(a,0,0)][&lt;2-&gt;0]                            close(10)
+[&gt;11(0,0,0)]                                  exit(0)
+[bbsh-redir-status=00][bbsh-redir-ok]
+[/tmp/foo open=ok read=2:&quot;a\n&quot;]
+PASS</code></pre>
+<p>Everything works end-to-end. fcntl handled F_DUPFD_CLOEXEC and
+F_SETFD correctly. dup3 retained the FILE handle so the subsequent close
+didn’t tear down the per-open before write could use it. ramfs
+accumulated the writes, vfs read-back saw “a”.</p>
+<p>After confirming the path was clean, all diagnostic instrumentation
+was reverted (<code>framework/syscall.c</code> dispatch + sys_openat,
+<code>syscall_arch.h</code> + <code>syscall_cp.s</code> musl
+pass-through, ash.c write markers). The kprintf-peek in the ktest was
+upgraded to a real <code>KASSERT_EQ_U(buf[0], 'a')</code> +
+<code>KASSERT_EQ_U(buf[1], '\n')</code> against the file content read
+back through vfs_simple.</p>
+<h2 id="outcome">Outcome</h2>
+<p><code>make test</code> → <strong>417/417 pass</strong> (51 python +
+275 host + 91 kernel), 0 leaks, 0 errors, exit 0.</p>
+<p>Live ktest log:</p>
+<pre><code>posix_busybox_sh_redir_parent_forks_and_execs_busybox_sh_redir
+[bbsh-redir-parent][bbsh-redir-status=00][bbsh-redir-ok]PASS</code></pre>
+<p>The slice closes the FILE-fd inheritance gap from slice 7.6a in the
+specific form ash actually exercises: <code>dup3</code> on a FILE handle
+into a builtin’s stdout slot, with the FILE per-open surviving close +
+re-close around it. Cross-process FILE-fd inheritance through fork (the
+original 7.6a follow-up) is still deferred — a forked child currently
+gets an empty handle table, which would leave the inherited FILE handle
+dangling. That’s the next gap to surface, likely with
+<code>cat /banner &gt; /tmp/copy</code> (which forces the redirected
+FILE handle to be inherited across the fork-exec to /bin/cat).</p>
+<h2 id="next-milestone">Next milestone</h2>
+<p>7.6d.N.9+ — escalate further to surface the next real gap. Likely
+candidates:</p>
+<ul>
+<li><p><code>cat /banner &gt; /tmp/copy</code> — cross-process FILE-fd
+inheritance through fork (the 7.6a residual), forces fork to
+dup-and-retain a FILE handle into the child’s table.</p></li>
+<li><p><code>cat &lt; /banner</code> — input redirection; slim variant
+of N.7.</p></li>
+<li><p><code>ls / | wc -l</code> — adds wc applet, exercises pipe with
+multi-line input AND <code>getline</code> over a CHANNEL.</p></li>
+<li><p><code>echo $(cat /banner)</code> — command substitution; probably
+needs pipe + double-fork.</p></li>
+</ul>
+<p>Final target: 7.6d.N.final (interactive <code>busybox sh</code> over
+UART RX — RX IRQ + per-process line buffer + sigaction for SIGINT +
+ioctl(TIOCGWINSZ) stub + tcsetattr stub).</p>
+<h2 id="lessons-notes">Lessons / Notes</h2>
+<ul>
+<li><p><strong>Build-system gotcha for the next slice:</strong> when
+changing <code>third_party/busybox/shell/*.c</code>, the busybox binary
+rebuilds (the build script’s internal make catches the source change),
+but the initramfs cpio’s dependency on busybox isn’t always enough to
+trigger re-pack on the <em>first</em> rebuild after a clean. Defensive
+habit: <code>rm -f test/kernel/initramfs.cpio</code> whenever ash is
+touched, or just <code>touch third_party/busybox/busybox</code> before
+<code>make test</code>.</p></li>
+<li><p><strong>fcntl as the cheapest “unblock ash” syscall.</strong> ash
+uses fcntl exclusively as a fancy dup — F_DUPFD_CLOEXEC for stash,
+F_SETFD to mark CLOEXEC, F_GETFD/F_GETFL/F_SETFL as no-ops during recipe
+setup. None of those need real per-handle flag storage in v1. When the
+time comes for <em>real</em> CLOEXEC semantics (fork-exec into a child
+that needs to see only some inherited handles), bump F_SETFD to actually
+set a per-slot bit and have <code>sys_exec</code> walk the table
+dropping the cloexec-flagged ones. Keep that behind the same fcntl entry
+point so the API surface doesn’t grow.</p></li>
+<li><p><strong>Refcounted vfs per-open as a single-use fix.</strong> The
+refcount lives on <code>struct ramfs_open</code> and is bumped only by
+<code>dup3</code> / <code>fcntl(F_DUPFD)</code> of a HANDLE_FILE.
+Single-process v1 doesn’t need atomics — RR scheduling means no two
+tasks concurrently mutate one process’s handle table without the
+preemption boundary serialising them. When SMP lands (or even when a
+future per-process kthread races with the syscall path), the bump and
+decrement need C11 atomics on <code>refs</code> (per the user’s
+preemption-needs-atomics feedback). Comment in <code>ramfs.c</code>
+flagging this would be useful but not load-bearing yet.</p></li>
+</ul>
+</body>
+</html>

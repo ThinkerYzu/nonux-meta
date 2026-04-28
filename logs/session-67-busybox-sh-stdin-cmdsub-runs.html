@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-67-busybox-sh-stdin-cmdsub-runs – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-67-slice-7.6d.n.10-bundled-file-on-stdin-workloads-run-end-to-end"
+id="toc-session-67-slice-7.6d.n.10-bundled-file-on-stdin-workloads-run-end-to-end">Session
+67: slice 7.6d.N.10 — bundled FILE-on-stdin workloads run end-to-end</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#implementation" id="toc-implementation">Implementation</a>
+<ul>
+<li><a href="#testkernelposix_busybox_sh_stdin_prog.c-workload-a"
+id="toc-testkernelposix_busybox_sh_stdin_prog.c-workload-a"><code>test/kernel/posix_busybox_sh_stdin_prog.c</code>
+(workload a)</a></li>
+<li><a href="#testkernelposix_busybox_sh_cmdsub_prog.c-workload-b"
+id="toc-testkernelposix_busybox_sh_cmdsub_prog.c-workload-b"><code>test/kernel/posix_busybox_sh_cmdsub_prog.c</code>
+(workload b)</a></li>
+<li><a href="#testkernelposix_busybox_sh_stdincmdsub_prog_blob.s"
+id="toc-testkernelposix_busybox_sh_stdincmdsub_prog_blob.s"><code>test/kernel/posix_busybox_sh_{stdin,cmdsub}_prog_blob.S</code></a></li>
+<li><a href="#testkernelktest_posix_busybox_sh_stdincmdsub.c"
+id="toc-testkernelktest_posix_busybox_sh_stdincmdsub.c"><code>test/kernel/ktest_posix_busybox_sh_{stdin,cmdsub}.c</code></a></li>
+<li><a href="#makefile" id="toc-makefile"><code>Makefile</code></a></li>
+</ul></li>
+<li><a href="#outcome-clean-first-try-both-workloads"
+id="toc-outcome-clean-first-try-both-workloads">Outcome — clean, first
+try (both workloads)</a></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#files-changed" id="toc-files-changed">Files
+changed</a></li>
+<li><a href="#what-this-slice-did-and-didnt-close"
+id="toc-what-this-slice-did-and-didnt-close">What this slice did and
+didn’t close</a></li>
+<li><a href="#lessons" id="toc-lessons">Lessons</a>
+<ul>
+<li><a href="#bundling-worked-exactly-as-planned."
+id="toc-bundling-worked-exactly-as-planned.">Bundling worked exactly as
+planned.</a></li>
+<li><a href="#the-audit-was-right-to-trim."
+id="toc-the-audit-was-right-to-trim.">The audit was right to
+trim.</a></li>
+<li><a href="#discovery-driven-workflow-has-two-modes."
+id="toc-discovery-driven-workflow-has-two-modes.">Discovery-driven
+workflow has two modes.</a></li>
+</ul></li>
+<li><a href="#whats-next" id="toc-whats-next">What’s next</a>
+<ul>
+<li><a href="#d.n.11-append-redirect-echo-a-tmpfoo"
+id="toc-d.n.11-append-redirect-echo-a-tmpfoo">7.6d.N.11 —
+Append-redirect: <code>echo a &gt;&gt; /tmp/foo</code></a></li>
+<li><a href="#eventually-7.6d.n.final-interactive-init-busybox-sh"
+id="toc-eventually-7.6d.n.final-interactive-init-busybox-sh">Eventually:
+7.6d.N.final — interactive <code>/init = busybox sh</code></a></li>
+</ul></li>
+<li><a href="#references" id="toc-references">References</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-67-slice-7.6d.n.10-bundled-file-on-stdin-workloads-run-end-to-end">Session
+67: slice 7.6d.N.10 — bundled FILE-on-stdin workloads run
+end-to-end</h1>
+<p><strong>Date:</strong> 2026-04-28 <strong>Phase:</strong> 7 slice
+7.6d.N.10 (busybox-as-shell, FILE-on-stdin + command substitution)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d.N.9 (session 66) closed stdout-redirection-to-file against
+an external command (<code>cat /banner &gt; /tmp/copy</code>). That
+slice exercised a HANDLE_FILE at <strong>slot 0</strong> (encoded fd 1)
+— the post-fork child opened the redirect file, dup3’d it onto fd 1, and
+execve’d cat into the resulting layout.</p>
+<p>This slice bundles the two natural next escalations that
+<em>each</em> exercise a new kernel composition (rather than just
+rearranging ash machinery — see session 66’s bundling audit and lessons
+for why we trimmed <code>&amp;&amp;</code> / <code>||</code> / 3-stage
+pipe out):</p>
+<ol type="1">
+<li><p><strong><code>cat &lt; /banner</code> — input redirection
+(workload a).</strong> First FILE handle at <strong>slot 2</strong>
+(encoded fd 0 = POSIX STDIN_FILENO). ash dup3s an O_RDONLY FILE handle
+onto fd 0 in the post-fork child, then execs cat with no path argument;
+cat reads from stdin via the FILE arm of <code>sys_read</code> through
+the slot-2 redirection (slice 7.6d.N.6b’s slot-2-routing was previously
+only tested with a CHANNEL replacement in
+<code>echo hello | cat</code>).</p></li>
+<li><p><strong><code>echo $(cat /banner)</code> — command substitution
+(workload b).</strong> First time a non-exec’d parent shell process is
+the pipe consumer. ash sets up a pipe, forks once for the inner cat, the
+child execs cat with stdout redirected to the pipe write end; the parent
+ash drains the pipe via <code>sys_read</code>’s CHANNEL arm, tokenises,
+then dispatches the outer echo builtin. Inverse of slice 7.6d.N.6b where
+the pipe consumer was an exec’d cat — validates the
+<code>NX_EAGAIN</code>-yield-loop + peer-closed-EOF machinery from a
+different process role.</p></li>
+</ol>
+<p>Discovery-driven, but with the explicit prediction (per HANDOFF
+N.10’s plan) that both <em>should</em> compose cleanly from already-
+tested mechanisms. Plan: write both, run, split into N.10a/10b only if
+either surfaces a real kernel gap.</p>
+<h2 id="implementation">Implementation</h2>
+<h3
+id="testkernelposix_busybox_sh_stdin_prog.c-workload-a"><code>test/kernel/posix_busybox_sh_stdin_prog.c</code>
+(workload a)</h3>
+<p>libnxlibc-linked program. Forks; child does:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>nxlibc_execve<span class="op">(</span><span class="st">&quot;/bin/busybox&quot;</span><span class="op">,</span> <span class="op">{</span> <span class="st">&quot;sh&quot;</span><span class="op">,</span> <span class="st">&quot;-c&quot;</span><span class="op">,</span> <span class="st">&quot;cat &lt; /banner&quot;</span><span class="op">,</span> NULL <span class="op">},</span> NULL<span class="op">);</span></span></code></pre></div>
+<p>Parent emits <code>[bbsh-stdin-parent]</code>,
+<code>[bbsh-stdin-status=NN]</code>, and one of
+<code>[bbsh-stdin-ok]</code> / <code>[bbsh-stdin-failed]</code>. Same
+shape as <code>posix_busybox_sh_cat_prog</code> (slice N.7); only the
+embedded -c string differs.</p>
+<h3
+id="testkernelposix_busybox_sh_cmdsub_prog.c-workload-b"><code>test/kernel/posix_busybox_sh_cmdsub_prog.c</code>
+(workload b)</h3>
+<p>Same shape; embedded -c string is <code>echo $(cat /banner)</code>.
+Marker prefixes are <code>[bbsh-cmdsub-…]</code>.</p>
+<h3
+id="testkernelposix_busybox_sh_stdincmdsub_prog_blob.s"><code>test/kernel/posix_busybox_sh_{stdin,cmdsub}_prog_blob.S</code></h3>
+<p><code>.incbin</code> of the linked ELF with
+<code>__posix_busybox_sh_{stdin,cmdsub}_prog_blob_{start,end}</code>
+symbols.</p>
+<h3
+id="testkernelktest_posix_busybox_sh_stdincmdsub.c"><code>test/kernel/ktest_posix_busybox_sh_{stdin,cmdsub}.c</code></h3>
+<p>Drives each program through the standard kernel-test plumbing
+(<code>nx_process_create</code> + <code>nx_elf_load_into_process</code>
++ <code>sched_spawn_kthread</code> + <code>drop_to_el0</code>). Asserts
+parent exits 0 and emits ≥3 markers. No vfs read-back assertion — both
+workloads write to CONSOLE, not to a file, so the live UART log between
+markers is the load-bearing observation:</p>
+<ul>
+<li><p>workload a: <code>hello from initramfs\n</code> between
+<code>[bbsh-stdin-parent]</code> and
+<code>[bbsh-stdin-status=00]</code></p></li>
+<li><p>workload b: <code>hello from initramfs\n</code> between
+<code>[bbsh-cmdsub-parent]</code> and
+<code>[bbsh-cmdsub-status=00]</code></p></li>
+</ul>
+<h3 id="makefile"><code>Makefile</code></h3>
+<p>Three list additions per workload (KTEST_C, KTEST_S, cleanup list) +
+one build-rule block per workload (compile .c, link .elf with libnxlibc,
+blob.S depends on .elf). Same recipe as N.7/N.8/N.9; only the prefix
+differs.</p>
+<h2 id="outcome-clean-first-try-both-workloads">Outcome — clean, first
+try (both workloads)</h2>
+<pre><code>posix_busybox_sh_stdin_parent_forks_and_execs_busybox_sh_stdin [bbsh-stdin-parent]hello from initramfs
+[bbsh-stdin-status=00][bbsh-stdin-ok]PASS
+posix_busybox_sh_cmdsub_parent_forks_and_execs_busybox_sh_cmdsub [bbsh-cmdsub-parent]hello from initramfs
+[bbsh-cmdsub-status=00][bbsh-cmdsub-ok]PASS</code></pre>
+<p>Both return status 0 with the banner text on stdout. No new
+kernel-side gaps surfaced; no need to split into N.10a/10b. The plan’s
+prediction held: each workload composes cleanly from already-tested
+kernel mechanisms.</p>
+<p>End-to-end traces (inferred from prior-slice mechanics; not
+re-instrumented this session):</p>
+<p><strong>Workload a (<code>cat &lt; /banner</code>).</strong> ash
+parsed <code>cat &lt; /banner</code>, walked PATH for cat, fstatat’d
+<code>/bin/cat</code>, forked; child opened <code>/banner</code> with
+O_RDONLY (<code>sys_openat</code> → HANDLE_FILE at some slot N), dup3’d
+that handle onto fd 0 (newfd=0 → slot 2 per slice N.6b’s
+POSIX-STDIN-FILENO routing; FILE retain bumped refs to 2; the inherited
+STDIN CONSOLE was overwritten), closed slot N (FILE refs back to 1),
+execve’d <code>/bin/cat</code>. <code>sys_exec</code> swapped address
+space + ELF image without touching the handle table. cat ran with no
+argv path arg → read loop on fd 0 → <code>sys_read</code> resolved fd 0
+to slot 2 → HANDLE_FILE arm fired → read /banner contents → wrote bytes
+to fd 1 (CONSOLE) → saw EOF on read → exited 0. ash returned that
+status.</p>
+<p><strong>Workload b (<code>echo $(cat /banner)</code>).</strong> ash
+parsed the substitution, allocated a pipe (<code>sys_pipe</code> →
+CHANNEL endpoints at slots 3/4), forked; child closed the read end,
+dup3’d the write end onto fd 1, closed both originals, execve’d
+<code>/bin/cat /banner</code>. cat read /banner, wrote to fd 1 (CHANNEL
+arm of <code>sys_write</code>), exited 0; the channel saw both endpoints
+close on the writer side, queueing peer-closed → EOF for the reader. The
+parent ash closed its copy of the write end, read-looped on the read end
+(<code>sys_read</code> CHANNEL arm wraps <code>nx_channel_recv</code> in
+the <code>NX_EAGAIN</code>-yield-loop until peer-EOF returns 0 — slice
+N.6b machinery), tokenised the captured bytes
+(<code>hello from initramfs</code> with the trailing newline collapsed
+by ash’s word-splitting), dispatched
+<code>echo hello from initramfs</code> which wrote
+<code>hello from initramfs\n</code> to fd 1 (CONSOLE), exited 0.</p>
+<p>Both runs exercise the kernel paths claimed in N.10’s plan: workload
+a is the first FILE-at-slot-2 install in any test; workload b is the
+first non-exec’d-parent-as-pipe-consumer in any test.</p>
+<h2 id="verification">Verification</h2>
+<p><code>make test</code> → <strong>420/420 PASSED</strong> (51 python +
+275 host + 94 kernel; +2 kernel tests from this slice), 0 leaks, 0
+errors, exit 0.</p>
+<p>Both new ktests pass on first run with no kernel changes. All prior
+busybox tests stay green (<code>--help</code>, <code>sh exit 42</code>,
+<code>sh echo hello</code>, <code>sh echo a; echo b</code>,
+<code>sh ls /</code>, <code>sh echo hello | cat</code>,
+<code>sh cat /banner</code>, <code>sh echo a &gt; /tmp/foo</code>,
+<code>sh cat /banner &gt; /tmp/copy</code>).</p>
+<h2 id="files-changed">Files changed</h2>
+<p>Production: none.</p>
+<p>Test:</p>
+<ul>
+<li>New: <code>test/kernel/posix_busybox_sh_stdin_prog.c</code> (~70
+lines)</li>
+<li>New: <code>test/kernel/posix_busybox_sh_stdin_prog_blob.S</code> (15
+lines)</li>
+<li>New: <code>test/kernel/ktest_posix_busybox_sh_stdin.c</code> (~100
+lines)</li>
+<li>New: <code>test/kernel/posix_busybox_sh_cmdsub_prog.c</code> (~85
+lines)</li>
+<li>New: <code>test/kernel/posix_busybox_sh_cmdsub_prog_blob.S</code>
+(15 lines)</li>
+<li>New: <code>test/kernel/ktest_posix_busybox_sh_cmdsub.c</code> (~100
+lines)</li>
+<li>Modified: <code>Makefile</code> (3 list additions + 2 build-rule
+blocks + 2 cleanup-list entries)</li>
+</ul>
+<p>Total: 7 files net (6 new, 1 Makefile edit), ~390 lines.</p>
+<h2 id="what-this-slice-did-and-didnt-close">What this slice did and
+didn’t close</h2>
+<p><strong>Closed:</strong></p>
+<ul>
+<li><p>FILE-handle install at slot 2 (POSIX STDIN_FILENO) via the
+<code>dup3(_, 0, 0)</code> newfd=0 special-case. Previously only
+exercised with a CHANNEL replacement in slice 7.6d.N.6b.</p></li>
+<li><p><code>sys_exec</code>’s “preserve handle table” semantic for a
+FILE handle at slot 2 (slice N.9 covered slot 0 / fd 1).</p></li>
+<li><p><code>sys_read</code> FILE arm reached via fd 0 / slot
+2.</p></li>
+<li><p><code>sys_read</code> CHANNEL arm +
+<code>NX_EAGAIN</code>-yield-loop + peer-closed-EOF reached from a
+non-exec’d parent shell process (slice N.6b had an exec’d cat as the
+consumer).</p></li>
+<li><p>The fork-time CHANNEL inheritance from slice 7.6a (where the
+CHANNEL endpoint that the parent reads from must survive the fork that
+creates the child writer) composes with the pipe setup in command
+substitution.</p></li>
+</ul>
+<p><strong>Not closed (still deferred):</strong></p>
+<ul>
+<li>Cross-process FILE-fd inheritance through fork (the original 7.6a
+residual). Workload a opens the FILE in the child after fork; workload b
+doesn’t involve a FILE on the pipe path. Surfacing this still needs a
+workload where the parent holds a FILE handle open <em>before</em>
+forking — ash’s dominant idiom (“fork + redirect-in-child + exec”)
+doesn’t naturally produce that shape.</li>
+</ul>
+<h2 id="lessons">Lessons</h2>
+<h3 id="bundling-worked-exactly-as-planned.">Bundling worked exactly as
+planned.</h3>
+<p>Two workloads in one slice, no kernel gaps, zero need to split.
+Doc/commit overhead is a single session log + a single HANDOFF delta.
+Had either workload surfaced a gap, the contract was to split into
+N.10a/10b — but the audit (session 66) correctly identified both as
+“compose already-tested mechanisms in a new shape.” This is the right
+shape for bundling: workloads that each test a <em>distinct</em> new
+composition but where each composition’s component pieces have already
+been validated individually.</p>
+<h3 id="the-audit-was-right-to-trim.">The audit was right to trim.</h3>
+<p>Recall the original draft of N.10 had five workloads:
+<code>cat &lt; /banner</code>,
+<code>cat /banner &amp;&amp; echo done</code>,
+<code>cat /missing || echo failed</code>,
+<code>echo $(cat /banner)</code>, <code>ls / | wc -l</code>. Session
+66’s audit cut three to keep only the two with new kernel surface. This
+slice would have spent ~150 extra test-infrastructure lines + 3 extra
+entries in HANDOFF on tests that all return clean PASS but exercise no
+new kernel behavior. Bundling and audit-trimming together kept the slice
+tight.</p>
+<h3 id="discovery-driven-workflow-has-two-modes.">Discovery-driven
+workflow has two modes.</h3>
+<p>The escalation-ladder pattern (N.6a → N.6b, N.8 → N.9, N.10 → …)
+interleaves <em>discovery</em> slices (likely surfaces a kernel gap;
+size of the patch is unpredictable; expect one ktest + production code)
+with <em>validation</em> slices (likely composes clean; size is
+predictable; expect one or more ktests + zero production code). Naming
+them differently or numbering them distinctly might be worth thinking
+about. For now the ballot-box-status field carries that information
+implicitly (a slice with <code>(none — test only)</code> in the
+IMPL-GUIDE column is a validation slice).</p>
+<h2 id="whats-next">What’s next</h2>
+<h3 id="d.n.11-append-redirect-echo-a-tmpfoo">7.6d.N.11 —
+Append-redirect: <code>echo a &gt;&gt; /tmp/foo</code></h3>
+<p>Per HANDOFF N.10’s “next” pointer: ash opens the redirect file with
+<code>O_WRONLY | O_APPEND</code>; we don’t translate
+<code>O_APPEND</code> (vfs only knows
+<code>NX_VFS_OPEN_{READ,WRITE,CREATE}</code>). Likely surfaces either a
+flag-translation gap in <code>sys_openat</code> (cleanly add
+<code>NX_VFS_OPEN_APPEND</code> + a switch arm in vfs_simple + matching
+ramfs implementation that seeks-to-end before each write) or a missing
+append-write semantic in ramfs (write_at vs write_appending). First
+slice since N.6b that’s expected to need real kernel/vfs change. Single
+workload, kept separate from N.10 because it’s a <em>discovery</em>
+slice rather than a <em>validation</em> slice.</p>
+<h3 id="eventually-7.6d.n.final-interactive-init-busybox-sh">Eventually:
+7.6d.N.final — interactive <code>/init = busybox sh</code></h3>
+<p>Once non-interactive <code>sh -c</code> of progressively richer
+commands runs cleanly (we’re a few escalations away), switch the
+production-side <code>/init</code> to busybox and start the interactive
+flow. Needs: UART RX IRQ, per-process line buffer,
+<code>sigaction</code> (ash always calls it during interactive startup),
+<code>ioctl(0, TIOCGWINSZ)</code> (terminal size — can stub -ENOTTY),
+<code>tcsetattr</code> stub. Closes slice 7.6d.</p>
+<h2 id="references">References</h2>
+<ul>
+<li><a href="../HANDOFF.html#current-status">HANDOFF.md §Current
+Status</a></li>
+<li><a href="../HANDOFF.html#next-actions">HANDOFF.md §Next
+Actions</a></li>
+<li><a href="session-66-busybox-sh-copy-runs.html">Session 66</a> — slice
+7.6d.N.9 (the trimming audit + bundling rationale)</li>
+<li><a href="session-64-busybox-sh-cat-runs.html">Session 64</a> — slice
+7.6d.N.7 (the test pattern for FILE-input-via-path)</li>
+<li><a href="session-63-busybox-sh-pipe-runs.html">Session 63</a> — slice
+7.6d.N.6b (CHANNEL machinery + slot 0/1/2 reservation + pipe EOF)</li>
+</ul>
+</body>
+</html>

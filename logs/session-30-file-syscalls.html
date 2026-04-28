@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-30-file-syscalls – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-30-slice-6.3-file-syscalls-handle_file-destructor-el0-file-round-trip"
+id="toc-session-30-slice-6.3-file-syscalls-handle_file-destructor-el0-file-round-trip">Session
+30: slice 6.3 — file syscalls + HANDLE_FILE destructor + EL0 file
+round-trip</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworksyscall.h-three-new-syscall-numbers-constants"
+id="toc-frameworksyscall.h-three-new-syscall-numbers-constants"><code>framework/syscall.h</code>
+— three new syscall numbers + constants</a></li>
+<li><a href="#frameworksyscall.c-file-syscalls-close-extension"
+id="toc-frameworksyscall.c-file-syscalls-close-extension"><code>framework/syscall.c</code>
+— file syscalls + close extension</a></li>
+<li><a href="#testkerneluser_prog_file.s-baked-in-el0-program"
+id="toc-testkerneluser_prog_file.s-baked-in-el0-program"><code>test/kernel/user_prog_file.S</code>
+— baked-in EL0 program</a></li>
+<li><a href="#tests" id="toc-tests">Tests</a></li>
+<li><a href="#makefile-wiring" id="toc-makefile-wiring">Makefile
+wiring</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-30-slice-6.3-file-syscalls-handle_file-destructor-el0-file-round-trip">Session
+30: slice 6.3 — file syscalls + HANDLE_FILE destructor + EL0 file
+round-trip</h1>
+<p><strong>Date:</strong> 2026-04-23 <strong>Phase:</strong> 6 slice 6.3
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Close the EL0-userspace-to-filesystem loop. Slice 6.2 left two new
+components active in the bootstrap composition but no way for a
+userspace program to reach them; slice 6.3 adds three syscalls
+(<code>open</code> / <code>read</code> / <code>write</code>), wires the
+handle layer to vfs_simple’s close via a new <code>HANDLE_FILE</code>
+branch, and proves the whole chain end-to-end with a baked-in EL0
+program.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Fixed-size staging buffer + length cap.</strong>
+Read/write use a 256-byte <code>NX_FILE_IO_MAX</code> staging buffer.
+Consumers passing larger <code>cap</code> / <code>len</code> get at most
+that many bytes per call — users loop to transfer more. Matches the
+channel shape (<code>NX_CHANNEL_MSG_MAX = 256</code>) so the two bulk-IO
+kernel paths share a size class and neither needs a runtime allocator in
+v1.</p></li>
+<li><p><strong>Per-byte path copy.</strong>
+<code>copy_path_from_user</code> reads one byte at a time through the
+user-window bounds check rather than trying to bulk-copy
+<code>NX_PATH_MAX</code> bytes. Motivation: a path that genuinely ends
+before the user-window boundary would fail a bulk copy’s bounds check
+even though it’s valid. Per-byte is slower per call (128 tiny memcpys
+vs. one 128-byte memcpy) but paths are fundamentally short and the
+bounds-check correctness matters more than the microseconds.</p></li>
+<li><p><strong>Rights derived from open flags.</strong>
+<code>NX_VFS_OPEN_READ →   NX_RIGHT_READ</code>,
+<code>NX_VFS_OPEN_WRITE → NX_RIGHT_WRITE</code>. <code>CREATE</code> is
+an open-time flag only and doesn’t become a right (nothing consumes it
+after open). <code>NX_RIGHT_SEEK</code> is already defined in handle.h
+but nothing populates it yet — slice 6.4 wires it when the seek syscall
+lands.</p></li>
+<li><p><strong>Close-after-unmount semantics.</strong> If the
+<code>vfs</code> slot is unmounted between <code>open</code> and
+<code>close</code>, the handle-close bails on the driver- close step
+(the object leaks in the driver) but still reclaims the handle-table
+slot. Documented in the syscall body; a host test pins the behaviour so
+a future rewrite can’t regress without explicit
+acknowledgement.</p></li>
+<li><p><strong>No per-task handle table yet.</strong> Still using the
+single global <code>g_kernel_handles</code> from slice 5.4. Per-task
+tables remain a Phase 5 follow-up; no file-syscall feature ride-alongs
+with it.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="frameworksyscall.h-three-new-syscall-numbers-constants"><code>framework/syscall.h</code>
+— three new syscall numbers + constants</h3>
+<ul>
+<li><p><code>NX_SYS_OPEN = 6</code>, <code>NX_SYS_READ = 7</code>,
+<code>NX_SYS_WRITE = 8</code> appended before
+<code>NX_SYSCALL_COUNT</code>. Keeps the ABI stable — prior numbers
+(including the channel syscalls) unchanged.</p></li>
+<li><p><code>NX_PATH_MAX = 128</code> and
+<code>NX_FILE_IO_MAX = 256</code> public so EL0 programs and tests can
+size their buffers without guessing.</p></li>
+</ul>
+<h3
+id="frameworksyscall.c-file-syscalls-close-extension"><code>framework/syscall.c</code>
+— file syscalls + close extension</h3>
+<ul>
+<li><p><code>resolve_vfs(out_ops, out_self)</code> helper. Looks up the
+<code>vfs</code> slot and extracts <code>iface_ops</code> (cast to
+<code>nx_vfs_ops *</code>) + <code>impl</code>. Same shape as the
+slice-5.6 <code>resolve_vfs</code> pattern vfs_simple itself uses to
+reach <code>filesystem.root</code> — one step up the stack.</p></li>
+<li><p><code>copy_path_from_user(kdst, cap, user_src)</code>. Per-byte
+<code>copy_from_user</code> loop, stops on NUL. Returns NX_EINVAL if no
+NUL within <code>cap</code> or any byte fails the bounds check.</p></li>
+<li><p><code>sys_handle_close</code> gains a <code>HANDLE_FILE</code>
+branch: after looking up (type, object) and confirming type == FILE with
+non-NULL object, it calls <code>resolve_vfs</code> and dispatches
+through <code>vops-&gt;close</code>. If the vfs slot is gone, the
+driver-close is silently skipped and the handle slot still gets
+freed.</p></li>
+<li><p><code>sys_open(path, flags)</code>. Path copy → resolve_vfs →
+driver open → rights-derive → nx_handle_alloc for a
+<code>HANDLE_FILE</code>. On handle-alloc failure, calls
+<code>vops-&gt;close</code> to roll back the driver-side open so the
+per-open pool stays balanced. Returns the handle as
+<code>nx_status_t</code> (handles are uint32, stats are int64; the
+upcast is well-defined).</p></li>
+<li><p><code>sys_read(h, buf, cap)</code> /
+<code>sys_write(h, buf, len)</code>. Shared shape:
+<code>lookup_file_object(h, need_rights, &amp;obj)</code> (validates
+type + rights, returns the per-open object pointer);
+<code>resolve_vfs</code>; read/write through a kernel staging buffer
+capped at <code>NX_FILE_IO_MAX</code>.</p></li>
+<li><p>Dispatch table grows three entries.</p></li>
+</ul>
+<h3
+id="testkerneluser_prog_file.s-baked-in-el0-program"><code>test/kernel/user_prog_file.S</code>
+— baked-in EL0 program</h3>
+<p>Follows <code>user_prog_chan.S</code>’s pattern:</p>
+<ol type="1">
+<li><code>open("/hello", READ|WRITE|CREATE)</code> → handle in x19.</li>
+<li><code>write(w, "[el0-file-ok]", 13)</code>.</li>
+<li><code>close(w)</code> — runs the new HANDLE_FILE destructor.</li>
+<li><code>open("/hello", READ)</code> → handle in x19.</li>
+<li><code>read(r, recv_buf, 64)</code> → byte count in x20.</li>
+<li><code>close(r)</code>.</li>
+<li><code>debug_write(recv_buf, x20)</code> — produces
+<code>[el0-file-ok]</code> on UART.</li>
+<li><code>wfe</code> park.</li>
+</ol>
+<p>All PC-relative; copies into the user window the same way the channel
+program does. Symbol markers <code>__user_file_prog_start / _end</code>
+link into <code>.rodata</code> of <code>kernel-test.bin</code>.</p>
+<h3 id="tests">Tests</h3>
+<ul>
+<li><strong><code>test/host/file_syscall_test.c</code></strong> — 9
+tests, same fake-fs injection pattern used by
+<code>component_vfs_simple_test.c</code> (slice 6.2) but extended to
+stand up a full <code>vfs_simple</code> component bound to the
+<code>vfs</code> slot so the syscall dispatcher has a complete
+composition to call into:
+<ul>
+<li><code>sys_open_create_write_close_roundtrip</code> — the headline
+happy path, also asserts <code>fake_fs.close_calls</code> grew (proves
+the HANDLE_FILE branch fired).</li>
+<li><code>sys_open_assigns_rights_from_flags</code> — open WRITE-only,
+read gets NX_EPERM.</li>
+<li><code>sys_read_on_non_file_handle_returns_einval</code> — alloc a
+VMO handle directly, sys_read rejects.</li>
+<li><code>sys_write_on_stale_handle_returns_enoent</code>.</li>
+<li><code>sys_open_with_no_vfs_slot_returns_enoent</code>.</li>
+<li><code>sys_open_null_path_returns_einval</code>.</li>
+<li><code>sys_open_path_without_nul_within_cap_returns_einval</code>.</li>
+<li><code>sys_open_then_write_caps_at_file_io_max</code> — write request
+larger than <code>NX_FILE_IO_MAX</code> returns a capped byte
+count.</li>
+<li><code>sys_handle_close_file_after_unmount_still_closes_handle_slot</code>
+— documented edge case where driver-close is skipped but handle slot is
+still reclaimed.</li>
+</ul></li>
+<li><strong><code>test/kernel/ktest_vfs.c</code></strong> gains
+<code>el0_file_open_write_close_reopen_read_roundtrip</code>: spawns a
+kthread that copies <code>user_prog_file.S</code> bytes into the user
+window and drops to EL0. Yields until the debug_write counter rises (the
+end-to-end signal — every earlier SVC must have succeeded for EL0 to
+reach it), then dequeues the stranded task. Live ktest log now shows
+<code>[el0-file-ok]</code> alongside <code>[el0] hello</code> and
+<code>[el0-chan-ok]</code>.</li>
+</ul>
+<h3 id="makefile-wiring">Makefile wiring</h3>
+<ul>
+<li><code>test/host/Makefile</code>: SRCS +=
+<code>file_syscall_test.c</code>.</li>
+<li>Top Makefile: <code>KTEST_S</code> +=
+<code>test/kernel/user_prog_file.S</code>.</li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong><code>sys_handle_close</code> is the right centralisation
+point.</strong> By the time slice 6.3 landed its
+<code>HANDLE_FILE</code> branch, <code>sys_handle_close</code> was
+already doing a type-aware dispatch for <code>HANDLE_CHANNEL</code>
+(slice 5.6). Adding a new type is a two-line change. This suggests
+future handle types (VMO, PROCESS, …) should all route through the same
+type-aware close rather than each syscall family rolling its own close
+path.</p></li>
+<li><p><strong>Per-byte path copy pays for itself.</strong> First draft
+did a bulk <code>copy_from_user(kpath, user_path, NX_PATH_MAX)</code>
+followed by a NUL search; any path within ~128 bytes of the user-window
+end would fail even though the path itself was valid. Per-byte fixes it
+and costs essentially nothing (paths are NUL-terminated within a few
+bytes typically; the loop exits early).</p></li>
+<li><p><strong>Fake-fs fixture carry-over.</strong> The slice-6.2
+<code>component_vfs_simple_test.c</code> already had a fake_fs shape
+tailored to test vfs_simple’s dispatch; slice 6.3’s
+<code>file_syscall_test.c</code> reuses the same pattern but needs a
+fake_fs with actual per-open storage (not just call recording) so the
+<code>write → close → reopen → read</code> round-trip pattern can be
+reasoned about. Two slightly different fakes in two test files is fine —
+consolidating would mean building a shared fixtures library, which is
+over-engineering for two callers.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Rollback on handle-alloc failure in sys_open.</strong> If
+<code>nx_handle_alloc</code> fails after <code>vops-&gt;open</code>
+succeeds, the syscall explicitly calls <code>vops-&gt;close</code> to
+release the per-open slot. Why: leaving it unreleased would leak a
+driver-side resource on a pathological failure path (handle table full).
+How to apply: any future syscall that allocates both a handle and a
+driver-side resource must follow the “alloc handle AFTER driver
+resource; roll back driver on handle failure” pattern.</p></li>
+<li><p><strong>Close-after-unmount skips the driver.</strong> If the
+<code>vfs</code> slot is gone by the time close runs, the driver-close
+is silently skipped and the handle slot reclaimed. Why: we have no way
+to reach the old driver once the slot is unbound; the handle slot still
+must be freed so the caller’s table doesn’t leak. How to apply: any
+future handle type with an object-side destructor that dispatches
+through a slot needs the same “slot gone → reclaim handle, skip
+destructor” policy.</p></li>
+<li><p><strong>No seek/readdir in 6.3.</strong> Even though
+<code>nx_fs_ops.read / .write</code> advance a cursor and a seek is
+useful, adding <code>seek</code> here would double the slice’s surface
+area. Deferred to 6.4 where the directory support pays for the shared
+interface-header churn anyway.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>348/348 pass (51 python + 243
+host + 54 kernel), 0 leaks, 0 errors, exit 0</strong>. +10 from slice
+6.2.</p></li>
+<li><p><code>make run</code> (plain kernel.bin under QEMU) boots through
+to the idle loop with the 5-slot composition log unchanged from slice
+6.2 — no regression in the bring-up path.</p></li>
+<li><p><code>make test-kernel</code> ktest log shows three EL0 markers
+back to back: <code>[el0] hello</code> (slice 5.5),
+<code>[el0-chan-ok]</code> (slice 5.6), <code>[el0-file-ok]</code> (this
+slice). Each one a complete end-to-end SVC round-trip through a distinct
+syscall family.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Slice 6.4 closes Phase 6:</p>
+<ul>
+<li><p>Add <code>readdir</code> + <code>seek</code> to
+<code>interfaces/fs.h</code> and <code>interfaces/vfs.h</code>. The two
+interfaces diverge here: VFS readdir will iterate across mount
+boundaries (Phase 8+), fs-driver readdir stops at the current
+fs.</p></li>
+<li><p>Extend the slice-6.1 <code>conformance_fs</code> suite with
+readdir + seek cases. Ramfs passes automatically once it implements
+them.</p></li>
+<li><p>Ramfs grows a one-level directory inode. v1: only <code>/</code>
+is a directory; ramfs’s flat filename table becomes the <code>/</code>
+dentry list.</p></li>
+<li><p><code>NX_SYS_READDIR(h, &amp;entry, cap)</code> +
+<code>NX_SYS_SEEK(h, offset,   whence)</code> syscalls.
+<code>NX_RIGHT_SEEK</code> populated on open.</p></li>
+<li><p>EL0 demo opens <code>/</code>, iterates its dentries, writes each
+name to UART. Phase 6 closes.</p></li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/framework/syscall.h</code> — three new syscall
+numbers; <code>NX_PATH_MAX</code> / <code>NX_FILE_IO_MAX</code></li>
+<li><code>sources/nonux/framework/syscall.c</code> —
+<code>resolve_vfs</code>, <code>copy_path_from_user</code>,
+<code>sys_open</code>, <code>sys_read</code>, <code>sys_write</code>;
+HANDLE_FILE branch in <code>sys_handle_close</code></li>
+<li><code>sources/nonux/test/kernel/user_prog_file.S</code> — new (EL0
+round-trip program)</li>
+<li><code>sources/nonux/test/kernel/ktest_vfs.c</code> — add EL0 file
+round-trip ktest</li>
+<li><code>sources/nonux/test/host/file_syscall_test.c</code> — new (9
+syscall-level tests with full vfs_simple + fake_fs composition)</li>
+<li><code>sources/nonux/test/host/Makefile</code> — add
+file_syscall_test.c</li>
+<li><code>sources/nonux/Makefile</code> — add
+<code>test/kernel/user_prog_file.S</code> to <code>KTEST_S</code></li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 6.3
+rewritten with as-built details</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 25 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

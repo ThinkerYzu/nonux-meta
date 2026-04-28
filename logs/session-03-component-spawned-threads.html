@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-03-component-spawned-threads – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-3-component-spawned-threads-and-thread-local-slot-dereferences"
+id="toc-session-3-component-spawned-threads-and-thread-local-slot-dereferences">Session
+3: Component-Spawned Threads and Thread-Local Slot Dereferences</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#spec-r18-new-sub-bullet"
+id="toc-spec-r18-new-sub-bullet">SPEC R18 — new sub-bullet</a></li>
+<li><a
+href="#design-new-component-spawned-threads-subsection-under-execution-model"
+id="toc-design-new-component-spawned-threads-subsection-under-execution-model">DESIGN
+— new “Component-Spawned Threads” subsection under Execution
+Model</a></li>
+<li><a href="#design-invariant-7-extended"
+id="toc-design-invariant-7-extended">DESIGN — Invariant #7
+extended</a></li>
+<li><a href="#design-ai-review-rubric-expanded"
+id="toc-design-ai-review-rubric-expanded">DESIGN — AI Review Rubric
+expanded</a></li>
+<li><a href="#design-design-evolution-dated-entry"
+id="toc-design-design-evolution-dated-entry">DESIGN — “Design Evolution”
+dated entry</a></li>
+<li><a href="#handoff" id="toc-handoff">HANDOFF</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-3-component-spawned-threads-and-thread-local-slot-dereferences">Session
+3: Component-Spawned Threads and Thread-Local Slot Dereferences</h1>
+<p><strong>Date:</strong> 2026-04-18 <strong>Phase:</strong> Design
+extension (ahead of Phase 3 implementation) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li>Permit components to spawn their own worker threads for long
+CPU-bound work that fits neither the bounded-handler rule nor
+<code>dedicated</code> mode’s single-threaded queue.</li>
+<li>Close a subtler version of the “slot leaked outside a dispatcher”
+loophole: a dispatcher handler resolving a slot and then handing the
+<code>impl*</code> to a component-spawned worker thread.</li>
+<li>Decide how to enforce the new rule without adding a new static
+checker — leverage the AI review rubric already in the design.</li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="spec-r18-new-sub-bullet">SPEC R18 — new sub-bullet</h3>
+<p>Added a “Component-spawned threads and thread-local dereferences”
+sub-bullet to functional requirement #18 (Component Graph Registry). Two
+rules:</p>
+<ol type="1">
+<li><strong>Dereferenced slot pointers are thread-local.</strong> A
+dispatcher handler must not pass a resolved <code>impl*</code> to a
+worker thread. If a worker needs to reach another component, the
+component carries the <strong>slot reference</strong> into the worker
+(registered via <code>slot_ref_retain</code>, listed in the manifest’s
+<code>retains</code> array), and the worker enqueues a message to the
+slot — a dispatcher resolves it. Dispatcher threads remain the only
+category permitted to dereference slots.</li>
+<li><strong>Component drains its own threads.</strong> Any component
+that spawns its own threads must declare a <code>pause_hook</code> in
+its manifest. Framework invokes it during the pause protocol’s cutoff
+step; component is responsible for reaching worker quiescence within the
+pause deadline. Missing <code>pause_hook</code> on a thread-spawning
+component is a manifest validation error.</li>
+</ol>
+<p>The sub-bullet also notes the preference order: try
+<code>dedicated</code> mode first (framework-managed thread + queue, no
+<code>pause_hook</code> needed). Use component-spawned threads only when
+the workload genuinely doesn’t fit a simple message-queue dispatch
+pattern.</p>
+<h3
+id="design-new-component-spawned-threads-subsection-under-execution-model">DESIGN
+— new “Component-Spawned Threads” subsection under Execution Model</h3>
+<p>Inserted between “Bounded Handlers and Async Split” and “Concurrency
+Modes”. Contents:</p>
+<ul>
+<li><strong>Scope.</strong> Async split with completion messages handles
+long operations driven by external events (device I/O, timer, peer IPC).
+Component-spawned threads are for CPU-bound work with no external driver
+— rebuilding a large index, batch crypto with too-small units for per-op
+async split.</li>
+<li><strong>Rule 1 with good/bad code example.</strong> The
+<code>bad_start_job</code> case hands
+<code>hasher = slot_resolve(...)</code> directly to
+<code>spawn_worker</code>; the <code>good_start_job</code> case hands
+<code>self</code> to the worker, and the worker uses
+<code>ipc_send(self-&gt;deps.hasher, req)</code> — a dispatcher
+resolves.</li>
+<li><strong>Rule 2 with hook signature.</strong> <code>pause_hook</code>
+runs after the dispatcher cutoff barrier is visible but before the drain
+completion check; component signals workers, joins/parks, returns within
+the configured deadline (default 1 ms, per-slot configurable).</li>
+<li><strong>Enforcement split.</strong> R8 static check catches the
+syntactic case (worker function dereferences a slot). The subtler
+dataflow case (handler copies resolved <code>impl*</code> into a struct
+passed to <code>spawn_worker</code>, crossing a <code>void*</code>
+thread-entry boundary) is delegated to the AI review rubric. Reviewer
+agent is the authority for this class.</li>
+<li><strong>Relationship to <code>dedicated</code>.</strong> Clarified
+that <code>dedicated</code> is the framework-managed version of this
+pattern. Component-spawned threads are for pool-of-workers or
+blocks-on-non-framework-primitive shapes. Use <code>dedicated</code>
+first.</li>
+</ul>
+<h3 id="design-invariant-7-extended">DESIGN — Invariant #7 extended</h3>
+<p>Previously: slot dereferences must occur on a framework-owned
+dispatcher thread; ISRs and non-dispatcher kthreads enqueue
+messages.</p>
+<p>Now also covers: <strong>component-spawned worker threads enqueue
+messages but never dereference slots — including pointers handed to them
+by a dispatcher handler.</strong> Points to the new Component-Spawned
+Threads subsection for the rationale.</p>
+<h3 id="design-ai-review-rubric-expanded">DESIGN — AI Review Rubric
+expanded</h3>
+<p>Added two checklist items to the registry review rubric:</p>
+<ul>
+<li>Cross-thread slot-dereference rule: no dispatcher handler passes a
+resolved <code>impl*</code> into a worker through arguments, captured
+state, or a shared struct. The rubric text explicitly names the reviewer
+agent as the authority for this item because the dataflow crosses
+user-supplied thread-entry boundaries that deterministic analysis cannot
+always resolve.</li>
+<li><code>pause_hook</code> presence-and-quality: if the component
+spawns workers, the manifest declares a <code>pause_hook</code> and the
+hook reaches quiescence within the pause deadline.</li>
+</ul>
+<h3 id="design-design-evolution-dated-entry">DESIGN — “Design Evolution”
+dated entry</h3>
+<p>Added a “2026-04-18 — Component-Spawned Threads” section summarizing
+the design shift, the enforcement split, and the tie-back to the
+project’s AI-verified philosophy.</p>
+<h3 id="handoff">HANDOFF</h3>
+<p>Added a new row to the Key Design Decisions table; session log
+entry.</p>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li>The <code>dedicated</code> mode covers only a narrow slice of “I
+need long work.” Pool-of-workers shapes or workers that block on
+non-framework primitives (e.g., waiting on a hardware doorbell that
+isn’t wired through the IPC router) need something else — and the honest
+answer is “let the component spawn a thread, and hold it to two
+rules.”</li>
+<li>The slot-leak loophole for component-spawned threads is a strict
+<strong>superset</strong> of the IPC-message loophole closed in Session
+2. IPC leaks are fixed with typed caps + <code>slot_ref_retain</code>.
+Thread leaks can’t be fixed the same way because the handoff is a plain
+<code>void *</code> to a user-supplied thread entry point — the
+framework has no hook to inspect it. This is why the AI review rubric is
+load-bearing here rather than just supplementary.</li>
+<li>Splitting enforcement (R8 for syntactic cases, AI rubric for
+dataflow cases) is the correct posture for this project. It’s consistent
+with the Session 2 stance that AI reviewers are part of the build gate,
+not an optional quality pass. Adding a new R-check with a
+“framework-only thread spawn API” would have constrained every component
+author for one enforcement case that the rubric already handles.</li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><strong>Component-spawned threads are allowed</strong> alongside
+dispatcher-served handlers, for CPU-bound work that fits neither async
+split nor <code>dedicated</code>. They are an escape hatch: dedicated
+first, component threads second, never as a default.</li>
+<li><strong>Dereferenced slot pointers are thread-local.</strong> The
+rule extends slot-resolve locality to “the thread that resolved the
+slot” rather than just “a dispatcher thread category.” Cross-thread
+pointer handoff is disallowed even if both threads belong to the same
+component.</li>
+<li><strong><code>pause_hook</code> is a manifest-declared,
+component-owned drain mechanism.</strong> The framework cannot drain
+threads it does not own; making the component responsible — and making
+<code>pause_hook</code> a validation error if it’s missing when threads
+are spawned — is the minimum surface that preserves the pause protocol’s
+guarantees.</li>
+<li><strong>AI review rubric is the enforcement mechanism for rule
+(1).</strong> No new static checker, no framework-imposed thread-spawn
+API, no dataflow-analysis pass. The reviewer agent walks worker entry
+points and verifies no <code>impl*</code> is reachable from arguments or
+captured state. This is consistent with Session 2’s commitment that
+compliance is AI-verified, not human-review-discipline.</li>
+<li><strong>R8 retains its original scope.</strong> R8 is still “no slot
+dereference reachable from an ISR or non-dispatcher kthread call graph.”
+It catches the syntactic case; it does not gain a new dataflow-analysis
+requirement for cross-thread pointer leaks.</li>
+<li><strong>Manifest gains a new optional field
+(<code>pause_hook</code>) and existing <code>retains</code> array
+carries slot refs worker threads will use.</strong> No new manifest
+concept beyond the hook function pointer; <code>retains</code> already
+exists for runtime-acquired slot refs.</li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li>SPEC.md R18 extended with the cross-thread rule.</li>
+<li>DESIGN.md gained a “Component-Spawned Threads” subsection, extended
+Invariant #7, and new rubric items. Design Evolution dated entry
+added.</li>
+<li>HANDOFF.md Key Design Decisions updated; Session 3 entry added.</li>
+<li>No code changes this session — design-only.</li>
+<li>Phase 1 code still written-but-unbuilt (blocker unchanged:
+cross-compiler not installed).</li>
+<li>Implementation of <code>pause_hook</code> plumbing and rubric item
+enforcement folds into Phase 3 framework work; no new phase added.</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li>Install cross-compiler and boot Phase 1 in QEMU (unchanged from
+Sessions 1 and 2).</li>
+<li>In Phase 3, wire <code>pause_hook</code> into the component
+descriptor emitted by <code>COMPONENT_REGISTER</code> and into
+<code>gen-config.py</code>’s manifest schema validation. Validation
+error if a manifest marks <code>spawns_threads: true</code> without
+declaring a <code>pause_hook</code>.</li>
+<li>When drafting the AI review checklist template (deferred from
+Session 2), include the two new rubric items so every new component gets
+them at generation time.</li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>SPEC.md</code> — new sub-bullet under requirement #18
+(“Component-spawned threads and thread-local dereferences”) with both
+rules, enforcement split, and preference-order note.</li>
+<li><code>DESIGN.md</code> — new “Component-Spawned Threads” subsection
+under Execution Model (rule 1 with good/bad code example, rule 2 with
+<code>pause_hook</code> signature, enforcement split, relationship to
+<code>dedicated</code>); Invariant #7 extended to name component-spawned
+threads explicitly; Review Rubric gained two items; Design Evolution
+dated entry for 2026-04-18; header Last Updated bumped.</li>
+<li><code>HANDOFF.md</code> — new Key Design Decisions row; Session 3
+log entry at top; status stamp updated.</li>
+<li><code>logs/session-03-component-spawned-threads.md</code> — this
+session log.</li>
+</ul>
+</body>
+</html>

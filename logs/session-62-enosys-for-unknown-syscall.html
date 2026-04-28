@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-62-enosys-for-unknown-syscall – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-62-hygiene-fix-return-nx_enosys--38-for-unknown-syscall-numbers"
+id="toc-session-62-hygiene-fix-return-nx_enosys--38-for-unknown-syscall-numbers">Session
+62: hygiene fix — return <code>NX_ENOSYS = -38</code> for unknown
+syscall numbers</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-landed" id="toc-what-landed">What landed</a>
+<ul>
+<li><a href="#frameworkregistry.h-new-constant"
+id="toc-frameworkregistry.h-new-constant"><code>framework/registry.h</code>
+— new constant</a></li>
+<li><a href="#frameworksyscall.c-single-site-change"
+id="toc-frameworksyscall.c-single-site-change"><code>framework/syscall.c</code>
+— single-site change</a></li>
+<li><a href="#frameworksyscall.h-abi-comment"
+id="toc-frameworksyscall.h-abi-comment"><code>framework/syscall.h</code>
+— ABI comment</a></li>
+<li><a href="#tests-rename-value-update"
+id="toc-tests-rename-value-update">Tests — rename + value
+update</a></li>
+</ul></li>
+<li><a href="#what-didnt-land-and-why"
+id="toc-what-didnt-land-and-why">What didn’t land (and why)</a></li>
+<li><a href="#what-this-unblocks" id="toc-what-this-unblocks">What this
+unblocks</a></li>
+<li><a href="#test-results" id="toc-test-results">Test results</a></li>
+<li><a href="#next" id="toc-next">Next</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-62-hygiene-fix-return-nx_enosys--38-for-unknown-syscall-numbers">Session
+62: hygiene fix — return <code>NX_ENOSYS = -38</code> for unknown
+syscall numbers</h1>
+<p><strong>Date:</strong> 2026-04-27 <strong>Phase:</strong> 7
+(opportunistic cleanup, not a sub-slice — closes the side discovery
+captured in slice 7.6d.N.6a / Session 61) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Close the misleading-error-message hygiene gap captured in session
+61. <code>framework/syscall.c</code>’s <code>nx_syscall_dispatch</code>
+returned <code>NX_EINVAL = -1</code> for unknown syscall numbers
+(out-of- range or NULL dispatch slot), but <code>NX_EINVAL</code>’s
+numeric value collides with Linux’s <code>EPERM = -1</code> — so musl’s
+<code>__syscall_ret</code> translates the value byte-for-byte and
+userspace surfaces unmapped syscalls as <code>errno = EPERM</code>
+(“Operation not permitted”) instead of the conventionally correct
+<code>errno = ENOSYS</code> (“Function not implemented”).</p>
+<p>This bites every diagnostic message in busybox + every other
+musl-linked program that hits an unmapped syscall. Session 61 saw
+<code>sh: can't create pipe: Operation not permitted</code> instead of
+<code>Function not implemented</code> for the unmapped
+<code>pipe2</code> (now mapped — but the failure mode applies
+generally).</p>
+<p>This session is a narrow, standalone fix: introduce a Linux-compat
+<code>NX_ENOSYS = -38</code> constant and use it from the single
+“unknown syscall” return path. All other NX_E* uses stay as-is —
+kernel-internal handler errors don’t go through musl’s errno
+translation, so the in-handler <code>NX_EINVAL</code> return values
+remain semantically correct.</p>
+<h2 id="what-landed">What landed</h2>
+<p>Five files, +29/-15 lines. No new syscalls, no new tests.</p>
+<h3
+id="frameworkregistry.h-new-constant"><code>framework/registry.h</code>
+— new constant</h3>
+<p>Added immediately after the existing <code>NX_EAGAIN = -11</code>
+block:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">/*</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co"> * Linux-ABI errno value, intentionally outside the NX_E* sequence above.</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"> * Used by `nx_syscall_dispatch` for unknown syscall numbers so musl&#39;s</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co"> * `__syscall_ret` translates the value to userspace `errno = ENOSYS`</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"> * (&quot;Function not implemented&quot;) instead of `EPERM` (&quot;Operation not</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"> * permitted&quot;) — which is what the rest of the NX_E* codes would resolve</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"> * to since `NX_EINVAL = -1` collides with Linux `EPERM = -1`.</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="pp">#define NX_ENOSYS   </span><span class="op">-</span><span class="dv">38</span></span></code></pre></div>
+<p>The deliberate gap (-12 through -37 unused) signals that NX_ENOSYS
+isn’t part of the dense NX_E* sequence — it’s a Linux-ABI value chosen
+to round-trip through musl’s errno translation. A future cleanup might
+renumber the entire NX_E* family to match Linux errno values, but that’s
+a much bigger change and not required to make unmapped-syscall
+diagnostics readable.</p>
+<h3
+id="frameworksyscall.c-single-site-change"><code>framework/syscall.c</code>
+— single-site change</h3>
+<p><code>nx_syscall_dispatch</code>’s unknown-syscall fallback:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>num <span class="op">&gt;=</span> NX_SYSCALL_COUNT <span class="op">||</span> g_syscall_table<span class="op">[</span>num<span class="op">]</span> <span class="op">==</span> NULL<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    rc <span class="op">=</span> NX_ENOSYS<span class="op">;</span>          <span class="co">// was NX_EINVAL</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="op">}</span> <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="op">...</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Plus two comment updates: the file header (referring to the “crisp
+NX_EINVAL” for stray <code>svc #0</code> with x8 unset → “crisp
+NX_ENOSYS”), and the inline comment on <code>NX_SYS_RESERVED_0</code> in
+the dispatch table.</p>
+<h3 id="frameworksyscall.h-abi-comment"><code>framework/syscall.h</code>
+— ABI comment</h3>
+<p>Updated the ABI comment to distinguish the two error paths:</p>
+<pre><code>Unknown syscall numbers return NX_ENOSYS (Linux-compat -38) so musl
+surfaces them as `errno = ENOSYS` instead of EPERM; invalid argument
+pointers (and other in-handler errors) return NX_EINVAL or other
+NX_E* codes.</code></pre>
+<p>This is the contract that future syscall implementations should
+follow — handlers continue to return <code>NX_EINVAL</code> for bad
+arguments (NULL pointers, out-of-window addresses, etc.), since those
+errors <em>are</em> semantically “invalid argument” and the
+dispatcher-level “no such syscall” path is the only one that needs the
+ENOSYS distinction.</p>
+<h3 id="tests-rename-value-update">Tests — rename + value update</h3>
+<p>Two tests pinned the unknown-syscall return value, both needed
+updating:</p>
+<ul>
+<li><p><code>test/host/syscall_test.c</code>: renamed
+<code>syscall_unknown_number_returns_einval_on_host</code> →
+<code>..._returns_enosys_on_host</code>; updated three assertions (slot
+0 / x8=9999 / x8=NX_SYSCALL_COUNT) from <code>NX_EINVAL</code> to
+<code>NX_ENOSYS</code>.</p></li>
+<li><p><code>test/kernel/ktest_syscall.c</code>: same rename
+(<code>syscall_unknown_number_returns_einval</code> →
+<code>..._returns_enosys</code>), same three-assertion update, plus
+expanded the comment to spell out the Linux-compat motivation.</p></li>
+</ul>
+<p>Test names are auto-registered via the <code>TEST</code> /
+<code>KTEST</code> macros — grepped to confirm no other file references
+the old names.</p>
+<h2 id="what-didnt-land-and-why">What didn’t land (and why)</h2>
+<p>The session-61 notes flagged that NX_EINVAL = -1 colliding with Linux
+EPERM is a <em>general</em> concern: every NX_E* code collides with
+<em>some</em> Linux errno (NX_ENOMEM=-2 vs ENOENT, NX_EEXIST=-3 vs
+ESRCH, etc.). This session intentionally does <em>not</em> renumber the
+NX_E* family — that’s a much bigger change with broader test impact, and
+the immediate diagnostic-message problem only requires the
+unknown-syscall case. Other NX_E* return paths from individual syscall
+handlers either:</p>
+<ul>
+<li><p>Don’t reach userspace at all (they’re returned to a
+kernel-internal caller that interprets them via the NX_E* convention),
+or</p></li>
+<li><p>Do reach userspace but the specific collision isn’t causing
+observable confusion yet (e.g. NX_ENOMEM for <code>mmap</code> becomes
+EPERM at musl’s <code>__syscall_ret</code>, but mallocng’s callers treat
+any negative return as failure regardless of the specific
+errno).</p></li>
+</ul>
+<p>If userspace diagnostics start surfacing other misleading messages,
+that’s the trigger for a bigger renumbering pass. For now, the targeted
+ENOSYS fix is sufficient.</p>
+<h2 id="what-this-unblocks">What this unblocks</h2>
+<p>7.6d.N.6b’s diagnostic trace will now show “Function not implemented”
+for any syscall that slips past the musl-side translation table
+(e.g. <code>__NR_sendfile = 71</code> — observed in session 61’s
+cat-hang failure mode). This makes the post-7.6d.N.6b investigation
+pinch-point easier: we can read the error message at face value instead
+of having to remember the EPERM↔︎ENOSYS swap.</p>
+<p>It also slightly reduces the “what to add to the syscall translation
+table” search space — when an unmapped syscall <em>does</em> land in the
+kernel (rather than being short-circuited by musl’s translation
+<code>default: return -ENOSYS</code>), the diagnostic message matches
+the standard Linux convention that everyone reading the code already
+understands.</p>
+<h2 id="test-results">Test results</h2>
+<p><code>make test</code> → 414/414 pass (51 python + 275 host + 88
+kernel), 0 leaks, 0 errors. Same numbers as session 61, since the test
+count isn’t changing — only two existing tests’ expected values
+rotated.</p>
+<h2 id="next">Next</h2>
+<p>Resume slice 7.6d.N.6b: introduce <code>NX_HANDLE_CONSOLE</code> +
+pre-install at slots 0/1/2 in <code>nx_process_create</code>, delete the
+magic-fd fallbacks, make slots 0/1/2 survive exec, extend fork
+inheritance to console handles, re-enable the pipe ktest.</p>
+</body>
+</html>

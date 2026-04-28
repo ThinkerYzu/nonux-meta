@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-25-syscall – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-25-slice-5.4-svc-syscall-entry"
+id="toc-session-25-slice-5.4-svc-syscall-entry">Session 25: slice 5.4 —
+SVC syscall entry</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworksyscall.hc-new"
+id="toc-frameworksyscall.hc-new"><code>framework/syscall.{h,c}</code> —
+new</a></li>
+<li><a href="#corecpuexception.c-svc-routing"
+id="toc-corecpuexception.c-svc-routing"><code>core/cpu/exception.c</code>
+— SVC routing</a></li>
+<li><a href="#host-vs-kernel-trap-frame-shape"
+id="toc-host-vs-kernel-trap-frame-shape">Host vs kernel trap-frame
+shape</a></li>
+<li><a href="#kernel-tests-7-in-testkernelktest_syscall.c"
+id="toc-kernel-tests-7-in-testkernelktest_syscall.c">Kernel tests (+7 in
+<code>test/kernel/ktest_syscall.c</code>)</a></li>
+<li><a href="#host-tests-6-in-testhostsyscall_test.c"
+id="toc-host-tests-6-in-testhostsyscall_test.c">Host tests (+6 in
+<code>test/host/syscall_test.c</code>)</a></li>
+<li><a href="#build-wiring" id="toc-build-wiring">Build wiring</a></li>
+</ul></li>
+<li><a href="#key-decisions" id="toc-key-decisions">Key
+Decisions</a></li>
+<li><a href="#known-issues-follow-ups"
+id="toc-known-issues-follow-ups">Known Issues / Follow-ups</a></li>
+<li><a href="#next-actions" id="toc-next-actions">Next Actions</a></li>
+<li><a href="#files-touched" id="toc-files-touched">Files
+Touched</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-25-slice-5.4-svc-syscall-entry">Session 25: slice 5.4 —
+SVC syscall entry</h1>
+<p><strong>Date:</strong> 2026-04-23 <strong>Phase:</strong> 5 slice 5.4
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Wire up the first syscall path: <code>svc #0</code> from EL1 kernel
+code → synchronous-exception vector → <code>on_sync</code> →
+<code>nx_syscall_dispatch</code> → syscall body → return value in x0 →
+<code>eret</code>. Two real syscalls (<code>nx_debug_write</code>,
+<code>nx_handle_close</code>) prove the plumbing end-to-end. Slice 5.5
+will add the EL0 side of the same handler.</p>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="frameworksyscall.hc-new"><code>framework/syscall.{h,c}</code> —
+new</h3>
+<ul>
+<li><p><code>typedef int64_t nx_status_t</code> — signed 64-bit return
+type so negative NX_E* codes survive the x0 trip through register
+storage unambiguously.</p></li>
+<li><p><code>enum nx_syscall_number</code>:
+<code>NX_SYS_RESERVED_0</code>, <code>NX_SYS_DEBUG_WRITE</code>,
+<code>NX_SYS_HANDLE_CLOSE</code>, sentinel
+<code>NX_SYSCALL_COUNT</code>. Number 0 is deliberately reserved — any
+<code>svc #0</code> with x8 unset lands on a NULL slot and dispatches to
+NX_EINVAL rather than silently invoking op 0.</p></li>
+<li><p><code>void nx_syscall_dispatch(struct trap_frame *tf)</code> —
+reads <code>tf-&gt;x[8]</code> as the syscall number, validates against
+the table bound, calls the handler with <code>tf-&gt;x[0..5]</code> as
+args, writes the result to <code>tf-&gt;x[0]</code> so it lands in x0 at
+<code>eret</code>.</p></li>
+<li><p><code>nx_syscall_current_table()</code> — returns the caller’s
+handle table. Slice 5.4 returns a single static global
+(<code>g_kernel_handles</code>); slice 5.5 will rewrite the body to
+<code>&amp;nx_task_current()-&gt;handle_table</code>. Every other call
+site stays unchanged.</p></li>
+<li><p><code>nx_syscall_reset_for_test()</code> — tests call this
+between cases to wipe the global table so leftover handles don’t
+bleed.</p></li>
+</ul>
+<p>Syscall bodies:</p>
+<ul>
+<li><p><code>sys_debug_write(buf, len)</code> — per-byte
+<code>uart_putc</code> on kernel; returns byte count. Host build returns
+<code>len</code> without touching stdout so dispatch tests still
+validate arg pass-through without racing with the test runner’s
+output.</p></li>
+<li><p><code>sys_handle_close(h)</code> — thin wrapper around
+<code>nx_handle_close</code> against the current table.</p></li>
+</ul>
+<p>The dispatch table is <code>const</code>, so dispatch itself is
+lock-free by construction. Handlers may touch shared state (UART, the
+global handle table) — those touch points manage their own
+invariants.</p>
+<h3
+id="corecpuexception.c-svc-routing"><code>core/cpu/exception.c</code> —
+SVC routing</h3>
+<p><code>on_sync</code> now reads ESR_EL1, decodes
+<code>EC = (esr &gt;&gt; 26) &amp; 0x3f</code>, and dispatches to
+<code>nx_syscall_dispatch(tf)</code> when EC == 0x15 (SVC AArch64).
+Non-SVC synchronous exceptions keep the existing halt-and-log behaviour
+— real faults are still fatal. The vector-table entry already tells us
+which EL the exception came from; we only use EC to distinguish SVC from
+data/instruction aborts at whichever EL.</p>
+<h3 id="host-vs-kernel-trap-frame-shape">Host vs kernel trap-frame
+shape</h3>
+<p><code>core/cpu/exception.h</code> has AArch64 inline asm
+(<code>daifclr/daifset</code>), so the host build of
+<code>framework/syscall.c</code> can’t include it. Instead:</p>
+<ul>
+<li>Kernel: <code>#include "core/cpu/exception.h"</code> for
+<code>struct trap_frame</code>.</li>
+<li>Host: locally mirror the same layout inside the
+<code>#if __STDC_HOSTED__</code> block so host dispatch tests can
+construct synthetic frames without touching ARM headers. Both layouts
+encode <code>x[31]; sp_el0; pc;   pstate</code> — any drift surfaces as
+test failures.</li>
+</ul>
+<h3 id="kernel-tests-7-in-testkernelktest_syscall.c">Kernel tests (+7 in
+<code>test/kernel/ktest_syscall.c</code>)</h3>
+<p>Inline-asm SVC wrappers (<code>svc0</code>, <code>svc1</code>,
+<code>svc2</code>) pin <code>x8</code> to the syscall number, pin args
+to <code>x0</code>/<code>x1</code>, issue <code>svc #0</code>, and read
+back x0 as the result. Kept test-local because production kernel code
+should never issue SVCs (userspace does that).</p>
+<ul>
+<li><p><code>syscall_unknown_number_returns_einval</code> — reserved 0,
+out-of-range, and exactly-at-sentinel all reject with
+NX_EINVAL.</p></li>
+<li><p><code>syscall_debug_write_returns_byte_count</code> — UART gets
+the message (visible in the kernel-test log), return value equals byte
+count.</p></li>
+<li><p><code>syscall_debug_write_zero_length_returns_zero</code> — NULL
++ len=0 is OK, returns 0.</p></li>
+<li><p><code>syscall_debug_write_null_buf_nonzero_len_returns_einval</code>.</p></li>
+<li><p><code>syscall_handle_close_through_svc_closes_handle_in_kernel_table</code>
+— end-to-end: alloc a handle in the current table, SVC-close it, look up
+again expecting NX_ENOENT.</p></li>
+<li><p><code>syscall_handle_close_invalid_handle_returns_einval</code>.</p></li>
+<li><p><code>syscall_resumes_at_instruction_after_svc</code> — sentinel
+check that <code>eret</code> lands at the instruction after
+<code>svc #0</code>, not before (would mean <code>elr_el1</code> is
+wrong) and preserves pstate.</p></li>
+</ul>
+<h3 id="host-tests-6-in-testhostsyscall_test.c">Host tests (+6 in
+<code>test/host/syscall_test.c</code>)</h3>
+<p>Feed synthetic <code>struct trap_frame_host</code> into
+<code>nx_syscall_dispatch</code> (no SVC on host) — exercises the
+dispatch-table logic and argument decoding in isolation.</p>
+<ul>
+<li><p>Unknown-number EINVAL (three cases: 0, out-of-range,
+sentinel).</p></li>
+<li><p>NULL trap frame is a no-op, not a crash.</p></li>
+<li><p><code>debug_write</code> returns len with correct arg
+pass-through.</p></li>
+<li><p><code>debug_write</code> with NULL buf + nonzero len
+rejects.</p></li>
+<li><p><code>handle_close</code> routes through
+<code>nx_syscall_current_table</code> and really closes the
+handle.</p></li>
+<li><p><code>nx_syscall_reset_for_test</code> clears the kernel
+table.</p></li>
+</ul>
+<h3 id="build-wiring">Build wiring</h3>
+<ul>
+<li><code>Makefile</code>: <code>FW_C += framework/syscall.c</code>;
+<code>KTEST_C += test/kernel/ktest_syscall.c</code>.</li>
+<li><code>test/host/Makefile</code>: SRCS +=
+<code>syscall_test.c</code>,
+<code>../../framework/syscall.c</code>.</li>
+</ul>
+<p>Net: <code>make test</code> → <strong>293/293</strong> (51 python +
+197 host + 44 kernel), up from 279/279 — <strong>+6 host + 7 kernel =
++13 tests</strong>.</p>
+<h2 id="key-decisions">Key Decisions</h2>
+<ul>
+<li><p><strong>Dispatch decision in C, not assembly.</strong> The
+existing <code>_sync_stub</code> already saves a full trap frame and
+calls <code>on_sync</code>. Adding a separate SVC-only assembly stub
+would duplicate the save/restore machinery for no gain. Reading ESR +
+branching in C costs one unpredicted branch per syscall — negligible
+next to the SVC instruction itself.</p></li>
+<li><p><strong>Linux AArch64 ABI (x8 = syscall number, x0..x5 =
+args).</strong> Slice 5.5 and beyond will have real EL0 userspace
+issuing SVCs; using the de facto Linux ABI means compilers and libcs
+that already target Linux AArch64 need no adapter.</p></li>
+<li><p><strong>Reserved syscall 0 slot.</strong> A <code>const</code>
+NULL in the dispatch table means a stray <code>svc #0</code> with x8
+unset (or zero-initialised memory passing as x8) returns NX_EINVAL
+rather than invoking whatever op happens to sit at index 0. Avoids an
+entire class of “buggy caller accidentally invoked a real op”
+footguns.</p></li>
+<li><p><strong>Global kernel handle table in 5.4.</strong>
+<code>nx_syscall_current_table</code> returns
+<code>&amp;g_kernel_handles</code>. This is placeholder scaffolding —
+slice 5.5 makes the current-table a per-task pointer. Isolating that
+under a single function means the dispatcher doesn’t change shape in
+5.5.</p></li>
+<li><p><strong>Int64 <code>nx_status_t</code>, not plain
+<code>int</code>.</strong> AArch64 x0 is 64-bit; returning
+<code>int</code> works but means callers see sign-extended low-32-bit
+values. Committing to int64 up-front avoids width surprises when future
+syscalls return negative values like handle IDs (which are uint32 at the
+C level but arrive in x0 with the upper 32 bits zero — indistinguishable
+from small positive ints).</p></li>
+<li><p><strong>Tests issue SVC directly in inline asm, no libc
+wrappers.</strong> Per- syscall wrapper generation (à la Linux’s
+<code>glibc</code> syscall stubs) lands when slice 5.5 introduces EL0
+userspace. At the kernel-test layer, raw inline asm is simpler and more
+honest about what’s being tested.</p></li>
+</ul>
+<h2 id="known-issues-follow-ups">Known Issues / Follow-ups</h2>
+<ul>
+<li><p>No user-pointer validation yet. <code>sys_debug_write</code>
+trusts <code>buf</code> is readable for <code>len</code> bytes.
+Kernel-issued SVCs pass kernel pointers, so no attack surface today —
+but slice 5.5 must add a <code>copy_from_user</code> primitive before
+EL0 callers land.</p></li>
+<li><p>The ESR.EC decode happens on every synchronous exception, not
+just SVC. Non-SVC hot paths (page faults, once they exist) might want a
+dedicated assembly stub that jumps straight to the page-fault handler
+instead of round-tripping through <code>on_sync</code>. Non-blocking for
+5.5; bench it when it matters.</p></li>
+<li><p>No SVC <code>#imm16</code> handling. The instruction can carry a
+16-bit immediate encoded in ESR.ISS, which some ABIs use to distinguish
+syscall classes. We read the immediate implicitly (always 0 in our
+inline asm) but ignore it. If a future phase wants fast-path inline-asm
+shims that encode the syscall number in the <code>#imm16</code> instead
+of <code>x8</code>, the dispatcher already has the ESR handy and can
+prefer ISS over x8 with one extra line.</p></li>
+</ul>
+<h2 id="next-actions">Next Actions</h2>
+<p><strong>Slice 5.5 — First EL0 process.</strong>
+<code>core/cpu/el0_entry.S</code> for the drop-to-EL0 path via
+<code>eret</code> with SPSR_EL1 set to EL0t. Per-task TTBR0 page table.
+Baked-in EL0 test program that issues <code>nx_debug_write</code> then
+exits via a new <code>nx_process_exit</code> syscall.
+<code>sched_spawn_el0_task</code> extends 4.4’s kthread primitive.
+Kernel test verifies the EL0 program runs, UART logs the expected
+output, and control returns to the idle task cleanly.</p>
+<h2 id="files-touched">Files Touched</h2>
+<ul>
+<li><code>framework/syscall.h</code> — <strong>new</strong></li>
+<li><code>framework/syscall.c</code> — <strong>new</strong></li>
+<li><code>core/cpu/exception.c</code> — SVC routing in
+<code>on_sync</code></li>
+<li><code>test/host/syscall_test.c</code> — <strong>new</strong>, 6
+cases</li>
+<li><code>test/kernel/ktest_syscall.c</code> — <strong>new</strong>, 7
+cases</li>
+<li><code>Makefile</code> — <code>FW_C += framework/syscall.c</code>;
+<code>KTEST_C += ktest_syscall.c</code></li>
+<li><code>test/host/Makefile</code> — SRCS + vpath for syscall_test.c
+and framework/syscall.c</li>
+</ul>
+</body>
+</html>

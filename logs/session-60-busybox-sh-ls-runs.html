@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-60-busybox-sh-ls-runs – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-60-slice-7.6d.n.5-busybox-sh--c-ls-runs-end-to-end"
+id="toc-session-60-slice-7.6d.n.5-busybox-sh--c-ls-runs-end-to-end">Session
+60: slice 7.6d.N.5 — <code>busybox sh -c "ls /"</code> runs
+end-to-end</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#implementation" id="toc-implementation">Implementation</a>
+<ul>
+<li><a href="#frameworkhandle.h-nx_handle_dir"
+id="toc-frameworkhandle.h-nx_handle_dir"><code>framework/handle.h</code>
+— <code>NX_HANDLE_DIR</code></a></li>
+<li><a href="#frameworksyscall.h-two-new-syscall-numbers"
+id="toc-frameworksyscall.h-two-new-syscall-numbers"><code>framework/syscall.h</code>
+— two new syscall numbers</a></li>
+<li><a href="#frameworksyscall.c"
+id="toc-frameworksyscall.c"><code>framework/syscall.c</code></a></li>
+<li><a href="#third_partymuslarchaarch64syscall_arch.h"
+id="toc-third_partymuslarchaarch64syscall_arch.h"><code>third_party/musl/arch/aarch64/syscall_arch.h</code></a></li>
+<li><a href="#third_partymuslsrcthreadaarch64syscall_cp.s"
+id="toc-third_partymuslsrcthreadaarch64syscall_cp.s"><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code></a></li>
+</ul></li>
+<li><a href="#discovery-debugging-notes"
+id="toc-discovery-debugging-notes">Discovery debugging notes</a></li>
+<li><a href="#outcome" id="toc-outcome">Outcome</a>
+<ul>
+<li><a href="#live-ktest-log" id="toc-live-ktest-log">Live ktest
+log</a></li>
+</ul></li>
+<li><a href="#why-the-bin-prefix-gets-stripped"
+id="toc-why-the-bin-prefix-gets-stripped">Why the bin/ prefix gets
+stripped</a></li>
+<li><a href="#whats-next-7.6d.n.6-candidates"
+id="toc-whats-next-7.6d.n.6-candidates">What’s next (7.6d.N.6+
+candidates)</a></li>
+<li><a href="#files-changed" id="toc-files-changed">Files
+changed</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-60-slice-7.6d.n.5-busybox-sh--c-ls-runs-end-to-end">Session
+60: slice 7.6d.N.5 — <code>busybox sh -c "ls /"</code> runs
+end-to-end</h1>
+<p><strong>Date:</strong> 2026-04-27 <strong>Phase:</strong> 7 slice
+7.6d.N.5 (busybox-as-shell, directory listing) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d.N.4 (session 59) got <code>ls</code> to fork+exec
+successfully through ash’s PATH walk via the new
+<code>NX_SYS_FSTATAT</code>, but ls itself bailed at
+<code>stat("/")</code> because vfs_simple has no directory entry for
+<code>/</code>. This sub-slice closes that gap: make
+<code>busybox sh -c "ls /"</code> actually list the root directory.</p>
+<p>Required pieces (identified during 7.6d.N.4):</p>
+<ol type="1">
+<li><p><code>stat("/")</code> must return <code>S_IFDIR</code>
+mode.</p></li>
+<li><p><code>open("/")</code> must succeed with a directory-typed
+handle.</p></li>
+<li><p><code>getdents64(fd, buf, count)</code> must populate
+<code>buf</code> with Linux- shape directory entries.</p></li>
+<li><p><code>close(fd)</code> must release the directory
+handle.</p></li>
+<li><p>musl-translation entries for <code>__NR_openat (56)</code> and
+<code>__NR_getdents64 (61)</code>.</p></li>
+</ol>
+<p>Approach: minimal kernel surface — special-case <code>/</code> in the
+existing path resolution, add one new handle type
+(<code>NX_HANDLE_DIR</code>), one new syscall
+(<code>NX_SYS_GETDENTS64</code>), and one Linux-shape openat wrapper
+(<code>NX_SYS_OPENAT</code>) that converts Linux O_* flag bits to our
+<code>NX_VFS_OPEN_*</code> and forwards to <code>sys_open</code>.</p>
+<h2 id="implementation">Implementation</h2>
+<h3 id="frameworkhandle.h-nx_handle_dir"><code>framework/handle.h</code>
+— <code>NX_HANDLE_DIR</code></h3>
+<p>New enum entry between <code>NX_HANDLE_FILE</code> and the
+<code>NX_HANDLE_TYPE_COUNT</code> sentinel. Same shape as the other type
+values.</p>
+<h3
+id="frameworksyscall.h-two-new-syscall-numbers"><code>framework/syscall.h</code>
+— two new syscall numbers</h3>
+<ul>
+<li><p><code>NX_SYS_GETDENTS64 = 22</code> — Linux ABI:
+<code>(int fd,   struct linux_dirent64 *buf, size_t count)</code>.
+Returns bytes written, 0 at EOF, small Linux-errno on failure. fd must
+reference a <code>NX_HANDLE_DIR</code>.</p></li>
+<li><p><code>NX_SYS_OPENAT = 23</code> — Linux ABI:
+<code>(int dirfd, const char   *path, int flags, mode_t mode)</code>.
+dirfd ignored (vfs_simple is absolute-paths-only); flags interpreted as
+Linux O_* bits; mode ignored (no perms in v1). Forwards to sys_open
+after converting flag layout.</p></li>
+</ul>
+<h3 id="frameworksyscall.c"><code>framework/syscall.c</code></h3>
+<p><strong>Special-case <code>/</code> in
+<code>sys_fstatat</code></strong> (slice 7.6d.N.4 already established
+the function): if <code>path == "/"</code>, skip the vfs round-trip and
+fill <code>st_mode = S_IFDIR | 0755</code>. Without this, the
+open-then-fail dance returned ENOENT for the root.</p>
+<p><strong>Special-case <code>/</code> in <code>sys_open</code></strong>
+(gated under <code>!__STDC_HOSTED__</code> since it allocates from
+kheap): if <code>kpath == "/"</code>, allocate a small
+<code>struct nx_dir_cursor</code> (holds just the readdir cookie),
+allocate a <code>HANDLE_DIR</code> pointing at it via
+<code>nx_handle_alloc</code>, return the handle. Falls through to the
+regular vfs path otherwise (including on host builds).</p>
+<p><strong><code>sys_handle_close</code> HANDLE_DIR branch</strong>:
+call <code>free</code> on the cursor object before the slot itself is
+freed. Same pattern as the existing <code>HANDLE_CHANNEL</code> and
+<code>HANDLE_FILE</code> branches that delegate type-specific
+cleanup.</p>
+<p><strong><code>sys_getdents64</code> (~75 lines)</strong>: looks up
+the fd as a <code>HANDLE_DIR</code>, walks <code>vops-&gt;readdir</code>
+against the per-handle cursor, packs entries into a 4 KiB kernel staging
+buffer using the Linux <code>struct linux_dirent64</code> ABI (8-byte
+aligned records, <code>d_type = DT_REG</code> for v1’s flat namespace),
+copies out via <code>copy_to_user</code>. Caps the output at
+<code>min(count, 4096)</code>; if a record doesn’t fit, rewinds the
+cursor by 1 so the next call resumes with the same entry. Returns total
+bytes written; returns 0 at EOF. Strips leading <code>/</code> from
+ramfs entry names since cpio convention stores the leading slash but
+Linux convention has bare basenames.</p>
+<p><strong><code>sys_openat</code> (~25 lines)</strong>: Linux ABI
+shape. Converts Linux O_* flag bits (<code>O_RDONLY=0</code>,
+<code>O_WRONLY=1</code>, <code>O_RDWR=2</code>,
+<code>O_CREAT=0o100</code>, <code>O_DIRECTORY=0o200000</code>) to our
+<code>NX_VFS_OPEN_*</code> flags. <code>O_DIRECTORY</code> is
+informational — sys_open’s <code>/</code> branch already returns
+<code>HANDLE_DIR</code>. Other O_* bits (<code>O_CLOEXEC</code>,
+<code>O_NONBLOCK</code>, <code>O_TRUNC</code>) are dropped silently.
+Forwards path + converted flags to <code>sys_open</code>.</p>
+<h3
+id="third_partymuslarchaarch64syscall_arch.h"><code>third_party/musl/arch/aarch64/syscall_arch.h</code></h3>
+<p>Added two cases to <code>__nx_translate</code>:</p>
+<ul>
+<li><code>case 56: return 23;</code> —
+<code>__NR_openat → NX_SYS_OPENAT</code></li>
+<li><code>case 61: return 22;</code> —
+<code>__NR_getdents64 → NX_SYS_GETDENTS64</code></li>
+</ul>
+<h3
+id="third_partymuslsrcthreadaarch64syscall_cp.s"><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code></h3>
+<p>Same two mappings added to the asm-level cancellation-point
+dispatcher.</p>
+<h2 id="discovery-debugging-notes">Discovery debugging notes</h2>
+<p>Encountered three quirks during the session:</p>
+<ol type="1">
+<li><p><strong>Stale handle.o.</strong> After adding
+<code>NX_HANDLE_DIR</code> to <code>framework/handle.h</code>,
+<code>nx_handle_alloc</code> initially returned <code>NX_EINVAL</code>
+even though <code>NX_HANDLE_DIR &lt; NX_HANDLE_TYPE_COUNT</code>. Cause:
+handle.c hadn’t been rebuilt against the new header despite the
+timestamp dependency. Fixed by
+<code>rm -f    framework/handle.o framework/syscall.o &amp;&amp; touch    framework/handle.h &amp;&amp; make</code>.
+Forces a rebuild. Worth adding a Makefile dep
+<code>framework/handle.c: framework/handle.h</code> later
+(opportunistic).</p></li>
+<li><p><strong>Host build malloc/free.</strong> <code>sys_open</code>’s
+<code>/</code> branch and <code>sys_handle_close</code>’s
+<code>HANDLE_DIR</code> branch use <code>malloc</code>/
+<code>free</code> (kheap). Host build has no kheap, so an unconditional
+call breaks the host test compile. Gated both with
+<code>#if !__STDC_HOSTED__</code> — same pattern as
+<code>sys_exec</code>. Host builds fall through to vfs_simple’s normal
+path resolution (which returns NX_ENOENT for “/” on host fixtures,
+matching pre-slice-7.6d.N.5 behaviour).</p></li>
+<li><p><strong><code>grep | head</code> masking output.</strong> Spent
+~15 minutes debugging “ls only prints <code>argv_child</code>” — turned
+out to be a <code>head -3</code> filter on the <code>make test</code>
+output truncating the multi-line ls listing. The actual log file showed
+all 9 entries. Lesson: when a UART log doesn’t match expectations, dump
+the raw <code>test/kernel-output.log</code> first before adding
+kernel-side traces.</p></li>
+</ol>
+<h2 id="outcome">Outcome</h2>
+<p><code>make test</code> → <strong>414/414 PASSED</strong> (51 python +
+275 host + 88 kernel; same as slice 7.6d.N.4 — no new ktests, the
+existing <code>posix_busybox_sh_ls</code> ktest now exercises the
+success path).</p>
+<h3 id="live-ktest-log">Live ktest log</h3>
+<pre><code>posix_busybox_sh_ls_parent_forks_and_execs_busybox_sh_ls [bbsh-ls-parent]argv_child
+banner
+busybox
+hello
+init
+ktest_hello
+ls
+musl_prog
+rd
+[bbsh-ls-status=00][bbsh-ls-ok]PASS</code></pre>
+<p>ash forks, execs <code>/bin/ls</code>, busybox-as-ls dispatches to
+the ls applet, ls calls <code>opendir("/")</code> →
+<code>__NR_openat (56)</code> → <code>NX_SYS_OPENAT (23)</code> →
+<code>sys_open</code> <code>/</code> branch → <code>HANDLE_DIR</code>.
+Then ls calls <code>getdents64</code> →
+<code>NX_SYS_GETDENTS64 (22)</code> → walks ramfs’s flat namespace,
+packs 9 records into a 272-byte buffer. ls sorts alphabetically
+(argv_child, banner, busybox, hello, init, ktest_hello, ls, musl_prog,
+rd) and prints one-per-line (non-tty stdout defaults to single-column in
+busybox ls). <code>bin/busybox</code> and <code>bin/ls</code> get
+rendered as basenames (<code>busybox</code>, <code>ls</code>) — busybox
+ls’s display layer strips path prefixes since it’s listing dir
+contents.</p>
+<p>ash’s normal-exit path runs (atexit, stdio flush via writev), exits
+0. Test parent reaps and prints status markers.</p>
+<h2 id="why-the-bin-prefix-gets-stripped">Why the bin/ prefix gets
+stripped</h2>
+<p>Some ramfs entries have embedded <code>/</code>:
+<code>/bin/busybox</code>, <code>/bin/ls</code>. Our cpio loader stores
+them with the leading <code>/</code> intact
+(e.g. <code>s-&gt;files[i].name = "/bin/busybox"</code>). My getdents64
+implementation strips just the FIRST <code>/</code> so the emitted
+d_name becomes <code>bin/busybox</code>. ls receives that as the d_name
+and treats it as a path component. busybox ls’s display layer takes the
+basename (<code>busybox</code>). Effectively fine for <code>ls /</code>
+behaviour; would be a problem if a script checked for exact directory
+contents.</p>
+<p>A cleaner long-term shape: ramfs grows real directory inodes, the
+cpio loader creates a <code>/bin</code> directory and puts
+<code>busybox</code> and <code>ls</code> under it, getdents64 returns
+just <code>bin</code> when listing <code>/</code> (with
+<code>d_type = DT_DIR</code>). <code>ls /bin</code> would then list
+<code>busybox</code> and <code>ls</code>. Multi-level directory support
+is its own slice — out of scope for 7.6d.N.</p>
+<h2 id="whats-next-7.6d.n.6-candidates">What’s next (7.6d.N.6+
+candidates)</h2>
+<p>Builtins: <code>exit</code>, <code>echo</code>,
+multi-statement.<br />
+Non-builtin (single command): <code>ls /</code>. ✓</p>
+<p>The next escalation step is more demanding:</p>
+<ul>
+<li><p><strong><code>busybox sh -c "ls /; echo done"</code></strong> —
+non-builtin followed by builtin in same script. Tests ash’s wait+ reap
+of the ls child + sequence dispatch.</p></li>
+<li><p><strong><code>busybox sh -c "echo hello | cat"</code></strong> —
+first pipe. ash forks twice (echo + cat), creates a pipe, reaps both.
+Tests <code>pipe()</code> (we have NX_SYS_PIPE since slice 7.5)</p>
+<ul>
+<li>writev redirection through the pipe + cat reading via readv.</li>
+</ul></li>
+<li><p><strong><code>busybox sh -c "cat /init"</code></strong> —
+non-builtin reading a real file from vfs. Tests musl’s
+<code>__stdio_read</code> path (uses readv — we don’t have
+<code>__NR_readv (65)</code> mapped yet).</p></li>
+<li><p><strong>Investigate the fork+clone mystery</strong> (still open
+from 7.6d.N.4). ash now successfully fork+execs <code>ls</code> despite
+<code>__NR_clone (220)</code> being unmapped. Possibly musl returns
+-ENOSYS but ash treats pid=-1 as “exec inline” via the single-command
+shortcut. Worth pinning down.</p></li>
+</ul>
+<p>Lowest-friction next step:
+<code>busybox sh -c "echo hello | cat"</code> — exercises pipe + readv +
+cat applet. Will likely surface the readv mapping gap.</p>
+<h2 id="files-changed">Files changed</h2>
+<p>Production:</p>
+<ul>
+<li><p><code>framework/handle.h</code> — <code>NX_HANDLE_DIR</code> enum
+entry (1 line)</p></li>
+<li><p><code>framework/syscall.h</code> —
+<code>NX_SYS_GETDENTS64</code>, <code>NX_SYS_OPENAT</code> (~30 lines
+doc-comments)</p></li>
+<li><p><code>framework/syscall.c</code>:</p>
+<ul>
+<li><code>struct nx_dir_cursor</code> (slice-7.6d.N.5 internal)</li>
+<li><code>sys_open</code> <code>/</code> branch (~15 lines, gated
+<code>!__STDC_HOSTED__</code>)</li>
+<li><code>sys_handle_close</code> HANDLE_DIR branch (~5 lines,
+gated)</li>
+<li><code>sys_fstatat</code> <code>/</code> branch (~8 lines)</li>
+<li><code>sys_getdents64</code> (~75 lines, gated)</li>
+<li><code>sys_openat</code> (~25 lines)</li>
+<li>dispatch table entries (2 lines)</li>
+<li>Linux errno + S_IFDIR + DT_DIR macros (a few lines)</li>
+</ul></li>
+<li><p><code>third_party/musl/arch/aarch64/syscall_arch.h</code> —
+<code>case 56</code> + <code>case 61</code> translations (2 lines +
+comments)</p></li>
+<li><p><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code> —
+same mappings in asm (2 lines + comments)</p></li>
+</ul>
+<p>No test code added (existing ktest_posix_busybox_sh_ls already covers
+<code>ls /</code>; it now passes the workload check instead of just
+structural reach-the-marker).</p>
+<p>Total: 1 header + 1 implementation + 2 musl patches. ~150 lines of
+net new logic.</p>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-27</p>
+</body>
+</html>

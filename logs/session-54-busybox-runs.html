@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-54-busybox-runs – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-54-slice-7.6d.3b-7.6d.3c-busybox-actually-runs"
+id="toc-session-54-slice-7.6d.3b-7.6d.3c-busybox-actually-runs">Session
+54: slice 7.6d.3b + 7.6d.3c — busybox actually runs</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworkprocess.h"
+id="toc-frameworkprocess.h"><code>framework/process.h</code></a></li>
+<li><a href="#coremmummu.c"
+id="toc-coremmummu.c"><code>core/mmu/mmu.c</code></a></li>
+<li><a href="#coreschedtask.h-coreschedtask.c"
+id="toc-coreschedtask.h-coreschedtask.c"><code>core/sched/task.h</code>
++ <code>core/sched/task.c</code></a></li>
+<li><a href="#coreschedsched.c"
+id="toc-coreschedsched.c"><code>core/sched/sched.c</code></a></li>
+<li><a href="#frameworksyscall.c"
+id="toc-frameworksyscall.c"><code>framework/syscall.c</code></a></li>
+<li><a href="#frameworkelf.h-frameworkelf.c"
+id="toc-frameworkelf.h-frameworkelf.c"><code>framework/elf.h</code> +
+<code>framework/elf.c</code></a></li>
+<li><a href="#toolsmusl-aarch64-gcc.sh-new"
+id="toc-toolsmusl-aarch64-gcc.sh-new"><code>tools/musl-aarch64-gcc.sh</code>
+(new)</a></li>
+<li><a href="#toolsbuild-busybox.sh"
+id="toc-toolsbuild-busybox.sh"><code>tools/build-busybox.sh</code></a></li>
+</ul></li>
+<li><a href="#drive-by-gotchas" id="toc-drive-by-gotchas">Drive-by
+gotchas</a></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#what-was-not-done" id="toc-what-was-not-done">What Was Not
+Done</a></li>
+<li><a href="#test-counts" id="toc-test-counts">Test Counts</a></li>
+<li><a href="#slice-7.6d.2-morally-closed"
+id="toc-slice-7.6d.2-morally-closed">Slice 7.6d.2 — morally
+closed</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-54-slice-7.6d.3b-7.6d.3c-busybox-actually-runs">Session
+54: slice 7.6d.3b + 7.6d.3c — busybox actually runs</h1>
+<p><strong>Date:</strong> 2026-04-27 <strong>Phase:</strong> 7 slice
+7.6d.3b + 7.6d.3c (busybox integration scaffolding, sub-slices 2 + 3 of
+4) <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>The user’s “why don’t you finish 7.6d.2?” pushed me to keep going
+past 7.6d.3a’s signal-on-fault until busybox actually runs
+<code>--help</code> end-to-end (rather than just cleanly faulting and
+dying). This session combines 7.6d.3b (richer AUXV) and 7.6d.3c
+(pre-init <code>TPIDR_EL0</code>) plus a third gap that surfaced during
+debugging — busybox was being linked against <strong>glibc, not
+musl</strong> because the cross-toolchain’s library search paths beat
+<code>--sysroot</code> for <code>-lc</code> / <code>-lm</code>
+resolution. Closing all three gets
+<code>[busybox-status=00][busybox-help-ok]</code> in the live ktest log
+alongside the full <code>BusyBox v1.36.1 ...</code> banner.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Combine 7.6d.3b + 7.6d.3c into one session.</strong>
+Originally planned as separate sub-slices; the session-53 plan was “land
+each 7.6d.3.x independently.” But after 7.6d.3a I could see all three
+(AUXV + TLS + glibc-vs-musl) needed to land together for busybox to
+actually run, and shipping intermediate “still crashes, just at a
+different EC” milestones isn’t useful. Single session, single
+commit.</p></li>
+<li><p><strong>TLS area at user-window offset 5 MiB.</strong> Lives in
+the unused gap between busybox’s data+bss segment (ends at +1.91 MiB)
+and the brk heap region (<code>[+6 MiB, +7.5 MiB)</code>). 4 KiB is
+plenty for musl’s pre-<code>__set_thread_area</code> lifetime — musl
+touches <code>errno</code> (offset 0x20) plus a handful of small fields,
+all within the first ~256 bytes of <code>struct pthread</code>. Once
+<code>__init_libc</code> calls <code>__set_thread_area(td)</code>, musl
+manages its own larger pthread struct in the heap region and the
+kernel’s pre-init buffer is dead.</p></li>
+<li><p><strong>Save/restore <code>TPIDR_EL0</code> per task in
+sched_check_resched.</strong> Per-task save/restore (around
+<code>cpu_switch_to</code>) rather than per-process — once musl runs
+<code>__set_thread_area</code>, each task owns a distinct TPIDR value.
+Initial value is the kernel- pre-init TLS area for fresh tasks; fork
+copies the parent’s current TPIDR_EL0; exec resets to the fresh
+kernel-pre-init area.</p></li>
+<li><p><strong>Push AT_PHDR + AT_PHENT + AT_PHNUM at minimum.</strong>
+musl’s <code>static_init_tls</code> walks the program-header table via
+these three AT_* values to find PT_TLS. Without them, the loop
+zero-iterates and downstream TLS-allocation math gets garbage state.
+AT_PHDR is computed as <code>window_base +   e_phoff</code> — for our
+static-no-pie binaries the ELF’s first PT_LOAD starts at file offset 0
+and maps to <code>window_base</code>, so file offset
+<code>e_phoff</code> lives at VA <code>window_base + e_phoff</code>. No
+AT_HWCAP / AT_PLATFORM / AT_ENTRY pushed yet — busybox doesn’t require
+them for <code>--help</code>; defer until a real demo needs
+them.</p></li>
+<li><p><strong>Discovered + fixed: busybox was glibc-linked, not
+musl.</strong> The slice-7.6d.1 build script passed
+<code>--sysroot=$MUSL_SYSROOT</code> and <code>-static</code>, expecting
+that to bias gcc’s library search toward musl. It doesn’t —
+<code>gcc -print-search-dirs --sysroot=...</code> shows the
+cross-toolchain’s bundled glibc paths
+(<code>/usr/aarch64-linux-gnu/lib/...</code>) come BEFORE the sysroot
+paths in the library search order, so <code>-lc</code> resolved to
+glibc’s libc.a and <code>-lm</code> to glibc’s libm.a. The resulting
+busybox linked <code>__libc_setup_tls</code> + <code>_IO_*</code> (glibc
+internals) and never touched musl’s syscall translation — every syscall
+went via the raw Linux number, returned -ENOSYS, and busybox crashed
+early in init regardless of what the kernel did. Fix: a
+<code>tools/musl-aarch64-gcc.sh</code> wrapper that adds
+<code>-nostdinc -isystem $SYSROOT/include</code> (force only musl
+headers)</p>
+<ul>
+<li><code>-isystem /usr/aarch64-linux-gnu/include</code> (kernel headers
+the cross-toolchain ships, which musl doesn’t replicate)</li>
+<li><code>-B $SYSROOT/lib/</code> (force musl’s crt1/crti/crtn/libc.a to
+be found before glibc’s). Plus symlinks
+<code>lib&lt;m,pthread,rt,dl,util,resolv,crypt&gt;.a → libc.a</code> in
+the sysroot — musl bundles those into libc.a but busybox’s link line
+passes <code>-lm</code> etc., and the symlinks let
+<code>-l&lt;x&gt;</code> resolve to musl’s combined archive. Build
+script switches to <code>CC="$MUSL_GCC"</code>.</li>
+</ul></li>
+<li><p><strong>Compute <code>e_phoff</code> / <code>e_phentsize</code> /
+<code>e_phnum</code> via the existing ELF parser, not by re-reading raw
+header bytes.</strong> Extended <code>struct nx_elf_info</code> (in
+<code>framework/elf.h</code>) with three new fields;
+<code>nx_elf_parse</code> populates them. <code>sys_exec</code> already
+parses the ELF header via <code>nx_elf_parse</code> — the new fields
+fall out for free.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="frameworkprocess.h"><code>framework/process.h</code></h3>
+<ul>
+<li>Added <code>NX_PROCESS_TLS_OFFSET = 5 MiB</code> and
+<code>NX_PROCESS_TLS_SIZE   = 4 KiB</code> macros. Comment block
+describes the layout choice + the musl-init lifetime pattern.</li>
+</ul>
+<h3 id="coremmummu.c"><code>core/mmu/mmu.c</code></h3>
+<ul>
+<li><p><code>mmu_create_address_space</code> zeroes a 4 KiB region at
+<code>user_pa + NX_PROCESS_TLS_OFFSET</code> after the user-backing
+malloc. PMM hands out un-zeroed pages, so without this musl’s first
+errno read returns garbage and trips downstream.</p></li>
+<li><p>New include of <code>framework/process.h</code> for the TLS
+macros.</p></li>
+</ul>
+<h3 id="coreschedtask.h-coreschedtask.c"><code>core/sched/task.h</code>
++ <code>core/sched/task.c</code></h3>
+<ul>
+<li><p><code>struct nx_task</code> gains <code>uint64_t tpidr_el0</code>
+field.</p></li>
+<li><p><code>nx_task_create</code> initializes
+<code>tpidr_el0 =   mmu_user_window_base() + NX_PROCESS_TLS_OFFSET</code>
+for fresh tasks (host build sets 0).</p></li>
+<li><p><code>nx_task_create_forked</code> reads the <em>current</em>
+<code>TPIDR_EL0</code> (via <code>mrs</code>) and copies it into the new
+child task. Real Linux’s fork preserves TLS identically; we
+match.</p></li>
+</ul>
+<h3 id="coreschedsched.c"><code>core/sched/sched.c</code></h3>
+<ul>
+<li><code>sched_check_resched</code> saves outgoing task’s
+<code>TPIDR_EL0</code> and restores incoming task’s, alongside the
+existing TTBR0 flip. Two <code>mrs</code>/<code>msr</code> per context
+switch — cheap. Documented alongside the comment for the TTBR0
+flip.</li>
+</ul>
+<h3 id="frameworksyscall.c"><code>framework/syscall.c</code></h3>
+<ul>
+<li><p><code>sys_exec</code> resets <code>TPIDR_EL0</code> (CPU register
++ the per-task field) to
+<code>mmu_user_window_base() + NX_PROCESS_TLS_OFFSET</code> after
+<code>mmu_switch_address_space</code>. Necessary because exec replaces
+the entire image — the pre-exec process may have called
+<code>__set_thread_area</code> and TPIDR_EL0 might point into the
+now-freed old user_backing.</p></li>
+<li><p>AUXV layout extended. <code>fixed_size = 8u * (15u + argc)</code>
+(was <code>8 * (9 + argc)</code>) to fit three more AT pairs. New
+entries:</p>
+<ul>
+<li><code>AT_PHDR (3) → window_base + info.phoff</code></li>
+<li><code>AT_PHENT (4) → info.phentsize</code></li>
+<li><code>AT_PHNUM (5) → info.phnum</code> Comment block explains the
+AT_* trio and the <code>window_base + e_phoff</code> derivation.</li>
+</ul></li>
+</ul>
+<h3 id="frameworkelf.h-frameworkelf.c"><code>framework/elf.h</code> +
+<code>framework/elf.c</code></h3>
+<ul>
+<li><p><code>struct nx_elf_info</code> gains <code>phoff</code>
+(uint64_t), <code>phentsize</code> (uint16_t), <code>phnum</code>
+(uint16_t).</p></li>
+<li><p><code>nx_elf_parse</code> populates them from the ELF
+header.</p></li>
+</ul>
+<h3
+id="toolsmusl-aarch64-gcc.sh-new"><code>tools/musl-aarch64-gcc.sh</code>
+(new)</h3>
+<ul>
+<li>gcc wrapper that biases the search order toward musl:
+<ul>
+<li><code>-nostdinc -isystem $SYSROOT/include</code> (musl headers only
+for libc-namespace stuff)</li>
+<li><code>-isystem /usr/aarch64-linux-gnu/include</code> (kernel headers
+the cross-toolchain ships — <code>linux/*.h</code>, <code>asm/*.h</code>
+— that busybox needs and musl doesn’t replicate)</li>
+<li><code>-B $SYSROOT/lib/</code> (musl’s crt + libc found before
+glibc’s)</li>
+</ul></li>
+<li>36-line script with a 25-line preamble explaining why the plain
+<code>--sysroot</code> approach didn’t work.</li>
+</ul>
+<h3 id="toolsbuild-busybox.sh"><code>tools/build-busybox.sh</code></h3>
+<ul>
+<li><p>Switched busybox build from
+<code>EXTRA_CFLAGS=--sysroot=...</code> to <code>CC="$MUSL_GCC"</code>
+(the wrapper). EXTRA_LDFLAGS keeps
+<code>-static   -Wl,-Ttext-segment=$USER_WINDOW_BASE</code> (no
+<code>--sysroot</code> — the wrapper handles that).</p></li>
+<li><p><code>HOSTCC=cc</code> added explicitly so busybox’s host-side
+helpers (kconfig, applet_tables) still build with the system
+gcc.</p></li>
+<li><p>musl-libm/pthread/rt/dl/util/resolv/crypt symlinks created in
+<code>$SYSROOT/lib/</code> — all point at <code>libc.a</code>, since
+musl bundles these into the combined archive.</p></li>
+</ul>
+<h2 id="drive-by-gotchas">Drive-by gotchas</h2>
+<ul>
+<li><p><strong>busybox shrinks from 2.29 MB to 1.22 MB.</strong> Half
+the size, because it’s no longer pulling in glibc’s stdio infrastructure
+(<code>_IO_*</code> was huge — buffered streams, locale, wide-char
+conversions, etc.). musl’s stdio is a fraction of glibc’s. Pleasant side
+effect: the binary fits with more headroom in our 8 MiB user
+window.</p></li>
+<li><p><strong>Initial musl wrapper attempt missed kernel
+headers.</strong> <code>-nostdinc</code> removed everything including
+<code>linux/kd.h</code> etc. busybox’s kbd_mode applet needs them. Fix:
+add <code>-isystem /usr/aarch64-linux-gnu/include</code>
+(cross-toolchain’s kernel headers). The order matters — musl’s headers
+come first so <code>stdio.h</code> etc. resolve to musl, but
+<code>linux/*</code> falls through to the cross-toolchain.</p></li>
+<li><p><strong>Initial AUXV-only attempt didn’t fix anything.</strong>
+Before realizing the busybox-vs-musl link issue, I pushed AT_PHDR/
+PHENT/PHNUM expecting the captured fault to move. It didn’t: busybox
+kept faulting at <code>__memset_generic+0xa0</code> writing to
+<code>0x20</code>. Once I dumped x0/x1/x2/x30 from the trap frame, I saw
+the caller (<code>x30=0x48007124</code>) was
+<code>__libc_setup_tls</code> (a glibc symbol). That’s when the
+glibc-vs-musl confusion clicked. Lesson: dumping caller-PC + arg
+registers on every fault is high-leverage diagnostic info.</p></li>
+<li><p><strong>Initial busybox test “passed” with status 139.</strong>
+Slice 7.6d.3a’s signal-on-fault converted busybox’s TLS-gap fault into
+exit 139, and the ktest assertion was satisfied with
+<code>parent exit_code == 0</code>. Busybox didn’t actually run — it
+just cleanly died. The user’s “why don’t you finish 7.6d.2?” was the
+right kick to push past this.</p></li>
+<li><p><strong><code>make test</code> not picking up new
+busybox.</strong> After fixing the link issue, <code>make test</code>
+still showed the old failure. Reason: <code>initramfs.cpio</code> and
+<code>kernel-test.elf</code> weren’t re-linked because their dep on
+<code>busybox</code> is via the <code>$(BUSYBOX_BIN)</code> variable but
+the underlying file timestamp hadn’t changed in a way make noticed.
+<code>rm -f   test/kernel/initramfs.cpio kernel-test.elf kernel-test.bin   &amp;&amp; make test</code>
+forced the rebuild. Worth a Makefile cleanup pass to make this
+dependency cascade reliable — filed implicitly via this
+drive-by.</p></li>
+</ul>
+<h2 id="verification">Verification</h2>
+<ul>
+<li><p><code>make test</code> → <strong>410/410</strong> pass (51 python
++ 275 host + 84 kernel), 0 leaks, 0 errors, exit 0. Same count as
+session 53 — but now
+<code>posix_busybox_help_parent_forks_and_execs_busybox</code> passes
+with the busybox <code>--help</code> actually completing, not just
+cleanly faulting.</p></li>
+<li><p>Live ktest log fragment from the busybox test:</p></li>
+</ul>
+<pre><code>posix_busybox_help_parent_forks_and_execs_busybox [busybox-parent]BusyBox v1.36.1 (2026-04-27 01:11:03 CST) multi-call binary.
+Usage: busybox [function [arguments]...]
+   or: busybox --list[-full]
+   or: busybox --show SCRIPT
+   or: busybox --install [-s] [DIR]
+        ...
+        tsort, tty, ttysize, ubiattach, ubidetach, ubimkvol, ubirename,
+        ubirmvol, ubirsvol, ubiupdatevol, uevent, umount, uname, unexpand,
+        uniq, unix2dos, unlink, unlzma, unshare, unxz, unzip, uptime, users,
+        usleep, uudecode, uuencode, vi, volname, w, wall, watch, watchdog, wc,
+        which, who, whoami, xargs, xxd, xz, xzcat, yes, zcat
+[busybox-status=00][busybox-help-ok]PASS</code></pre>
+<ul>
+<li><p><code>nm busybox | grep _IO_</code> still shows
+<code>_IO_*</code> symbols, but they’re WEAK aliases that musl provides
+for glibc-source compatibility (a few apps use these directly).
+<code>__libc_setup_tls</code> (glibc-only) is GONE. busybox is
+musl-linked.</p></li>
+<li><p>busybox binary size: 1,224,312 bytes (was 2,292,464 — drop of
+47%).</p></li>
+</ul>
+<h2 id="what-was-not-done">What Was Not Done</h2>
+<ul>
+<li><p><strong>Slice 7.6d.N</strong> — <code>/init = busybox sh</code>
+boots to a shell prompt over serial. busybox’s <code>sh</code> applet
+needs symlink dispatch (<code>/bin/sh -&gt; busybox</code>) which
+neither cpio’s flat- file model nor our ramfs supports yet. Plus
+<code>sh</code> will fault on any number of new gaps (<code>mmap</code>,
+<code>clone</code>, terminal ioctls). Whichever fault surfaces becomes
+the next sub-slice.</p></li>
+<li><p><strong>No <code>mmap</code> syscall.</strong> busybox
+<code>--help</code> doesn’t need it (musl’s mallocng falls back to brk
+for small allocations); the shell will.</p></li>
+<li><p><strong>No catchable signals.</strong> Fault delivers
+SIGSEGV/SIGILL via <code>nx_process_exit(128 + signo)</code>, force-exit
+only. busybox’s shell wants <code>signal(SIGINT, SIG_IGN)</code> etc. —
+needs handler framework, deferred.</p></li>
+<li><p><strong>AT_HWCAP / AT_HWCAP2 / AT_PLATFORM not pushed.</strong>
+Originally in the 7.6d.3b plan; turned out busybox <code>--help</code>
+doesn’t need them. Push when first user does.</p></li>
+<li><p><strong>Makefile dep cascade for busybox → initramfs →
+kernel-test not robust.</strong> Manual <code>rm -f</code> workaround
+above.</p></li>
+</ul>
+<h2 id="test-counts">Test Counts</h2>
+<ul>
+<li><p>Python: 51 (unchanged)</p></li>
+<li><p>Host: 275 (unchanged)</p></li>
+<li><p>Kernel: 84 (unchanged — busybox ktest already in the count from
+session 53; now actually passes with <code>--help</code> output instead
+of with the captured-fault status)</p></li>
+<li><p><strong>Total: 410/410 PASS</strong></p></li>
+</ul>
+<p>Build outputs that changed:</p>
+<ul>
+<li><p><code>third_party/busybox/busybox</code> — 2,292,464 → 1,224,312
+bytes (now properly musl-linked).</p></li>
+<li><p><code>test/kernel/initramfs.cpio</code> — proportionally
+smaller.</p></li>
+</ul>
+<h2 id="slice-7.6d.2-morally-closed">Slice 7.6d.2 — morally closed</h2>
+<p>The original 7.6d.2 goal (per IMPLEMENTATION-GUIDE) was: &gt; Try to
+boot busybox <code>--help</code> from a libnxlibc parent.</p>
+<p>That’s now done end-to-end. Sub-slices that took us there:</p>
+<ul>
+<li><p>7.6d.1 — vendor + cross-compile busybox</p></li>
+<li><p>7.6d.2a — re-link at user-window VA</p></li>
+<li><p>7.6d.2b — grow user window to 8 MiB</p></li>
+<li><p>7.6d.2c — first attempt + capture failure (TLS gap)</p></li>
+<li><p>7.6d.3a — signal-on-fault (so the kernel survives EL0 faults
+instead of halt_forever)</p></li>
+<li><p>7.6d.3b + 7.6d.3c (this session) — push AT_PHDR/PHENT/PHNUM,
+pre-init TPIDR_EL0, force musl-linking via gcc wrapper</p></li>
+</ul>
+<p>The combined arc closes “make busybox <code>--help</code> actually
+run.” Slice 7.6d.N (boot to shell prompt) is the next milestone but a
+separate goal.</p>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li><strong>7.6d.N</strong> — <code>/init = busybox sh</code> boots to a
+shell prompt over serial. Needs:
+<ul>
+<li>busybox applet-symlink layout in initramfs (cpio doesn’t natively
+model symlinks across our flat ramfs; either duplicate file entries per
+applet name OR teach ramfs symlink semantics)</li>
+<li>whichever new musl/busybox features <code>sh</code> requires
+(probably <code>mmap</code> for shell job control + signal handlers for
+SIGINT)</li>
+</ul></li>
+<li><strong>Slice 7.7</strong> — interactive smoke tests once shell is
+up.</li>
+</ul>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-27</p>
+</body>
+</html>

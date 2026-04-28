@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-35-fork – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-35-slice-7.4a-nx_sys_fork"
+id="toc-session-35-slice-7.4a-nx_sys_fork">Session 35: slice 7.4a —
+<code>NX_SYS_FORK</code></a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#coremmummu.hc-mmu_copy_user_backing"
+id="toc-coremmummu.hc-mmu_copy_user_backing"><code>core/mmu/mmu.{h,c}</code>
+— <code>mmu_copy_user_backing</code></a></li>
+<li><a href="#frameworkprocess.hc-nx_process_fork"
+id="toc-frameworkprocess.hc-nx_process_fork"><code>framework/process.{h,c}</code>
+— <code>nx_process_fork</code></a></li>
+<li><a href="#corecpuvectors.s-nx_task_fork_child_entry-thunk"
+id="toc-corecpuvectors.s-nx_task_fork_child_entry-thunk"><code>core/cpu/vectors.S</code>
+— <code>nx_task_fork_child_entry</code> thunk</a></li>
+<li><a href="#coreschedtask.hc-nx_task_create_forked"
+id="toc-coreschedtask.hc-nx_task_create_forked"><code>core/sched/task.{h,c}</code>
+— <code>nx_task_create_forked</code></a></li>
+<li><a href="#frameworksyscall.c-per-call-trap-frame-stash-sys_fork"
+id="toc-frameworksyscall.c-per-call-trap-frame-stash-sys_fork"><code>framework/syscall.c</code>
+— per-call trap-frame stash + <code>sys_fork</code></a></li>
+<li><a href="#syscall-number-el0-demo"
+id="toc-syscall-number-el0-demo">Syscall number + EL0 demo</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-35-slice-7.4a-nx_sys_fork">Session 35: slice 7.4a —
+<code>NX_SYS_FORK</code></h1>
+<p><strong>Date:</strong> 2026-04-24 <strong>Phase:</strong> 7 slice
+7.4a <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Implement fork — the trickiest of the fork/exec/wait trio because of
+the “two return values from one syscall” semantics. When a parent calls
+<code>fork()</code>, control must land back at the same EL0 instruction
+twice: once in the parent with <code>x0 = child_pid</code>, once in the
+child (running in its own address space) with <code>x0 = 0</code>. This
+slice builds the trap-frame replay machinery that makes that
+possible.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>7.4a only.</strong> The original §7.4 plan bundled fork +
+exec + wait + posix_shim into one slice. That’s too much for one
+session, and fork’s mechanics (trap-frame replay, new kstack entry-point
+thunk, per-task address-space duplication) deserve isolated verification
+before layering exec’s address-space reset on top. Sub-sliced: 7.4a
+(fork, this slice), 7.4b (wait, next), 7.4c (exec — also gated on
+bumping <code>RAMFS_FILE_CAP</code> so the ELF can live at a ramfs
+path), 7.4d (posix_shim component).</p></li>
+<li><p><strong>Empty child handle table.</strong> POSIX fork inherits
+all open file descriptors. For v1 the simpler “child starts with empty
+handles” is enough for the vast majority of fork+exec use cases (child
+immediately execs, which rebuilds its handles anyway). Real handle-table
+duplication lands with 7.4c where exec has a reason to consult what the
+child inherited.</p></li>
+<li><p><strong>No COW / page-fault machinery.</strong> The address-space
+copy is eager — <code>mmu_copy_user_backing</code> memcopies the full 2
+MiB user window. Copy-on-write would cut fork cost dramatically for
+large programs but requires page-fault handling which v1 doesn’t have
+(only SVC decodes ESR.EC; other sync exceptions halt). Eager copy is
+correct and works fine at our current 2 MiB-per-process scale.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="coremmummu.hc-mmu_copy_user_backing"><code>core/mmu/mmu.{h,c}</code>
+— <code>mmu_copy_user_backing</code></h3>
+<p>New helper: byte-copies the 2 MiB user window between two address
+spaces with the same I-cache flush discipline the ELF loader uses
+(<code>dsb ish ; ic iallu ; dsb ish ; isb</code>). Safe against NULL /
+identical source+dest (no-op in those cases). Host stub is a no-op.</p>
+<h3
+id="frameworkprocess.hc-nx_process_fork"><code>framework/process.{h,c}</code>
+— <code>nx_process_fork</code></h3>
+<ul>
+<li><p><code>nx_process_fork(parent)</code> returns a fresh child
+process. Internally: <code>nx_process_create</code> allocates the struct
++ fresh address space + empty handle table; then
+<code>mmu_copy_user_backing(parent-&gt;ttbr0_root, child-&gt;ttbr0_root)</code>.</p></li>
+<li><p>Handle table left empty — documented in the header, with a
+pointer to where duplication will land (7.4c).</p></li>
+</ul>
+<h3
+id="corecpuvectors.s-nx_task_fork_child_entry-thunk"><code>core/cpu/vectors.S</code>
+— <code>nx_task_fork_child_entry</code> thunk</h3>
+<p>A new global label at the end of the file. Contents:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">nx_task_fork_child_entry:</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    RESTORE_TRAPFRAME     <span class="co">;; existing macro from _sync_stub&#39;s tail</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    eret</span></code></pre></div>
+<p>When the scheduler first picks a fork-child task,
+<code>cpu_switch_to</code> restores its callee-saved regs and
+<code>ret</code>s to LR — which <code>nx_task_ create_forked</code>
+populates with this thunk’s address. The thunk expects SP to already
+point at a valid trap frame; the forked- child task is created with
+exactly that layout. RESTORE_TRAPFRAME unpacks the frame into the CPU
+state, eret delivers control to EL0 at the parent’s fork SVC’s follow-up
+instruction.</p>
+<p>Reusing RESTORE_TRAPFRAME (instead of duplicating the macro body)
+means the trap-frame layout stays single-sourced — if we ever change the
+frame, both <code>_sync_stub</code> and the fork thunk pick up the new
+shape for free.</p>
+<h3
+id="coreschedtask.hc-nx_task_create_forked"><code>core/sched/task.{h,c}</code>
+— <code>nx_task_create_forked</code></h3>
+<ul>
+<li><p>Allocates a kstack (1 page).</p></li>
+<li><p>Reserves <code>sizeof(struct trap_frame) = 272</code> bytes at
+the top (aligned to 16).</p></li>
+<li><p>Byte-copies <code>parent_tf</code> into that reservation;
+rewrites <code>x[0]</code> to 0 (the child’s fork return
+value).</p></li>
+<li><p>Wires <code>cpu_ctx.sp = frame_addr</code>,
+<code>cpu_ctx.x30 =   &amp;nx_task_fork_child_entry</code>,
+<code>cpu_ctx.daif = 0</code>, all other callee-saved regs zeroed (the
+thunk immediately restores from the trap frame so they don’t
+matter).</p></li>
+<li><p>Inherits <code>task-&gt;process</code> from the caller; caller
+(specifically <code>sys_fork</code>) overrides it to the forked child
+before enqueueing.</p></li>
+</ul>
+<p>Host stub returns NULL — no trap frame or EL0 on host.</p>
+<h3
+id="frameworksyscall.c-per-call-trap-frame-stash-sys_fork"><code>framework/syscall.c</code>
+— per-call trap-frame stash + <code>sys_fork</code></h3>
+<ul>
+<li><p>New <code>static const struct trap_frame *g_current_tf</code> +
+<code>nx_syscall_current_tf()</code> accessor.
+<code>nx_syscall_dispatch</code> writes the current tf into the stash
+before calling a handler and clears it after. This is the bridge between
+“dispatcher sees the trap frame” and “individual handlers only receive 6
+arg registers”. Single-CPU v1; multi-CPU wraps the stash in per-CPU
+storage without changing the accessor’s signature.</p></li>
+<li><p><code>sys_fork</code>:</p>
+<ol type="1">
+<li><code>nx_task_current()-&gt;process</code> = parent.</li>
+<li><code>nx_syscall_current_tf()</code> = parent’s trap frame.</li>
+<li><code>nx_process_fork(parent)</code> → child process.</li>
+<li><code>nx_task_create_forked(name, parent_tf)</code> → child
+task.</li>
+<li><code>child_task-&gt;process = child</code>.</li>
+<li><code>g_sched_ops-&gt;enqueue(sched_self, child_task)</code>.</li>
+<li>Return child’s pid (goes into parent’s <code>tf-&gt;x[0]</code>).
+Any allocation failure rolls back cleanly.</li>
+</ol></li>
+<li><p>Host: returns <code>NX_EINVAL</code> (no MMU, no trap frame, no
+fork).</p></li>
+</ul>
+<h3 id="syscall-number-el0-demo">Syscall number + EL0 demo</h3>
+<ul>
+<li><p><code>NX_SYS_FORK = 12</code> added to the enum.</p></li>
+<li><p><code>test/kernel/user_prog_fork.S</code>: single
+<code>svc #0</code> with <code>x8 = 12</code>, then
+<code>cbz x0, _fork_child</code> to split parent vs child branches; each
+emits a distinct marker via <code>NX_SYS_DEBUG_WRITE</code> and
+parks.</p></li>
+<li><p><code>test/kernel/ktest_fork.c</code>: creates a parent process,
+memcopies the EL0 program into its user window, spawns a kthread pinned
+to the parent, drops to EL0. Yields until the debug_write counter
+reaches 2, then dequeues the parent task. The child task (enqueued from
+within <code>sys_fork</code>) remains in its wfe park — same convention
+every other EL0 ktest uses for stranded tasks.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Trap-frame replay is the entire mechanism.</strong> The
+“magic” of fork returning twice is really just: save the parent’s trap
+frame twice, modify one copy’s <code>x[0]</code> to 0, plant that copy
+on a new task’s kernel stack with an entry-point thunk that erets. No
+clever control-flow manipulation, no setjmp/longjmp — just careful stack
+setup.</p></li>
+<li><p><strong><code>cpu_ctx.sp</code> → top-of-kstack-minus-frame works
+cleanly.</strong> The trap-frame layout from <code>SAVE_TRAPFRAME</code>
+matches the <code>struct trap_frame</code> shape exactly (31 × uint64_t
++ sp_el0 + pc + pstate = 272 bytes). Placing the frame at
+<code>kstack_top - 272</code> and pointing <code>cpu_ctx.sp</code> at it
+lets the thunk’s <code>RESTORE_TRAPFRAME</code> pop the frame with its
+built-in <code>add sp, sp, #272</code> — returning the stack to its top,
+ready for the next exception-entry save.</p></li>
+<li><p><strong>I-cache flush after user-backing copy is
+mandatory.</strong> Without <code>ic iallu</code> after the copy, the
+child’s fork-return path fetched stale instruction bytes (from the
+parent’s stale cache lines covering VAs that now resolve via the child’s
+TTBR0). Same issue slice 7.3’s ELF loader hit; same fix.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Per-call trap-frame stash, not handler-signature
+change.</strong> Alternative: change every syscall handler signature to
+take <code>struct trap_frame *tf</code> instead of 6
+<code>uint64_t</code> args. Chose the stash because (a) only
+<code>sys_fork</code> actually needs the full frame — all other handlers
+are happy with their 6 arg registers, (b) changing every handler’s
+signature is mechanical churn for one consumer, (c) the stash pattern
+extends naturally to multi-CPU without touching handlers.</p></li>
+<li><p><strong><code>nx_task_create_forked</code> separate from
+<code>nx_task_create</code>.</strong> Alternative: add parameters to the
+existing <code>nx_task_create</code> so it can produce either a fresh
+kthread or a fork replay. Chose separate function because the
+entry-point / stack / context semantics differ enough that one function
+would branch on “is this fork?” internally — ugly. The two functions
+share <code>alloc_task_struct</code> / <code>alloc_kstack</code> but
+diverge on everything else. How to apply: any future “new task with a
+different resume style” (e.g.,
+<code>nx_task_create_   from_elf_entry</code>) gets its own creator
+rather than overloading the kthread constructor.</p></li>
+<li><p><strong>Child task enqueued in sys_fork, not by the
+caller.</strong> Alternative: return the child task from sys_fork and
+let the caller enqueue. Chose internal enqueue because sys_fork is THE
+caller — nothing else in the kernel manufactures fork-children. How to
+apply: syscall handlers that create follow-up tasks enqueue them
+themselves rather than returning them up the stack.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>391/391 pass (51 python + 274
+host + 66 kernel), 0 leaks, 0 errors, exit 0</strong>. +1 kernel
+test.</p></li>
+<li><p><code>make run</code> boots cleanly. The new thunk is only
+exercised when <code>sys_fork</code> creates a child task; normal boot
+doesn’t reach it.</p></li>
+<li><p>Seven EL0 markers now visible in the ktest log:
+<code>[el0] hello</code> · <code>[el0-chan-ok]</code> ·
+<code>[el0-file-ok]</code> · <code>[el0-rdr-ok]</code> ·
+<code>[el0-elf-ok]</code> · <code>[fork-parent]</code> ·
+<code>[fork-child]</code>. Each a distinct syscall-family or
+process-mechanism milestone.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Slice 7.4b — <code>NX_SYS_WAIT(pid, *status)</code>.</p>
+<ul>
+<li><p>Look up target process by pid.</p></li>
+<li><p>If <code>state == EXITED</code>, copy exit_code to user + return
+pid.</p></li>
+<li><p>If <code>state != EXITED</code>, yield and retry. Bounded yield
+count or wait queue — v1 keeps it as a cooperative poll.</p></li>
+<li><p>Test: fork + child calls <code>NX_SYS_EXIT(42)</code> + parent
+calls <code>NX_SYS_WAIT(child_pid, &amp;status)</code> + asserts status
+== 42. Closes the fork/wait pair sufficient for many shell-style use
+cases even without exec yet.</p></li>
+</ul>
+<p>Slice 7.4c — <code>NX_SYS_EXEC(path)</code>.</p>
+<ul>
+<li><p>Needs <code>RAMFS_FILE_CAP</code> bump (the deferred 7.3.5). An
+ELF binary doesn’t fit in 256-byte ramfs files.</p></li>
+<li><p>Allocate a fresh address space via slice 7.2’s primitives; load
+ELF via slice 7.3’s loader; swap new address space in via
+<code>mmu_switch_address_space</code> +
+<code>process-&gt;ttbr0_root =   new</code>; free old address space;
+eret to the ELF’s entry.</p></li>
+<li><p>Handle table carries over (when 7.4a eventually duplicates
+handles, exec is the place where empty-vs-preserved diverges).</p></li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/core/mmu/mmu.h</code> — add
+<code>mmu_copy_user_backing</code> prototype</li>
+<li><code>sources/nonux/core/mmu/mmu.c</code> — implementation</li>
+<li><code>sources/nonux/framework/process.h</code> — add
+<code>nx_process_fork</code> prototype</li>
+<li><code>sources/nonux/framework/process.c</code> — implementation</li>
+<li><code>sources/nonux/core/cpu/vectors.S</code> — add
+<code>nx_task_fork_child_entry</code> thunk</li>
+<li><code>sources/nonux/core/sched/task.h</code> — add
+<code>nx_task_create_forked</code> prototype</li>
+<li><code>sources/nonux/core/sched/task.c</code> — implementation</li>
+<li><code>sources/nonux/framework/syscall.h</code> —
+<code>NX_SYS_FORK = 12</code></li>
+<li><code>sources/nonux/framework/syscall.c</code> —
+<code>g_current_tf</code> stash + <code>sys_fork</code></li>
+<li><code>sources/nonux/test/kernel/user_prog_fork.S</code> — new (EL0
+fork demo)</li>
+<li><code>sources/nonux/test/kernel/ktest_fork.c</code> — new (kernel
+test)</li>
+<li><code>sources/nonux/Makefile</code> —
+<code>KTEST_S += user_prog_fork.S</code>;
+<code>KTEST_C += ktest_fork.c</code></li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.4
+split into 7.4a–7.4d, 7.4a marked complete</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 30 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>TESTING-GUIDE – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#testing-guide-nonux" id="toc-testing-guide-nonux">Testing
+Guide: nonux</a>
+<ul>
+<li><a href="#navigation" id="toc-navigation">Navigation</a></li>
+<li><a href="#quick-start" id="toc-quick-start">Quick Start</a></li>
+<li><a href="#two-harnesses-two-scopes"
+id="toc-two-harnesses-two-scopes">Two Harnesses, Two Scopes</a></li>
+<li><a href="#test-inventory" id="toc-test-inventory">Test Inventory</a>
+<ul>
+<li><a href="#host-testhostpmm_test.c-11-tests-pmm-mem_track"
+id="toc-host-testhostpmm_test.c-11-tests-pmm-mem_track">Host —
+<code>test/host/pmm_test.c</code> (11 tests — PMM + mem_track)</a></li>
+<li><a
+href="#host-testhostregistry_test.c-51-tests-component-graph-registry"
+id="toc-host-testhostregistry_test.c-51-tests-component-graph-registry">Host
+— <code>test/host/registry_test.c</code> (51 tests — Component Graph
+Registry)</a></li>
+<li><a href="#kernel-testkernelktest_pmm.c-4-tests"
+id="toc-kernel-testkernelktest_pmm.c-4-tests">Kernel —
+<code>test/kernel/ktest_pmm.c</code> (4 tests)</a></li>
+<li><a href="#kernel-testkernelktest_irq.c-2-tests"
+id="toc-kernel-testkernelktest_irq.c-2-tests">Kernel —
+<code>test/kernel/ktest_irq.c</code> (2 tests)</a></li>
+</ul></li>
+<li><a href="#running-tests" id="toc-running-tests">Running Tests</a>
+<ul>
+<li><a href="#full-suite" id="toc-full-suite">Full suite</a></li>
+<li><a href="#host-only" id="toc-host-only">Host-only</a></li>
+<li><a href="#kernel-only" id="toc-kernel-only">Kernel-only</a></li>
+<li><a href="#single-kernel-test" id="toc-single-kernel-test">Single
+kernel test</a></li>
+<li><a href="#production-kernel-no-tests"
+id="toc-production-kernel-no-tests">Production kernel (no
+tests)</a></li>
+<li><a href="#interactive-busybox-shell-slice-7.6d.n.final.b"
+id="toc-interactive-busybox-shell-slice-7.6d.n.final.b">Interactive
+busybox shell (slice 7.6d.N.final.b)</a></li>
+<li><a href="#scripted-busybox-tests-slice-7.6d.n.final.d-.e"
+id="toc-scripted-busybox-tests-slice-7.6d.n.final.d-.e">Scripted busybox
+tests (slice 7.6d.N.final.d + .e)</a></li>
+</ul></li>
+<li><a href="#expected-output" id="toc-expected-output">Expected
+Output</a>
+<ul>
+<li><a href="#make-test-host"
+id="toc-make-test-host"><code>make test-host</code></a></li>
+<li><a href="#make-test-kernel"
+id="toc-make-test-kernel"><code>make test-kernel</code></a></li>
+<li><a href="#known-acceptable-variations"
+id="toc-known-acceptable-variations">Known acceptable
+variations</a></li>
+</ul></li>
+<li><a href="#writing-a-new-test" id="toc-writing-a-new-test">Writing a
+New Test</a>
+<ul>
+<li><a href="#host-test-pure-algorithm"
+id="toc-host-test-pure-algorithm">Host test (pure algorithm)</a></li>
+<li><a href="#framework-test-registry-lifecycle-ipc-hooks"
+id="toc-framework-test-registry-lifecycle-ipc-hooks">Framework test
+(registry / lifecycle / IPC / hooks)</a></li>
+<li><a href="#kernel-test-real-hardware-path"
+id="toc-kernel-test-real-hardware-path">Kernel test (real hardware
+path)</a></li>
+</ul></li>
+<li><a href="#troubleshooting"
+id="toc-troubleshooting">Troubleshooting</a>
+<ul>
+<li><a href="#make-test-kernel-hangs-until-the-15-second-timeout"
+id="toc-make-test-kernel-hangs-until-the-15-second-timeout"><code>make test-kernel</code>
+hangs until the 15-second timeout</a></li>
+<li><a href="#kernel-test-output-shows--40s-instead-of-test-names"
+id="toc-kernel-test-output-shows--40s-instead-of-test-names">Kernel test
+output shows <code>%-40s</code> instead of test names</a></li>
+<li><a href="#undefined-reference-to-__start_kernel_test_registry"
+id="toc-undefined-reference-to-__start_kernel_test_registry"><code>undefined reference to __start_kernel_test_registry</code></a></li>
+<li><a
+href="#host-tests-link-but-fail-with-relocations-in-generic-elf-em-183"
+id="toc-host-tests-link-but-fail-with-relocations-in-generic-elf-em-183">Host
+tests link but fail with
+<code>Relocations in generic ELF (EM: 183)</code></a></li>
+<li><a
+href="#make-test-kernel-says-error-1-but-the-tests-all-printed-pass"
+id="toc-make-test-kernel-says-error-1-but-the-tests-all-printed-pass"><code>make test-kernel</code>
+says <code>Error 1</code> but the tests all printed PASS</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="testing-guide-nonux">Testing Guide: nonux</h1>
+<p><strong>Scope:</strong> How to run tests, what each test validates,
+expected output, and troubleshooting.</p>
+<p><strong>Current test count (Phase 3 slice 3.2):</strong> 62 host-side
++ 6 in-kernel = <strong>68 tests</strong>.</p>
+<hr />
+<h2 id="navigation">Navigation</h2>
+<p><strong>Project Docs:</strong> <a href="README.html">README</a> | <a
+href="SPEC.html">SPEC</a> | <a href="DESIGN.html">DESIGN</a> | <a
+href="IMPLEMENTATION-GUIDE.html">IMPLEMENTATION-GUIDE</a> | <a
+href="HANDOFF.html">HANDOFF</a> | <a
+href="TESTING-GUIDE.html">TESTING-GUIDE</a> <em>(you are here)</em></p>
+<p><strong>This Document:</strong></p>
+<ul>
+<li><a href="#quick-start">Quick Start</a></li>
+<li><a href="#two-harnesses-two-scopes">Two Harnesses, Two
+Scopes</a></li>
+<li><a href="#test-inventory">Test Inventory</a></li>
+<li><a href="#running-tests">Running Tests</a></li>
+<li><a href="#expected-output">Expected Output</a></li>
+<li><a href="#writing-a-new-test">Writing a New Test</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+</ul>
+<hr />
+<h2 id="quick-start">Quick Start</h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> sources/nonux</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div>
+<p>Expected: host tests (62 pass) then kernel tests (6 pass) then QEMU
+exits cleanly with status 0. Final lines:</p>
+<pre><code>PASS: 62/62 tests passed, 0 leaks, 0 errors
+...
+ktest: 6/6 PASSED, 0 failures</code></pre>
+<p>If both sections report all-pass and <code>make</code> exits 0, the
+tree is healthy.</p>
+<hr />
+<h2 id="two-harnesses-two-scopes">Two Harnesses, Two Scopes</h2>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Harness</th>
+<th>Location</th>
+<th>Compiler</th>
+<th>What it validates</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Host</strong></td>
+<td><code>test/host/</code></td>
+<td>system <code>cc</code> + libc</td>
+<td>Pure-C logic — PMM algorithm + mem_track + framework-level code
+(registry). Fast iteration; runs in ~milliseconds. PMM tests use a
+<code>posix_memalign</code>’d buffer to stand in for physical memory;
+framework tests use caller-owned auto/static structs.</td>
+</tr>
+<tr class="even">
+<td><strong>Kernel</strong></td>
+<td><code>test/kernel/</code></td>
+<td>cross <code>aarch64-linux-gnu-gcc</code>, freestanding</td>
+<td>End-to-end kernel behavior: PMM against real physical RAM, IRQ path
+(vectors → GIC → dispatch → handler → ERET), timer. Boots under QEMU
+with <code>-semihosting</code>; the guest exits the VM with a status
+code that <code>make</code> propagates.</td>
+</tr>
+</tbody>
+</table>
+<p>Both harnesses use a self-registering <code>TEST()</code> /
+<code>KTEST()</code> macro: each test emits an entry into a dedicated
+linker section and the runner walks it. Adding a test is one
+<code>TEST(name) { … }</code> block; no manual registration.</p>
+<p>The host harness’s <code>mt_track</code> layer catches leaks and
+red-zone overflows in test code, but framework code that allocates
+internally (e.g. <code>framework/registry.c</code>) uses plain
+<code>malloc</code>/<code>free</code> so its lifetime is decoupled from
+the per-test <code>mt_reset()</code>. Framework tests verify “no
+internal leaks” by asserting on counts
+(e.g. <code>nx_graph_*_count() == 0</code>) after a register/unregister
+cycle.</p>
+<hr />
+<h2 id="test-inventory">Test Inventory</h2>
+<h3 id="host-testhostpmm_test.c-11-tests-pmm-mem_track">Host —
+<code>test/host/pmm_test.c</code> (11 tests — PMM + mem_track)</h3>
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 33%" />
+<col style="width: 57%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>#</th>
+<th>Test Name</th>
+<th>What It Validates</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td><code>pmm_init_counts_pages_and_reserves_bitmap</code></td>
+<td>After <code>pmm_init</code>, <code>pmm_total_count</code> /
+<code>pmm_free_count</code> are correct and the bitmap’s own pages are
+reserved.</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td><code>pmm_alloc_page_returns_nonnull_and_aligned</code></td>
+<td>First alloc is non-NULL, page-aligned, and the free count drops by
+1.</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td><code>pmm_alloc_distinct_pages</code></td>
+<td>Two allocs return different pages.</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td><code>pmm_alloc_until_exhausted_then_null</code></td>
+<td>After <code>total</code> allocs, the next returns NULL and free
+count is 0.</td>
+</tr>
+<tr class="odd">
+<td>5</td>
+<td><code>pmm_free_then_realloc</code></td>
+<td>Freeing a page and allocating again returns the same page (hint
+reuse).</td>
+</tr>
+<tr class="even">
+<td>6</td>
+<td><code>pmm_full_cycle_no_leak</code></td>
+<td>Alloc all, free all → free count equals initial total.</td>
+</tr>
+<tr class="odd">
+<td>7</td>
+<td><code>pmm_alloc_pages_contiguous_two</code></td>
+<td>2-page contiguous alloc is page-aligned; next single alloc is
+distinct from both.</td>
+</tr>
+<tr class="even">
+<td>8</td>
+<td><code>pmm_alloc_pages_too_big_returns_null</code></td>
+<td>Requests larger than the pool return NULL rather than
+succeeding.</td>
+</tr>
+<tr class="odd">
+<td>9</td>
+<td><code>pmm_alloc_pages_finds_contiguous_range_after_fragmentation</code></td>
+<td>Freeing the middle 3 of 5 allocated pages creates a gap that
+<code>pmm_alloc_pages(3)</code> finds.</td>
+</tr>
+<tr class="even">
+<td>10</td>
+<td><code>mem_track_tracks_live_and_released</code></td>
+<td><code>mt_live_count</code> goes up on tracked_alloc and down on
+tracked_free.</td>
+</tr>
+<tr class="odd">
+<td>11</td>
+<td><code>mem_track_zero_initializes_payload</code></td>
+<td>Tracked allocations hand back zero-filled memory.</td>
+</tr>
+</tbody>
+</table>
+<h3
+id="host-testhostregistry_test.c-51-tests-component-graph-registry">Host
+— <code>test/host/registry_test.c</code> (51 tests — Component Graph
+Registry)</h3>
+<p>Exercises <code>framework/registry.c</code>. Every test starts with
+<code>nx_graph_reset()</code> so it begins on a clean global state
+regardless of what the previous test left behind. Caller-owned
+<code>struct nx_slot</code> / <code>struct nx_component</code> are
+auto-storage in the test body.</p>
+<h4 id="slice-3.1-registry-skeleton-25-tests">Slice 3.1 — registry
+skeleton (25 tests)</h4>
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 33%" />
+<col style="width: 57%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>#</th>
+<th>Test Name</th>
+<th>What It Validates</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td><code>registry_starts_empty</code></td>
+<td>After <code>nx_graph_reset()</code>, all counts and the generation
+counter are zero.</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td><code>slot_register_and_lookup</code></td>
+<td>A registered slot is findable by name; count goes to 1; generation
+bumps.</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td><code>slot_register_duplicate_name_fails</code></td>
+<td>Second register with the same name returns <code>NX_EEXIST</code>
+and leaves count at 1.</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td><code>slot_register_null_inputs_fail</code></td>
+<td>NULL slot or NULL <code>name</code> field returns
+<code>NX_EINVAL</code>.</td>
+</tr>
+<tr class="odd">
+<td>5</td>
+<td><code>slot_lookup_misses_return_null</code></td>
+<td>Lookup of an unregistered name returns NULL.</td>
+</tr>
+<tr class="even">
+<td>6</td>
+<td><code>slot_unregister_removes_entry</code></td>
+<td>Unregister drops the slot from lookup and decrements count.</td>
+</tr>
+<tr class="odd">
+<td>7</td>
+<td><code>slot_unregister_with_active_connection_returns_ebusy</code></td>
+<td><code>nx_slot_unregister</code> refuses to drop a slot still
+referenced by a connection edge — caller must tear wiring down
+first.</td>
+</tr>
+<tr class="even">
+<td>8</td>
+<td><code>component_register_and_lookup</code></td>
+<td>Register + <code>(manifest_id, instance_id)</code> lookup
+roundtrip.</td>
+</tr>
+<tr class="odd">
+<td>9</td>
+<td><code>component_register_duplicate_pair_fails</code></td>
+<td>Same <code>(manifest, instance)</code> pair returns
+<code>NX_EEXIST</code>.</td>
+</tr>
+<tr class="even">
+<td>10</td>
+<td><code>component_register_distinct_instances_of_same_manifest</code></td>
+<td><code>uart_pl011/uart0</code> and <code>uart_pl011/uart1</code>
+coexist.</td>
+</tr>
+<tr class="odd">
+<td>11</td>
+<td><code>component_state_set_updates_state_and_bumps_gen</code></td>
+<td>State transition writes through to the caller’s struct and bumps
+generation.</td>
+</tr>
+<tr class="even">
+<td>12</td>
+<td><code>component_unregister_blocked_while_active_in_a_slot</code></td>
+<td><code>EBUSY</code> while a slot still names this component as
+<code>active</code>; succeeds after
+<code>slot_swap(s, NULL)</code>.</td>
+</tr>
+<tr class="odd">
+<td>13</td>
+<td><code>slot_swap_sets_active_and_bumps_gen</code></td>
+<td>Swap binds the new component into <code>slot-&gt;active</code> and
+bumps generation.</td>
+</tr>
+<tr class="even">
+<td>14</td>
+<td><code>slot_swap_to_unknown_component_fails</code></td>
+<td>Swap to a component that was never registered returns
+<code>NX_ENOENT</code> and leaves <code>active</code> untouched.</td>
+</tr>
+<tr class="odd">
+<td>15</td>
+<td><code>connection_register_basic</code></td>
+<td>New connection appears in global count; <code>from_slot</code> and
+<code>to_slot</code> survive round-trip; <code>installed_gen</code> is
+set.</td>
+</tr>
+<tr class="even">
+<td>16</td>
+<td><code>connection_register_with_null_from_is_a_boot_edge</code></td>
+<td><code>from_slot == NULL</code> is legal — used by the boot
+sequence’s initial wiring.</td>
+</tr>
+<tr class="odd">
+<td>17</td>
+<td><code>connection_register_null_to_fails</code></td>
+<td><code>to_slot == NULL</code> returns <code>NX_EINVAL</code>.</td>
+</tr>
+<tr class="even">
+<td>18</td>
+<td><code>connection_register_unknown_slot_fails</code></td>
+<td>An unregistered endpoint returns <code>NX_ENOENT</code>.</td>
+</tr>
+<tr class="odd">
+<td>19</td>
+<td><code>connection_retune_changes_mode_and_stateful</code></td>
+<td><code>nx_connection_retune</code> updates mode and stateful flag and
+bumps generation.</td>
+</tr>
+<tr class="even">
+<td>20</td>
+<td><code>connection_unregister_removes_from_lists</code></td>
+<td>Unregister cleans both the global list and the per-slot
+incoming/outgoing lists; afterwards the slots are unrefe­renced and can
+themselves be unregistered.</td>
+</tr>
+<tr class="odd">
+<td>21</td>
+<td><code>graph_foreach_visits_every_slot</code></td>
+<td>Global slot enumeration visits every registered slot exactly
+once.</td>
+</tr>
+<tr class="even">
+<td>22</td>
+<td><code>graph_foreach_visits_every_component_and_connection</code></td>
+<td>Same, for components and connections.</td>
+</tr>
+<tr class="odd">
+<td>23</td>
+<td><code>slot_neighbourhood_walks_in_and_out_edges</code></td>
+<td><code>slot_foreach_dependent</code> walks incoming edges;
+<code>slot_foreach_dependency</code> walks outgoing.</td>
+</tr>
+<tr class="even">
+<td>24</td>
+<td><code>generation_monotonically_increases</code></td>
+<td>Generation only ever goes up across register / retune /
+unregister.</td>
+</tr>
+<tr class="odd">
+<td>25</td>
+<td><code>register_unregister_cycle_leaves_no_residue</code></td>
+<td>100 cycles of register-all → unregister-all leaves all counts at
+zero (catches internal leaks).</td>
+</tr>
+</tbody>
+</table>
+<h4 id="slice-3.2-events-change-log-snapshot-json-26-tests">Slice 3.2 —
+events, change log, snapshot, JSON (26 tests)</h4>
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 33%" />
+<col style="width: 57%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>#</th>
+<th>Test Name</th>
+<th>What It Validates</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>26</td>
+<td><code>subscribe_then_register_slot_fires_slot_created_event</code></td>
+<td>A subscribed callback receives <code>NX_EV_SLOT_CREATED</code> when
+a slot is registered; payload <code>slot.name</code> round-trips.</td>
+</tr>
+<tr class="even">
+<td>27</td>
+<td><code>subscribe_observes_full_event_taxonomy</code></td>
+<td>One scripted scenario emits one of every event type (12 events: 2×
+created, 2× swapped, 1× component_registered, 1× component_state, 1×
+connection_added, 1× retuned, 1× removed, 1× component_unregistered, 2×
+destroyed) and verifies each union payload.</td>
+</tr>
+<tr class="odd">
+<td>28</td>
+<td><code>unsubscribe_stops_delivery</code></td>
+<td>After <code>nx_graph_unsubscribe</code>, no further events
+arrive.</td>
+</tr>
+<tr class="even">
+<td>29</td>
+<td><code>subscribe_duplicate_returns_eexist</code></td>
+<td>Re-subscribing the same <code>(cb, ctx)</code> pair returns
+<code>NX_EEXIST</code>.</td>
+</tr>
+<tr class="odd">
+<td>30</td>
+<td><code>subscribe_distinct_ctx_is_not_a_duplicate</code></td>
+<td>Same callback with different <code>ctx</code> is a separate
+subscriber; both receive each event.</td>
+</tr>
+<tr class="even">
+<td>31</td>
+<td><code>subscribe_null_callback_is_einval</code></td>
+<td><code>nx_graph_subscribe(NULL, …)</code> returns
+<code>NX_EINVAL</code>.</td>
+</tr>
+<tr class="odd">
+<td>32</td>
+<td><code>unsubscribe_unknown_pair_is_a_noop</code></td>
+<td>Unsubscribing a never-subscribed <code>(cb, ctx)</code> doesn’t
+crash.</td>
+</tr>
+<tr class="even">
+<td>33</td>
+<td><code>change_log_starts_empty_after_reset</code></td>
+<td>After <code>nx_graph_reset()</code>,
+<code>total = size = 0</code>.</td>
+</tr>
+<tr class="odd">
+<td>34</td>
+<td><code>change_log_records_each_mutation</code></td>
+<td>Two mutations produce two log entries with monotonically-increasing
+generations.</td>
+</tr>
+<tr class="even">
+<td>35</td>
+<td><code>change_log_read_filters_by_since_gen</code></td>
+<td><code>nx_change_log_read(since_gen, …)</code> returns only events
+with <code>generation &gt; since_gen</code>.</td>
+</tr>
+<tr class="odd">
+<td>36</td>
+<td><code>change_log_overflow_keeps_most_recent</code></td>
+<td>600 events into a 256-slot ring → <code>total=600</code>,
+<code>size=256</code>, oldest retained generation = 345.</td>
+</tr>
+<tr class="even">
+<td>37</td>
+<td><code>change_log_read_max_caps_output</code></td>
+<td><code>max</code> parameter caps the returned count.</td>
+</tr>
+<tr class="odd">
+<td>38</td>
+<td><code>change_log_read_with_null_or_zero_returns_zero</code></td>
+<td>NULL output or zero max returns zero, doesn’t crash.</td>
+</tr>
+<tr class="even">
+<td>39</td>
+<td><code>graph_reset_clears_subscribers_and_log</code></td>
+<td>After reset, log is empty and no subscribers fire on subsequent
+mutations.</td>
+</tr>
+<tr class="odd">
+<td>40</td>
+<td><code>snapshot_of_empty_registry_is_empty</code></td>
+<td><code>nx_graph_snapshot_take()</code> of a clean registry returns a
+snapshot with all-zero counts.</td>
+</tr>
+<tr class="even">
+<td>41</td>
+<td><code>snapshot_captures_current_state</code></td>
+<td>Snapshot of a wired registry surfaces the right
+slot/component/connection counts and
+<code>active_manifest</code>/<code>active_instance</code>.</td>
+</tr>
+<tr class="odd">
+<td>42</td>
+<td><code>snapshot_is_stable_against_subsequent_mutation</code></td>
+<td>Slot count and generation in a held snapshot don’t change when the
+live registry mutates.</td>
+</tr>
+<tr class="even">
+<td>43</td>
+<td><code>snapshot_refcount_keeps_alive_until_last_put</code></td>
+<td><code>_retain</code> + two <code>_put</code>s keep the snapshot
+alive across the first <code>_put</code>.</td>
+</tr>
+<tr class="odd">
+<td>44</td>
+<td><code>snapshot_put_null_is_a_noop</code></td>
+<td><code>nx_graph_snapshot_put(NULL)</code> doesn’t crash.</td>
+</tr>
+<tr class="even">
+<td>45</td>
+<td><code>snapshot_index_out_of_range_returns_null</code></td>
+<td>Out-of-range indexed accessors return NULL.</td>
+</tr>
+<tr class="odd">
+<td>46</td>
+<td><code>snapshot_to_json_empty_shape</code></td>
+<td>JSON of empty snapshot contains <code>"slots":[]</code>,
+<code>"components":[]</code>, <code>"connections":[]</code>,
+<code>"generation":0</code>.</td>
+</tr>
+<tr class="even">
+<td>47</td>
+<td><code>snapshot_to_json_full_shape</code></td>
+<td>JSON of a wired snapshot contains the expected enum strings
+(<code>"hot"</code>, <code>"shared"</code>, <code>"uninit"</code>, etc.)
+and identifiers.</td>
+</tr>
+<tr class="odd">
+<td>48</td>
+<td><code>snapshot_to_json_truncated_returns_enomem</code></td>
+<td>Tiny buffer returns <code>NX_ENOMEM</code> and remains
+NUL-terminated.</td>
+</tr>
+<tr class="even">
+<td>49</td>
+<td><code>snapshot_to_json_escapes_special_chars</code></td>
+<td>Names containing <code>"</code> and <code>\</code> are emitted as
+<code>\"</code> and <code>\\</code>.</td>
+</tr>
+<tr class="odd">
+<td>50</td>
+<td><code>change_log_to_json_emits_each_event</code></td>
+<td>Change log JSON contains <code>"total"</code>, <code>"held"</code>,
+and one event-object per logged event with the correct
+<code>"type"</code> strings.</td>
+</tr>
+<tr class="even">
+<td>51</td>
+<td><code>change_log_to_json_handles_null_optional_strings</code></td>
+<td>A connection with <code>from_slot=NULL</code> (boot edge) emits
+<code>"from":null</code> rather than crashing.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="kernel-testkernelktest_pmm.c-4-tests">Kernel —
+<code>test/kernel/ktest_pmm.c</code> (4 tests)</h3>
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 33%" />
+<col style="width: 57%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>#</th>
+<th>Test Name</th>
+<th>What It Validates</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td><code>pmm_alloc_page_is_aligned_and_above_kernel</code></td>
+<td>Real-PMM alloc is page-aligned and lives above
+<code>__free_mem_start</code> (i.e., not overlapping the kernel image or
+stack).</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td><code>pmm_alloc_page_is_writable_and_readable</code></td>
+<td>Allocated page actually maps to usable RAM — writes to offsets 0, 8,
+and <code>PAGE_SIZE-8</code> read back the same values.</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td><code>pmm_full_cycle_restores_free_count</code></td>
+<td>128 real-PMM allocs followed by 128 frees restore the free count
+exactly.</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td><code>pmm_contiguous_alloc_is_contiguous</code></td>
+<td><code>pmm_alloc_pages(4)</code> gives a single contiguous 16 KiB
+block; first and last bytes are writable.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="kernel-testkernelktest_irq.c-2-tests">Kernel —
+<code>test/kernel/ktest_irq.c</code> (2 tests)</h3>
+<table>
+<colgroup>
+<col style="width: 9%" />
+<col style="width: 33%" />
+<col style="width: 57%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>#</th>
+<th>Test Name</th>
+<th>What It Validates</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>5</td>
+<td><code>irq_timer_ticks_advance_under_busy_wait</code></td>
+<td>Spinning on <code>CNTPCT_EL0</code> for 250 ms sees
+<code>timer_ticks()</code> advance, proving the EL1 physical timer IRQ
+(PPI 30) fires and the handler runs.</td>
+</tr>
+<tr class="even">
+<td>6</td>
+<td><code>irq_wfi_wakes_on_timer</code></td>
+<td>A <code>wfi</code> instruction wakes on the next timer IRQ — proves
+the full IRQ path delivers to a halted CPU.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="running-tests">Running Tests</h2>
+<h3 id="full-suite">Full suite</h3>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test</span></code></pre></div>
+<p>Runs <code>make test-host</code> then <code>make test-kernel</code>.
+Fails (non-zero exit) if either side fails.</p>
+<h3 id="host-only">Host-only</h3>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test-host</span></code></pre></div>
+<p>Builds and runs <code>test/host/test_host</code> on the dev machine.
+Fast — useful while iterating on algorithm changes.</p>
+<h3 id="kernel-only">Kernel-only</h3>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test-kernel</span></code></pre></div>
+<p>Builds <code>kernel-test.bin</code> (same objects as
+<code>kernel.bin</code> except <code>boot.c</code> is recompiled with
+<code>-DNX_KTEST</code> so <code>boot_main</code> dispatches into
+<code>ktest_main</code> after setup), boots it under QEMU with
+<code>-semihosting</code>, and propagates the guest’s exit code. An
+outer <code>timeout 15</code> catches hangs.</p>
+<h3 id="single-kernel-test">Single kernel test</h3>
+<p>There isn’t a per-test filter yet — all kernel tests run together. To
+iterate on one test, comment out the others’ <code>KTEST(...)</code>
+blocks or move them out of the registry temporarily. A filter is a
+future polish item.</p>
+<h3 id="production-kernel-no-tests">Production kernel (no tests)</h3>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span>                         <span class="co"># builds kernel.bin</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="ex">tools/run-qemu.sh</span> <span class="at">-t</span> 4       <span class="co"># boots it; prints [tick] once/sec</span></span></code></pre></div>
+<p><code>kernel.bin</code> does not include ktest code.</p>
+<h3 id="interactive-busybox-shell-slice-7.6d.n.final.b">Interactive
+busybox shell (slice 7.6d.N.final.b)</h3>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> run-busybox             <span class="co"># builds kernel-busybox.bin and runs it in QEMU</span></span></code></pre></div>
+<p>This builds a kernel binary that links the same initramfs as
+<code>kernel-test.bin</code> <em>except</em>
+<code>pack-initramfs.py --busybox-init</code> rewrites the
+<code>/init</code> entry to be the busybox blob. <code>boot.c</code>
+(compiled with <code>-DNX_INIT_BUSYBOX</code>) creates an
+<code>init</code> process at boot, drops it to EL0 with a small stub
+that issues <code>execve("/init", { "sh", NULL }, NULL)</code> — busybox
+dispatches to the ash applet via <code>basename(argv[0])</code>. PL011
+RX (slice 7.6d.N.final.a) wires bytes typed at the QEMU UART into the
+<code>read(0, ...)</code> path in EL0, so anything you type lands in
+ash’s line editor.</p>
+<p><strong>Eyeball-test smoke recipe.</strong> Drive
+<code>make run-busybox</code> from a host terminal so QEMU’s
+<code>-serial stdio</code> connects your TTY to the kernel UART. After
+the framework composition dump, you’ll see the busybox <code>#</code>
+prompt (slice 7.6d.N.final.e wired the lineedit-side
+<code>fflush</code>). Type a line and press Enter:</p>
+<pre><code>[init] entering busybox sh at EL0
+sh: can&#39;t access tty; job control turned off
+ # echo HELLO
+HELLO
+ # exit</code></pre>
+<p>Quit QEMU with <strong>Ctrl-A x</strong> (the QEMU monitor escape) —
+ash’s <code>exit</code> builtin runs but does not yet propagate cleanly
+to a kernel halt; the init kthread is left in a wfe park until a future
+slice wires up real exit-and-shutdown semantics. Slice 7.6d.N.final.d
+adds <code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code> for canned-script regression
+coverage.</p>
+<p>Known v1 limitations (eyeball-test caveats):</p>
+<ul>
+<li><p>Ctrl-C arms the SIGTERM-to-all-user-processes path (slice
+7.6d.N.final.c minimal); the shell session ends rather than just the
+foreground command, because v1 has no process groups and no
+signal-handler dispatch. Real ash-style “interrupt the current command,
+return to prompt” lands once the trampoline is wired (deferred slice
+<code>7.6d.N.final.c-full</code>).</p></li>
+<li><p>Ctrl-D returns 0 (EOF) on the next <code>read(0, ...)</code>; ash
+exits cleanly because end-of-input on its main loop terminates the
+shell.</p></li>
+<li><p>The QEMU <code>-serial stdio</code> chardev does not backpressure
+when PL011’s 16-byte hardware RX FIFO is full — surplus bytes are
+silently dropped at the host/guest boundary. Real-time typing is fine
+(humans don’t push &gt;16 bytes within a single FIFO drain interval);
+pasted long lines may drop characters. The
+<code>make test-interactive</code> harness works around this by feeding
+bytes per-character with a 50 ms gap (see
+<code>test/interactive/run.sh</code>).</p></li>
+<li><p>ash prints
+<code>sh: can't access tty; job control turned off</code> at start
+because <code>tcgetpgrp(2)</code> fails on our
+<code>NX_HANDLE_CONSOLE</code> (we have no process groups). The shell
+still runs interactively; only job- control features (<code>fg</code>,
+<code>bg</code>, <code>&amp;</code> backgrounding with terminal signal
+delivery) are disabled.</p></li>
+</ul>
+<h3 id="scripted-busybox-tests-slice-7.6d.n.final.d-.e">Scripted busybox
+tests (slice 7.6d.N.final.d + .e)</h3>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test-interactive        <span class="co"># runs each test/interactive/*.script</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>                             <span class="co"># against kernel-busybox.bin and verifies</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>                             <span class="co"># output via test/interactive/*.expected</span></span></code></pre></div>
+<p>Each script lands inside QEMU’s UART one byte at a time (with a 50 ms
+gap between bytes so PL011’s 16-byte hardware FIFO doesn’t overflow —
+slice 7.6d.N.final.e changed the trickle from line-burst to per-byte
+once visible prompts doubled per-line UART traffic and exposed the
+silent byte-drop that line-bursts had been getting away with); the
+captured kernel log + busybox stdout is checked for substring matches
+against the corresponding <code>.expected</code> file. Logs are written
+to <code>test/kernel-output-busybox-&lt;name&gt;.log</code>.</p>
+<p>Current scripts (3): <code>visible_prompt</code> (asserts
+<code>#</code> appears in the captured log — the slice .e regression),
+<code>echo_hello</code> (<code>echo HELLO_FROM_INTERACTIVE</code>),
+<code>echo_pipe</code> (<code>echo PIPE_INPUT | tr a-z A-Z</code> —
+first multi-process pipeline). 3/3 pass, stable across consecutive
+runs.</p>
+<p>The substring match (rather than strict <code>diff</code>) is
+intentional — busybox prompts and the kernel’s framework-bootstrap dump
+share the same UART stream and would tank a strict comparison. A
+<code>.expected</code> should list only the lines the test cares
+about.</p>
+<p><code>tools/qemu-stdin-feed.sh SCRIPT [TIMEOUT]</code> is the
+underlying driver if you want to play a script manually:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">tools/qemu-stdin-feed.sh</span> test/interactive/echo_hello.script</span></code></pre></div>
+<hr />
+<h2 id="expected-output">Expected Output</h2>
+<h3 id="make-test-host"><code>make test-host</code></h3>
+<pre><code>Running 36 test(s):
+  pmm_init_counts_pages_and_reserves_bitmap PASS
+  pmm_alloc_page_returns_nonnull_and_aligned PASS
+  ...
+  mem_track_zero_initializes_payload       PASS
+  registry_starts_empty                    PASS
+  slot_register_and_lookup                 PASS
+  ...
+  register_unregister_cycle_leaves_no_residue PASS
+
+PASS: 36/36 tests passed, 0 leaks, 0 errors</code></pre>
+<h3 id="make-test-kernel"><code>make test-kernel</code></h3>
+<pre><code>========================================
+  nonux — composable microkernel
+  ARM64 / QEMU virt
+========================================
+
+[boot] kernel loaded at 0x40080000 (QEMU&#39;s -kernel offset)
+[boot] BSS:  0x40084000 — 0x40084844
+[boot] kernel end:    0x40085000
+[boot] free memory:   0x400c5000 — 0x80000000
+[pmm]  total=261939 free=261939 pages (1047756 KiB)
+[cpu]  exception vectors installed at 0x40080800
+[gic]  distributor + CPU interface enabled
+[timer] cntfrq=62500000 Hz, interval=6250000 ticks, rate=10 Hz
+
+=== ktest: running 6 test(s) ===
+  pmm_contiguous_alloc_is_contiguous              PASS
+  pmm_full_cycle_restores_free_count              PASS
+  pmm_alloc_page_is_writable_and_readable         PASS
+  pmm_alloc_page_is_aligned_and_above_kernel      PASS
+  irq_wfi_wakes_on_timer                          PASS
+  irq_timer_ticks_advance_under_busy_wait         PASS
+
+ktest: 6/6 PASSED, 0 failures</code></pre>
+<h3 id="known-acceptable-variations">Known acceptable variations</h3>
+<ul>
+<li><strong>Test order</strong> in the kernel output may vary from the
+source order: it reflects the order <code>KTEST()</code> entries land in
+the <code>kernel_test_registry</code> linker section, which depends on
+link order, not source order.</li>
+<li><strong>PMM page counts</strong> change if you adjust
+<code>QEMU_MEM</code> or if the kernel image size changes;
+<code>261939</code> is for 1 GiB of RAM with the current image.</li>
+</ul>
+<hr />
+<h2 id="writing-a-new-test">Writing a New Test</h2>
+<h3 id="host-test-pure-algorithm">Host test (pure algorithm)</h3>
+<p>Add to <code>test/host/pmm_test.c</code> (or a new file under
+<code>test/host/</code>):</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>TEST<span class="op">(</span>your_test_name<span class="op">)</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* setup — for PMM tests, call setup_region() */</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* exercise */</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* ASSERT / ASSERT_EQ_U / ASSERT_NOT_NULL / ASSERT_NULL */</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* teardown */</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>If you added a new <code>.c</code> file, list it in
+<code>test/host/Makefile</code> under <code>SRCS</code>.</p>
+<h3 id="framework-test-registry-lifecycle-ipc-hooks">Framework test
+(registry / lifecycle / IPC / hooks)</h3>
+<p>Add to <code>test/host/registry_test.c</code> (or a new file
+alongside it):</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;test_runner.h&quot;</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;framework/registry.h&quot;</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>TEST<span class="op">(</span>your_test_name<span class="op">)</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>    nx_graph_reset<span class="op">();</span>   <span class="co">/* mandatory — start on a clean global state */</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">struct</span> nx_slot s <span class="op">=</span> <span class="op">{</span> <span class="op">.</span>name <span class="op">=</span> <span class="st">&quot;slot&quot;</span><span class="op">,</span> <span class="op">.</span>iface <span class="op">=</span> <span class="st">&quot;iface&quot;</span> <span class="op">};</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    nx_slot_register<span class="op">(&amp;</span>s<span class="op">);</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* exercise + ASSERT_* */</span></span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Things to know:</p>
+<ul>
+<li><strong>Always call <code>nx_graph_reset()</code> first.</strong>
+The previous test may have left the registry holding pointers to its own
+auto-storage structs — those are now dangling.
+<code>nx_graph_reset()</code> drops all internal nodes without
+dereferencing the cached pointers, so calling it unconditionally is
+safe.</li>
+<li><strong>Slot/component storage is caller-owned.</strong> The
+registry only bookkeeps pointers. Auto-storage is fine within a single
+test; never leak a caller-owned struct’s address into the registry past
+the struct’s lifetime.</li>
+<li><strong>Internal leaks are detected by counts</strong>, not by
+<code>mt_track</code>. Pattern: do work, then
+<code>ASSERT_EQ_U(nx_graph_*_count(), 0)</code> after teardown. The
+100-cycle test
+(<code>register_unregister_cycle_leaves_no_residue</code>) is the
+canonical example.</li>
+<li><strong>No threads, no SMP.</strong> Slice 3.1 is single-threaded;
+concurrency primitives land with the recomposer.</li>
+</ul>
+<p>If you added a new <code>.c</code> file, list it in
+<code>test/host/Makefile</code> under <code>SRCS</code> and (if it pulls
+in additional framework code) under the <code>vpath</code> line.</p>
+<h3 id="kernel-test-real-hardware-path">Kernel test (real hardware
+path)</h3>
+<p>Add to <code>test/kernel/ktest_pmm.c</code> or
+<code>test/kernel/ktest_irq.c</code> (or a new file):</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;ktest.h&quot;</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;core/some/thing.h&quot;</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>KTEST<span class="op">(</span>your_test_name<span class="op">)</span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* exercise real kernel APIs */</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">/* KASSERT / KASSERT_EQ_U / KASSERT_NOT_NULL / KASSERT_NULL */</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>If you added a new <code>.c</code> file, list it in the top-level
+<code>Makefile</code> under <code>KTEST_C</code>.</p>
+<p>Kernel tests run with IRQs unmasked and the timer armed at 10 Hz.
+Treat the environment as “real” — no setjmp/longjmp,
+<code>KASSERT*</code> on failure prints + sets a flag +
+<code>return</code>s. Don’t clobber global state needed by later tests
+(the runner does not reset PMM state between tests; alloc what you need,
+free before returning).</p>
+<hr />
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3
+id="make-test-kernel-hangs-until-the-15-second-timeout"><code>make test-kernel</code>
+hangs until the 15-second timeout</h3>
+<p><strong>Symptom:</strong> No output or output stops mid-run; the
+<code>timeout</code> wrapper kills QEMU.</p>
+<p><strong>Likely cause:</strong> A kernel test caused an unhandled
+exception (sync fault, double fault) and the vector loops infinitely. Or
+an interrupt path is broken and a test is waiting on a tick that never
+fires.</p>
+<p><strong>Fix:</strong> Run with QEMU’s interrupt log:</p>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">timeout</span> 5 qemu-system-aarch64 <span class="at">-M</span> virt,gic-version=2 <span class="at">-cpu</span> cortex-a53 <span class="at">-nographic</span> <span class="dt">\</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="at">-kernel</span> kernel-test.bin <span class="at">-m</span> 1G <span class="at">-semihosting</span> <span class="dt">\</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">-d</span> int <span class="at">-D</span> /tmp/ktest-int.log</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span> <span class="at">-30</span> /tmp/ktest-int.log</span></code></pre></div>
+<p>The first exception record tells you which vector was taken and what
+<code>ELR_EL1</code> pointed at. If <code>ELR</code> is inside one of
+your tests, you have an illegal memory access or alignment fault in the
+test body.</p>
+<h3 id="kernel-test-output-shows--40s-instead-of-test-names">Kernel test
+output shows <code>%-40s</code> instead of test names</h3>
+<p><strong>Symptom:</strong> Literal <code>%-40s</code> in the runner
+output.</p>
+<p><strong>Cause:</strong> <code>kprintf</code> only supports the
+formats listed in <code>core/lib/printf.c</code>
+(<code>%s %d %u %x %p %c %lu %lx %ld</code>). Width modifiers
+(<code>%-40s</code>, <code>%5d</code>) are not parsed.</p>
+<p><strong>Fix:</strong> Pad manually with <code>uart_putc(' ')</code>
+in a loop (see <code>ktest_main</code> for the pattern), or extend
+<code>kprintf</code> if you need this widely.</p>
+<h3
+id="undefined-reference-to-__start_kernel_test_registry"><code>undefined reference to __start_kernel_test_registry</code></h3>
+<p><strong>Symptom:</strong> Link failure when building
+<code>kernel-test.elf</code>.</p>
+<p><strong>Cause:</strong> GNU ld only auto-generates
+<code>__start_/__stop_</code> markers for <em>orphan</em> sections (not
+mentioned in the linker script). Once
+<code>KEEP(*(kernel_test_registry))</code> is placed inside an output
+section, the markers must be defined explicitly.</p>
+<p><strong>Fix:</strong> <code>core/boot/linker.ld</code> already
+defines them inside <code>.rodata</code>. If you see this error,
+something removed the markers — restore them.</p>
+<h3
+id="host-tests-link-but-fail-with-relocations-in-generic-elf-em-183">Host
+tests link but fail with
+<code>Relocations in generic ELF (EM: 183)</code></h3>
+<p><strong>Symptom:</strong> <code>cc</code> errors out linking
+<code>test_host</code>, complaining about aarch64 objects.</p>
+<p><strong>Cause:</strong> The host Makefile’s VPATH picked up a stale
+<code>.o</code> from a prior cross-compile at the top.</p>
+<p><strong>Fix:</strong>
+<code>make -C test/host clean &amp;&amp; make -C test/host</code>. The
+host Makefile uses <code>vpath %.c ...</code> (not plain
+<code>VPATH</code>) so only <code>.c</code> files are pulled from the
+kernel tree, which prevents this, but clean is always a reset.</p>
+<h3
+id="make-test-kernel-says-error-1-but-the-tests-all-printed-pass"><code>make test-kernel</code>
+says <code>Error 1</code> but the tests all printed PASS</h3>
+<p><strong>Symptom:</strong> Tests pass, Make still reports failure.</p>
+<p><strong>Cause:</strong> Semihosting isn’t enabled — the guest’s
+<code>hlt #0xf000</code> fell through to the vector handler, which
+halted but never called QEMU’s exit path. QEMU eventually gets SIGTERM
+from the outer <code>timeout</code>, which returns 128+15=143.</p>
+<p><strong>Fix:</strong> Confirm the <code>-semihosting</code> flag is
+on the QEMU command line in <code>make test-kernel</code> (it should be
+— check the Makefile).</p>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-20 (Session 7 — registry tests
+added, 42 tests total)</p>
+</body>
+</html>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-21-rollback-deadline-swaphook – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-21-slice-3.9b.2-pause-failure-rollback-pause_hook-deadline-slot_swapped-dispatch"
+id="toc-session-21-slice-3.9b.2-pause-failure-rollback-pause_hook-deadline-slot_swapped-dispatch">Session
+21: slice 3.9b.2 — pause-failure rollback, pause_hook deadline,
+SLOT_SWAPPED dispatch</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#corecpumonotonic.h-new-inline-only"
+id="toc-corecpumonotonic.h-new-inline-only"><code>core/cpu/monotonic.h</code>
+— new, inline-only</a></li>
+<li><a href="#frameworkcomponent.c-pause-rollback-deadline"
+id="toc-frameworkcomponent.c-pause-rollback-deadline"><code>framework/component.c</code>
+— pause rollback + deadline</a></li>
+<li><a href="#frameworkregistry.ch"
+id="toc-frameworkregistry.ch"><code>framework/registry.{c,h}</code></a></li>
+<li><a href="#tests" id="toc-tests">Tests</a></li>
+</ul></li>
+<li><a href="#key-decisions" id="toc-key-decisions">Key
+Decisions</a></li>
+<li><a href="#known-issues-follow-ups"
+id="toc-known-issues-follow-ups">Known Issues / Follow-ups</a></li>
+<li><a href="#next-actions" id="toc-next-actions">Next Actions</a></li>
+<li><a href="#files-touched" id="toc-files-touched">Files
+Touched</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-21-slice-3.9b.2-pause-failure-rollback-pause_hook-deadline-slot_swapped-dispatch">Session
+21: slice 3.9b.2 — pause-failure rollback, pause_hook deadline,
+SLOT_SWAPPED dispatch</h1>
+<p><strong>Date:</strong> 2026-04-22 <strong>Phase:</strong> 3 slice
+3.9b.2 (closes Phase 3) <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Close Phase 3 by hardening the three correctness gaps left at the end
+of slice 3.9b.1:</p>
+<ol type="1">
+<li><p><strong>Pause-failure rollback.</strong> When
+<code>pause_hook</code> or <code>ops-&gt;pause</code> returned non-zero,
+the bound slots stayed stuck in DRAINING and any NX_PAUSE_QUEUE-held
+messages stayed held forever. Slice 3.8’s test explicitly documented
+this: “Slot may be in DRAINING; slice 3.9 will harden the
+rollback.”</p></li>
+<li><p><strong><code>pause_hook</code> 1 ms wall-clock
+deadline.</strong> DESIGN.md’s §Recomposition Protocol promises
+pause_hook is a quick “finish any pending work” signal, not an
+arbitrary-duration callback. Enforce.</p></li>
+<li><p><strong>Runtime <code>NX_HOOK_SLOT_SWAPPED</code>
+dispatch.</strong> <code>hook.h</code> already has the enum and union
+arm, but <code>nx_slot_swap</code> only emitted the change-log event.
+Fan out to the hook chain so observers that live on hooks (not
+subscribers) see binding changes.</p></li>
+</ol>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="corecpumonotonic.h-new-inline-only"><code>core/cpu/monotonic.h</code>
+— new, inline-only</h3>
+<p>A deadline primitive that works freestanding. Three pieces:</p>
+<ul>
+<li><p><code>nx_monotonic_raw(bool *ok)</code> — reads
+<code>cntpct_el0</code> on kernel,
+<code>clock_gettime(CLOCK_MONOTONIC)</code> on host. <code>ok</code>
+flags clock read failure (host errno path) so callers can treat “broken
+clock” as “budget exceeded”.</p></li>
+<li><p><code>nx_monotonic_freq()</code> — <code>cntfrq_el0</code> on
+kernel, <code>1e9</code> on host.</p></li>
+<li><p><code>struct nx_deadline</code> +
+<code>nx_deadline_start(d, budget_ns)</code> +
+<code>nx_deadline_exceeded(d)</code>. Budget is converted once at start
+into units of the counter, so the per-check path is one mrs + one uint64
+compare. No division or floating point in the hot path —
+<code>-mgeneral-regs-only</code> safe.</p></li>
+</ul>
+<p>The kernel build keeps using the ARM generic timer (cntpct_el0)
+rather than the existing <code>core/timer/</code> API because the timer
+module is about scheduling tick delivery, not arbitrary wall-clock
+sampling. Slice 8’s recomposer will use the same primitive for its
+overall transaction budget.</p>
+<h3
+id="frameworkcomponent.c-pause-rollback-deadline"><code>framework/component.c</code>
+— pause rollback + deadline</h3>
+<ul>
+<li><p>New static <code>rollback_pause(c)</code> — walks every bound
+slot through <code>slot_resume_cb</code>,
+i.e. <code>pause_state → NONE + nx_ipc_flush_hold_queue</code>. That’s
+exactly the symmetric inverse of the partial pause we did up to the
+failure point, and it reuses the existing resume code path so future
+changes to resume semantics automatically apply to rollback.</p></li>
+<li><p><code>nx_component_pause</code> calls
+<code>nx_deadline_start(1 ms)</code> before
+<code>ops-&gt;pause_hook</code>, checks on return, and converts an
+otherwise-OK hook into <code>NX_EDEADLINE</code> if the budget is blown.
+On any failure (hook err, hook deadline, ops-&gt;pause err), rollback
+runs before the non-zero status is returned.</p></li>
+</ul>
+<h3 id="frameworkregistry.ch"><code>framework/registry.{c,h}</code></h3>
+<ul>
+<li>New <code>NX_EDEADLINE = -9</code> error code in registry.h.</li>
+<li><code>nx_slot_swap</code> now dispatches
+<code>NX_HOOK_SLOT_SWAPPED</code> after <code>emit_event</code>. The
+hook is observational — it fires <em>after</em>
+<code>s-&gt;active</code> has already been updated — so ABORT returns
+are ignored here. Pre-swap veto would need a different emit point and is
+out of scope for 3.9b.2.</li>
+</ul>
+<h3 id="tests">Tests</h3>
+<p>Host (+4 cases in <code>component_pause_test.c</code>):</p>
+<ul>
+<li><p><code>pause_hook_failure_rolls_back_and_replays_held_messages</code>
+— stages a NX_PAUSE_QUEUE-held message, runs a pause with a failing
+hook, and checks that the held message replays to the live inbox rather
+than staying stuck.</p></li>
+<li><p><code>pause_op_failure_after_hook_success_rolls_back</code> —
+covers the second failure path: <code>pause_hook</code> returns OK,
+<code>ops-&gt;pause</code> returns NX_EBUSY. Verifies rollback still
+fires.</p></li>
+<li><p><code>pause_hook_exceeding_deadline_returns_edeadline_and_rolls_back</code>
+— uses <code>clock_gettime</code> + nanosleep to burn 2 ms inside the
+hook. Verifies <code>nx_component_pause</code> returns
+<code>NX_EDEADLINE</code>, <code>ops-&gt;pause</code> never ran, and
+slot is back to NONE.</p></li>
+<li><p><code>slot_swap_fans_out_to_slot_swapped_hook_chain</code> —
+registers a hook on <code>NX_HOOK_SLOT_SWAPPED</code>, does three swaps
+(bind, re-swap, unbind), and checks the captured
+<code>(slot, old_impl, new_impl)</code> tuple is correct for
+each.</p></li>
+</ul>
+<p>Also updated
+<code>pause_hook_returning_error_aborts_transition</code> to assert the
+new contract (<code>pause_state == NONE</code>) and removed its stale
+“slice 3.9 will harden” comment.</p>
+<p>Kernel (+1 case in <code>ktest_bootstrap.c</code>):</p>
+<ul>
+<li><code>slot_swap_fans_out_to_hook_chain_on_kernel</code> — same shape
+as the host test, but uses a freshly-registered test-only slot so it
+doesn’t perturb the live bootstrap composition. Confirms the hook fires
+end-to-end in the real kernel image, not just on host.</li>
+</ul>
+<p>Net: <code>make test</code> → <strong>244/244</strong> (51 python +
+167 host + 26 kernel), up from 239/239.</p>
+<h2 id="key-decisions">Key Decisions</h2>
+<ul>
+<li><p><strong><code>NX_HOOK_SLOT_SWAPPED</code> fires AFTER the swap,
+not before.</strong> This matches the existing IPC_RECV /
+COMPONENT_STATE events which are also observational post-commits, and
+matches the hook’s union-arm name (<code>u.swap</code>, with
+<code>old_impl</code> and <code>new_impl</code>). A pre-swap veto would
+need a separate point; the current set of callers (change-log readers,
+recomposer invariant checks) all want post-commit.</p></li>
+<li><p><strong>Rollback reuses <code>slot_resume_cb</code> rather than a
+bespoke path.</strong> A partial pause leaves slots in CUTTING or
+DRAINING and possibly with hold-queue entries — exactly what
+<code>slot_resume_cb</code> already handles (set NONE + flush). Writing
+a separate rollback would duplicate that logic and drift.</p></li>
+<li><p><strong>Deadline check wraps <code>ops-&gt;pause_hook</code>
+only, not <code>ops-&gt;pause</code>.</strong> <code>pause_hook</code>
+is declared “quick”; <code>ops-&gt;pause</code> is the driver /
+subsystem’s chance to flush its own state and may legitimately take
+longer (disk flush, debuffer). If an operator wants a deadline on
+<code>pause</code>, they can enforce it inside the op.</p></li>
+<li><p><strong><code>NX_EDEADLINE = -9</code>.</strong> New code rather
+than overloading <code>NX_EBUSY</code> or <code>NX_ESTATE</code> —
+diagnostics want to distinguish “hook refused” from “hook took too
+long”.</p></li>
+</ul>
+<h2 id="known-issues-follow-ups">Known Issues / Follow-ups</h2>
+<p>None specific to this slice. Slice 3.9b.2 closes Phase 3. Follow-ups
+deferred to later phases:</p>
+<ul>
+<li><p>The deadline primitive could land on the recomposer’s
+per-transaction budget check in Phase 8; it’s designed to be reused
+there.</p></li>
+<li><p><code>verify-registry.py</code> R6 could grow a rule that every
+<code>pause_hook</code> in a manifest is statically bounded (no loops
+over external inputs, no blocking calls). Opportunistic; not tracked as
+work.</p></li>
+</ul>
+<h2 id="next-actions">Next Actions</h2>
+<p>Phase 4 was already closed in Session 19; Phase 3 is now fully
+closed. <strong>Next milestone:</strong> Phase 5 — virtual memory and
+handle system. <code>components/mm_buddy/</code>,
+<code>framework/handle.{c,h}</code>, <code>framework/syscall.c</code>,
+and a first userspace (EL0) process. See <a
+href="../IMPLEMENTATION-GUIDE.html#phase-5-virtual-memory-and-handle-system">IMPLEMENTATION-GUIDE.md
+§Phase 5</a>.</p>
+<h2 id="files-touched">Files Touched</h2>
+<ul>
+<li><code>core/cpu/monotonic.h</code> — <strong>new</strong></li>
+<li><code>framework/component.c</code> — pause rollback + deadline</li>
+<li><code>framework/registry.h</code> — <code>NX_EDEADLINE</code>
+code</li>
+<li><code>framework/registry.c</code> —
+<code>NX_HOOK_SLOT_SWAPPED</code> dispatch in
+<code>nx_slot_swap</code></li>
+<li><code>test/host/component_pause_test.c</code> — updated one test + 4
+new cases</li>
+<li><code>test/kernel/ktest_bootstrap.c</code> — 1 new case</li>
+</ul>
+</body>
+</html>

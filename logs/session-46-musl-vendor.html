@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-46-musl-vendor – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-46-slice-7.6c.3a-vendor-musl-patch-syscall-layer"
+id="toc-session-46-slice-7.6c.3a-vendor-musl-patch-syscall-layer">Session
+46: slice 7.6c.3a — vendor musl + patch syscall layer</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#third_partymusl-vendored-1.2.5-source-tree"
+id="toc-third_partymusl-vendored-1.2.5-source-tree"><code>third_party/musl/</code>
+— vendored 1.2.5 source tree</a></li>
+<li><a href="#third_partymuslarchaarch64syscall_arch.h-patched"
+id="toc-third_partymuslarchaarch64syscall_arch.h-patched"><code>third_party/musl/arch/aarch64/syscall_arch.h</code>
+— patched</a></li>
+<li><a href="#third_partymuslsrcthreadaarch64syscall_cp.s-patched"
+id="toc-third_partymuslsrcthreadaarch64syscall_cp.s-patched"><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code>
+— patched</a></li>
+<li><a href="#makefile-musl-libc-musl-clean-targets"
+id="toc-makefile-musl-libc-musl-clean-targets"><code>Makefile</code> —
+<code>musl-libc</code> + <code>musl-clean</code> targets</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-46-slice-7.6c.3a-vendor-musl-patch-syscall-layer">Session
+46: slice 7.6c.3a — vendor musl + patch syscall layer</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6c.3a (musl integration, sub-slice 1 of 3) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6c.3 (“vendor + cross-build musl, swap libnxlibc for libc.a
+on the demo link lines”) is a genuinely multi-day project: musl assumes
+a Linux-shaped kernel — Linux syscall numbers, AUXV on the stack at
+entry, brk/mmap for malloc, exit_group, wait4, rt_sigaction,
+set_tid_address, openat — and we have ~13 syscalls. Splitting the slice
+into sub-slices keeps each session single-shaped:</p>
+<ul>
+<li><p><strong>7.6c.3a (this session):</strong> vendor the musl source
+tree, stand up the build (<code>make musl-libc</code> produces
+<code>libc.a</code>), patch the one chokepoint where Linux syscall
+numbers turn into <code>svc 0</code> so musl emits <em>our</em>
+<code>NX_SYS_*</code> numbers instead. No EL0 program links against the
+patched libc.a yet — that lands in 7.6c.3b.</p></li>
+<li><p><strong>7.6c.3b:</strong> push AUXV onto the user stack in
+<code>sys_exec</code> (musl’s <code>__libc_start_main</code> reads
+<code>AT_RANDOM</code> for the stack canary + <code>AT_PAGESZ</code> for
+malloc), build musl’s <code>crt1.o</code> (or use libnxlibc’s existing
+<code>crt0.S</code> if the layout matches), re-link
+<code>posix_libc_prog</code> against <code>libc.a + crt1.o</code>. First
+demo working.</p></li>
+<li><p><strong>7.6c.3c:</strong> add <code>brk</code> (or anonymous
+<code>mmap</code>) so musl’s malloc has a heap. Re-link
+<code>posix_printf_prog</code> (printf with width/precision/floats from
+musl) + <code>argv_parent_prog</code></p>
+<ul>
+<li>close the slice.</li>
+</ul></li>
+</ul>
+<p>This session’s exit criterion: <code>make musl-libc</code> →
+<code>libc.a</code> produced clean, <code>make test</code> → 403/403
+still passing, no demos linked against musl yet.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Vendor musl as a tree, not a submodule.</strong>
+<code>third_party/musl/</code> is a verbatim extraction of
+<code>musl-1.2.5.tar.gz</code> (sha256 <code>a9a118bb...</code>, the
+official 2024-03-01 release). No submodule + no fetch step keeps
+<code>make test</code> offline-clean (the project’s been
+air-gapped-friendly since slice 7.6b). Cost: 14 MB / 2697 files added to
+the repo. Future musl upgrades are a re-extract +
+re-apply-the-two-patches; the patch surface is small enough that this is
+fine.</p></li>
+<li><p><strong>Patch musl’s syscall site, don’t rewrite musl’s
+libc.</strong> musl funnels every syscall through one of two paths:
+C-level <code>__syscallN(n, ...)</code> in
+<code>arch/aarch64/syscall_arch.h</code>, or asm-level
+<code>__syscall_cp_asm</code> in
+<code>src/thread/aarch64/syscall_cp.s</code> (the cancellation-point
+variant used for I/O calls so pthread_cancel can interrupt them). Both
+files end with <code>svc 0</code> after putting <code>n</code> in
+<code>x8</code>. Patch both to translate <code>n</code> (Linux number) →
+our <code>NX_SYS_*</code> number before <code>svc</code>, fail closed
+with <code>-ENOSYS</code> for unmapped numbers.</p></li>
+<li><p><strong><code>__nx_translate(long n)</code> returns
+<code>-1</code> on miss; caller emits
+<code>-ENOSYS = -38</code>.</strong> Two-step pattern keeps the
+translation table compact (one switch, one tested return value) while
+letting the asm-level patch share the same numbers without textual
+duplication. When <code>n</code> is a compile-time constant (every
+<code>__syscall(__NR_foo, ...)</code> site is), <code>-O2</code>
+const-folds the switch to a single <code>mov</code> — no runtime
+overhead vs the stock <code>svc</code> emit.</p></li>
+<li><p><strong>Translate only “args already match” syscalls in this
+sub-slice.</strong> Nine Linux syscalls map to ours with no argument
+shuffle:</p>
+<table>
+<colgroup>
+<col style="width: 57%" />
+<col style="width: 42%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Linux</th>
+<th>nonux</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>__NR_close       (57)</code></td>
+<td><code>NX_SYS_HANDLE_CLOSE (2)</code></td>
+</tr>
+<tr class="even">
+<td><code>__NR_lseek       (62)</code></td>
+<td><code>NX_SYS_SEEK         (9)</code></td>
+</tr>
+<tr class="odd">
+<td><code>__NR_read        (63)</code></td>
+<td><code>NX_SYS_READ         (7)</code></td>
+</tr>
+<tr class="even">
+<td><code>__NR_write       (64)</code></td>
+<td><code>NX_SYS_WRITE        (8)</code></td>
+</tr>
+<tr class="odd">
+<td><code>__NR_exit        (93)</code></td>
+<td><code>NX_SYS_EXIT        (11)</code></td>
+</tr>
+<tr class="even">
+<td><code>__NR_exit_group  (94)</code></td>
+<td><code>NX_SYS_EXIT        (11)</code> (alias)</td>
+</tr>
+<tr class="odd">
+<td><code>__NR_kill       (129)</code></td>
+<td><code>NX_SYS_SIGNAL      (16)</code></td>
+</tr>
+<tr class="even">
+<td><code>__NR_execve     (221)</code></td>
+<td><code>NX_SYS_EXEC        (14)</code></td>
+</tr>
+<tr class="odd">
+<td><code>__NR_wait4      (260)</code></td>
+<td><code>NX_SYS_WAIT        (13)</code> (drops options + rusage)</td>
+</tr>
+</tbody>
+</table>
+<p>Linux’s <code>wait4(pid, status, options, rusage)</code> puts pid in
+x0 + status in x1; our <code>NX_SYS_WAIT(pid, status)</code> reads the
+same two registers. Extra args (options, rusage) sit in x2/x3 and are
+ignored. Same trick for <code>execve</code> —
+<code>(path, argv, envp)</code> → <code>(x0, x1, x2)</code> matches
+NX_SYS_EXEC exactly after slice 7.6c.4.</p></li>
+<li><p><strong>Don’t try to translate openat / pipe2 / clone
+yet.</strong> These need argument shuffling (openat drops
+<code>dirfd</code>; pipe2 drops <code>flags</code>; clone has the
+SIGCHLD-only fork shape vs the full thread-clone surface). -ENOSYS is
+fine for now — the programs we’ll link in 7.6c.3b/c don’t exercise those
+paths.</p></li>
+<li><p><strong>Don’t touch
+<code>clone.s / vfork.s / __unmapself.s /   restore.s</code>
+yet.</strong> These four asm files also emit <code>svc</code> with Linux
+numbers, but they’re only pulled in by linker reachability — pthread
+(clone, __unmapself), vfork (rare), signal-handler return (restore_rt).
+None of our v1 demos hit these, so the linker drops them. Slice 7.6c.3b
+will re-evaluate when actual demos pull objects.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="third_partymusl-vendored-1.2.5-source-tree"><code>third_party/musl/</code>
+— vendored 1.2.5 source tree</h3>
+<ul>
+<li><p>Extracted <code>musl-1.2.5.tar.gz</code> (sha256
+<code>a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4</code>)
+to <code>third_party/musl/</code>. Stock upstream sans the two patches
+below.</p></li>
+<li><p>Upstream’s own <code>.gitignore</code> covers the build outputs
+(<code>obj/</code>, <code>lib/</code>, <code>*.lo</code>,
+<code>*.a</code>, <code>config.mak</code>) so they stay out of git
+automatically.</p></li>
+</ul>
+<h3
+id="third_partymuslarchaarch64syscall_arch.h-patched"><code>third_party/musl/arch/aarch64/syscall_arch.h</code>
+— patched</h3>
+<p>The C-level syscall dispatcher. Stock musl puts <code>n</code> in
+<code>x8</code> and emits <code>svc 0</code>. Our patch:</p>
+<ol type="1">
+<li><p>Adds <code>static inline long __nx_translate(long n)</code> — a
+switch over the nine mapped Linux numbers, default
+<code>-1</code>.</p></li>
+<li><p>Each <code>__syscallN(...)</code> calls
+<code>__nx_translate</code>, returns <code>-38</code> (-ENOSYS) on miss,
+otherwise programs <code>x8</code> with the nonux number and falls
+through to the same <code>__asm_syscall</code> macro.</p></li>
+</ol>
+<p>Spot-checked codegen confirms const-folding works:</p>
+<ul>
+<li><p><code>_Exit(ec)</code> → <code>mov x8, #11; svc #0</code>
+(loop).</p></li>
+<li><p><code>execve</code> → <code>mov x8, #14; svc #0</code>.</p></li>
+<li><p><code>getpid</code> → <code>mov w0, #-38; ret</code> (no syscall
+— Linux 172 not in our table, the unreachable svc is
+dead-code-eliminated).</p></li>
+<li><p><code>open_by_handle_at</code> →
+<code>mov x0, #-38; bl __syscall_ret</code>.</p></li>
+</ul>
+<h3
+id="third_partymuslsrcthreadaarch64syscall_cp.s-patched"><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code>
+— patched</h3>
+<p>The asm-level cancellation-point dispatcher. Stock version takes the
+syscall nr in <code>x1</code>, moves it into <code>x8</code> directly,
+and emits <code>svc</code>. Our patch interposes the same translation
+table inline in asm:</p>
+<pre><code>cmp x1, #57;   b.eq .Lnx_close
+cmp x1, #62;   b.eq .Lnx_lseek
+... (9 cases) ...
+movn x0, #37        // -ENOSYS (-38) for unmapped
+ret
+.Lnx_close: mov x8, #2;  b .Lnx_run
+... (8 mov&#39;s, the last falls through) ...
+.Lnx_run: mov x0, x2; ... ; svc 0</code></pre>
+<p><code>__cp_begin / __cp_end / __cp_cancel</code> symbols are still
+emitted — <code>pthread_cancel.c</code> references them as a PC range
+(so the cancel handler can detect “the syscall instruction itself was
+interrupted by a cancel signal”) + as a branch target. We’re not running
+pthread in v1, but the static linker still resolves the references.</p>
+<h3 id="makefile-musl-libc-musl-clean-targets"><code>Makefile</code> —
+<code>musl-libc</code> + <code>musl-clean</code> targets</h3>
+<ul>
+<li><p><code>MUSL_DIR := third_party/musl</code>,
+<code>MUSL_LIBC := $(MUSL_DIR)/lib/libc.a</code>,
+<code>MUSL_STAMP := $(MUSL_DIR)/.configured</code> — a stamp file gates
+the configure step.</p></li>
+<li><p><code>$(MUSL_STAMP):</code> runs
+<code>./configure --target=aarch64-linux-gnu   --prefix=/usr/local/musl --disable-shared CC=$(CC)   CROSS_COMPILE=$(CROSS)</code>
+and touches the stamp.</p></li>
+<li><p><code>$(MUSL_LIBC):</code> depends on the stamp + the two patched
+files; rule body is
+<code>$(MAKE) -C $(MUSL_DIR) lib/libc.a</code>.</p></li>
+<li><p><code>musl-libc</code> phony alias for the archive
+target.</p></li>
+<li><p><code>musl-clean</code> runs musl’s own <code>make clean</code> +
+removes the stamp + <code>config.mak</code>.</p></li>
+<li><p><code>test</code> target gains <code>musl-libc</code> as a dep so
+any future patch breakage is caught by <code>make test</code>. No-op
+rebuild is fast (just
+<code>make[1]: 'lib/libc.a' is up to date</code>).</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Two svc paths, not one.</strong> First pass patched only
+<code>syscall_arch.h</code> and rebuilt — <code>make test</code> was
+green and the C-path codegen looked right (<code>_Exit</code> had
+<code>mov x8, #11</code>). But
+<code>objdump -d obj/src/unistd/write.lo</code> showed
+<code>write</code> calls <code>__syscall_cp</code> (not
+<code>__syscall</code>); <code>__syscall_cp</code> resolves to
+<code>__syscall_cp_asm</code> in
+<code>src/thread/aarch64/syscall_cp.s</code> which bypasses the C-level
+dispatcher entirely. Caught by spot- checking the disassembly of three
+syscalls (<code>write</code>, <code>close</code>, <code>_Exit</code>)
+instead of just the const-folded ones. The fix is the inline translation
+table in the asm file — see “What Was Done” above.</p></li>
+<li><p><strong>musl’s incremental rebuild doesn’t track the arch
+headers.</strong> After the first patch to <code>syscall_arch.h</code>,
+an incremental <code>make lib/libc.a</code> did <em>not</em> regenerate
+<code>obj/src/exit/_Exit.lo</code> — its <code>.lo</code> predated the
+header edit but make’s rule is <code>*.lo: *.c</code>, not
+<code>*.lo: *.c arch/aarch64/syscall_arch.h</code>. Stale
+<code>.lo</code> files were re-archived into the new
+<code>libc.a</code>, leaving the patched translation invisible. Fix:
+<code>rm -rf obj/</code> for any patch to
+<code>arch/aarch64/syscall_arch.h</code>. This is a musl-internal mtime
+issue, not something to fix at our Makefile level — our
+<code>$(MUSL_LIBC)</code> rule does depend on the header, but the dep
+only triggers <code>make -C $(MUSL_DIR)   lib/libc.a</code>, which
+musl’s own dep graph then short-circuits. <code>musl-clean</code>
+handles it; alternative would be to make our rule do
+<code>cd $(MUSL_DIR) &amp;&amp; rm -rf obj/ &amp;&amp; make</code>, but
+that’s costly (40 s full rebuild) for the common case. Documenting the
+gotcha here is enough.</p></li>
+<li><p><strong><code>mov x0, #-38</code> works without movn explicit
+form.</strong> GCC’s assembler accepts the immediate as an alias for
+<code>movn x0, #37</code> — verified in the disassembly:
+<code>0xffffffffffffffda</code> (= -38 unsigned, = -38 signed) lands in
+<code>x0</code>. Used <code>movn x0, #37</code> explicitly in the asm
+file for clarity (the C path leaves it to the compiler).</p></li>
+<li><p><strong>Configure script can’t probe Linux/glibc on a
+freestanding toolchain, but doesn’t need to.</strong> Our
+<code>aarch64-linux-gnu-gcc</code> is glibc-targeted but musl’s
+configure only does compile-only feature probes
+(<code>-c -o /dev/null</code>), no link-tests against glibc. Configure
+runs clean with our toolchain.</p></li>
+<li><p><strong>The slice-7.6c.4 argv push is exactly what musl
+needs.</strong> musl’s <code>__libc_start_main</code> reads
+argc/argv/envp from <code>[sp]</code> per System V — same shape sys_exec
+already builds. No additional kernel-ABI work needed for slice 7.6c.3a;
+the AUXV gap (musl wants <code>AT_RANDOM</code> for the stack canary +
+<code>AT_PAGESZ</code> for malloc) is a 7.6c.3b problem that comes up
+the moment we actually link a demo against
+<code>libc.a + crt1.o</code>.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Sub-slice the slice.</strong>
+<code>7.6c.3a / 7.6c.3b / 7.6c.3c</code> — one session each. The HANDOFF
+/ IMPLEMENTATION-GUIDE doc bumps reflect the new shape; the original
+7.6c.3 description is preserved as the union of the three
+sub-slices.</p></li>
+<li><p><strong><code>musl-libc</code> is a <code>make test</code> dep,
+not a <code>make</code> (default) dep.</strong> Default
+<code>make</code> builds the kernel without touching musl — keeps
+<code>kernel.bin</code> cycle-fast. <code>make test</code> validates the
+patched <code>libc.a</code> builds (catches future patch breakage) but
+adds &lt;1 s after the first build (no-op stat check).</p></li>
+<li><p><strong><code>-ENOSYS</code> not <code>-EINVAL</code> for
+unmapped syscalls.</strong> POSIX reserves errno 38
+(<code>ENOSYS</code>) for “function not implemented” — exactly what an
+unmapped syscall is. Programs that probe for capability via
+<code>errno == ENOSYS</code> will see the right signal. Stub still kills
+any path that depends on the syscall’s side effects (which is correct —
+silent success would mask real bugs).</p></li>
+<li><p><strong>Don’t pre-patch the four other svc-direct asm
+files.</strong>
+<code>clone.s / vfork.s / __unmapself.s / restore.s</code> will need
+attention in 7.6c.3b/c when the linker actually pulls them in. Leaving
+them stock now keeps the diff against upstream minimal + makes 7.6c.3b’s
+job easier to scope (<code>grep -l   "svc" src/...</code> will surface
+exactly the next set of files that need translation).</p></li>
+<li><p><strong>Rolling Session 41 to archive.</strong> HANDOFF.md’s
+session list caps at 5; after inserting Session 46, Session 41 (slice
+7.6b initramfs) moves to the archive.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>403/403 pass (51 python + 274
+host + 78 kernel), 0 leaks, 0 errors, exit 0</strong>. No regressions;
+no new tests (sub-slice 7.6c.3a is build-side only).</p></li>
+<li><p><code>make musl-libc</code> → 2.75 MB
+<code>third_party/musl/lib/libc.a</code> with our <code>NX_SYS_*</code>
+translation built in. Spot-checked codegen confirms the patches land
+where expected.</p></li>
+<li><p><code>make musl-clean</code> cleans the build artifacts + the
+configure stamp.</p></li>
+<li><p>The kernel tree is unchanged — no <code>kernel.bin</code>
+re-link, no ABI changes.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p><strong>Slice 7.6c.3b — first demo against musl.</strong> The
+plan:</p>
+<ol type="1">
+<li><p>Push AUXV onto the user stack in <code>sys_exec</code>. At
+minimum: <code>AT_PAGESZ</code> (so malloc rounds correctly),
+<code>AT_RANDOM</code> (so musl’s stack canary has 16 bytes of entropy —
+even pseudo-random is fine for v1; <code>crc32(monotonic_ticks)</code>
+will do), <code>AT_NULL</code> terminator. Layout sits between envp’s
+NULL and the argv strings (above) per System V.</p></li>
+<li><p>Decide on crt1. Two options: (a) rebuild musl with our own crt1.o
+that reads argc/argv/envp from <code>[sp]</code> exactly like our
+existing <code>components/posix_shim/crt0.S</code> does, or</p>
+<ol start="2" type="a">
+<li>use musl’s stock crt1.o which already does it correctly. Option (b)
+is the path of least resistance — the stock crt1.s is ~30 lines and the
+layout match is trivial to verify by inspection.</li>
+</ol></li>
+<li><p>Re-link <code>posix_libc_prog.elf</code> against
+<code>third_party/musl/lib/libc.a + third_party/musl/lib/crt1.o</code>
+instead of <code>components/posix_shim/libnxlibc.a</code>. Same ktest,
+same exit code (53). Diff that succeeds is sub-slice 7.6c.3b’s exit
+criterion.</p></li>
+<li><p>Expect to hit one or two more svc-direct asm files
+(<code>clone.s</code> likely, since <code>_init</code> may pull in tls
+bootstrap even for static). Patch them with the same translation table
+approach.</p></li>
+</ol>
+<p><strong>Slice 7.6c.3c — malloc + remaining demos.</strong>
+posix_printf_prog will pull in malloc the moment it <code>printf</code>s
+a <code>%d</code> (musl’s formatter uses <code>nl_langinfo</code> which
+needs allocated locale state). We’ll need:</p>
+<ul>
+<li><p>A <code>brk</code> syscall (or anonymous <code>mmap</code>) so
+musl’s <code>mallocng</code> can extend the heap. Brk is simpler — one
+new syscall + a per-process <code>brk_addr</code> field tracked
+alongside <code>ttbr0_root</code>.</p></li>
+<li><p>Possibly stub <code>clock_gettime</code> (formatter doesn’t, but
+internal locale init might).</p></li>
+<li><p>Re-link <code>posix_printf_prog</code> and
+<code>argv_parent_prog</code> (the latter currently uses libnxlibc only
+for <code>_exit</code>, so it should “just work” against musl as long as
+ENOSYS-y syscalls aren’t hit).</p></li>
+</ul>
+<p><strong>Deferred (unchanged):</strong></p>
+<ul>
+<li><p>Proper cross-test task reap on <code>wait()</code>. Will continue
+to hit caps; lands before slice 7.6d.</p></li>
+<li><p>HANDLE_FILE fork inheritance.</p></li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/third_party/musl/</code> — new (musl 1.2.5
+source tree, ~14 MB)</li>
+<li><code>sources/nonux/third_party/musl/arch/aarch64/syscall_arch.h</code>
+— patched (translation table + per-N early-return)</li>
+<li><code>sources/nonux/third_party/musl/src/thread/aarch64/syscall_cp.s</code>
+— patched (inline translation in asm)</li>
+<li><code>sources/nonux/Makefile</code> — <code>MUSL_*</code> vars +
+<code>$(MUSL_STAMP)</code> + <code>$(MUSL_LIBC)</code> +
+<code>musl-libc</code> + <code>musl-clean</code>; <code>test</code> deps
+on <code>musl-libc</code></li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.6c.3
+sub-sliced into 7.6c.3a / b / c</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 41 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

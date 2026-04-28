@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-10-dependency-injection – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-10-dependency-injection-slice-3.4"
+id="toc-session-10-dependency-injection-slice-3.4">Session 10:
+Dependency injection (slice 3.4)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#virtualenv-.gitignore"
+id="toc-virtualenv-.gitignore">Virtualenv + .gitignore</a></li>
+<li><a href="#frameworkcomponent.h-descriptor-types-macro"
+id="toc-frameworkcomponent.h-descriptor-types-macro"><code>framework/component.h</code>
+— descriptor types + macro</a></li>
+<li><a href="#frameworkcomponent.c-nx_resolve_deps"
+id="toc-frameworkcomponent.c-nx_resolve_deps"><code>framework/component.c</code>
+— <code>nx_resolve_deps()</code></a></li>
+<li><a href="#toolsgen-config.py-minimum-generator"
+id="toc-toolsgen-config.py-minimum-generator"><code>tools/gen-config.py</code>
+— minimum generator</a></li>
+<li><a href="#test-fixtures-host-tests"
+id="toc-test-fixtures-host-tests">Test fixtures + host tests</a></li>
+<li><a href="#test-makefile-wiring" id="toc-test-makefile-wiring">Test
+Makefile wiring</a></li>
+</ul></li>
+<li><a href="#results" id="toc-results">Results</a></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions" id="toc-decisions">Decisions</a></li>
+<li><a href="#open-deferred" id="toc-open-deferred">Open /
+Deferred</a></li>
+<li><a href="#next" id="toc-next">Next</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-10-dependency-injection-slice-3.4">Session 10:
+Dependency injection (slice 3.4)</h1>
+<p><strong>Date:</strong> 2026-04-21 <strong>Phase:</strong> 3 —
+Component framework <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li><p>Land the C-side dependency-injection mechanism described in
+DESIGN.md §Dependency Injection Mechanism: component descriptor type,
+<code>NX_COMPONENT_REGISTER</code> macro expanding into a
+<code>.components</code> linker section, and a framework-side
+<code>nx_resolve_deps()</code> that writes slot pointers into a
+component’s state and registers connection edges.</p></li>
+<li><p>Ship the minimum Python generator
+(<code>tools/gen-config.py</code>) that reads a single component
+<code>manifest.json</code> and emits
+<code>gen/&lt;name&gt;_deps.h</code> (the typed deps struct + the
+<code>_DEPS_TABLE(CONTAINER, FIELD)</code> macro). Full
+<code>kernel.json</code> handling + validation is deferred to slice
+3.5.</p></li>
+<li><p>Set up a Python venv at <code>sources/nonux/.venv/</code>
+(gitignored) for the tool chain. v1 generator is stdlib-only; the venv
+exists so 3.5 can add <code>jsonschema</code> etc. without polluting the
+system interpreter.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="virtualenv-.gitignore">Virtualenv + .gitignore</h3>
+<ul>
+<li><code>python3 -m venv sources/nonux/.venv</code> — CPython 3.13.7,
+system pip.</li>
+<li><code>.gitignore</code> gains <code>.venv/</code>,
+<code>__pycache__/</code>, <code>*.pyc</code>. Verified
+<code>git status --ignored</code> correctly excludes the venv.</li>
+</ul>
+<h3
+id="frameworkcomponent.h-descriptor-types-macro"><code>framework/component.h</code>
+— descriptor types + macro</h3>
+<ul>
+<li><p><code>struct nx_dep_descriptor</code> —
+<code>{ name, offset, required, version_req,   mode, stateful, policy }</code>.
+<code>offset</code> is from the container root (not from the deps
+sub-struct), so <code>nx_resolve_deps</code> only needs one
+pointer+offset arithmetic per field.</p></li>
+<li><p><code>struct nx_component_descriptor</code> —
+<code>{ name, state_size, deps_offset,   deps, n_deps, ops }</code>.
+<code>ops</code> is deliberately <code>const void *</code> for now;
+slice 3.6 (IPC router) types it as
+<code>struct nx_component_ops</code>.</p></li>
+<li><p><code>NX_COMPONENT_REGISTER(NAME, CONTAINER, DEPS_FIELD, OPS, DEPS_TABLE)</code>
+expands to a static <code>nx_dep_descriptor[]</code> (from the
+generator’s <code>_DEPS_TABLE</code> macro) plus a
+<code>const nx_component_descriptor   NAME##_descriptor</code> placed in
+the <code>nx_components</code> linker section. Section name is a C
+identifier (not <code>.components</code>) so GNU ld auto-generates
+<code>__start_/__stop_nx_components</code> markers without needing
+special linker-script entries — same trick the host test runner uses for
+<code>test_registry</code>.</p></li>
+<li><p><code>NX_COMPONENT_REGISTER_NO_DEPS(NAME, CONTAINER, DEPS_FIELD, OPS)</code>
+— separate macro for components with zero deps. Rationale: C forbids
+zero-length arrays; rather than emit a sentinel and rely on
+<code>n_deps = 0</code> to skip it at runtime, a parallel macro keeps
+the descriptor clean (<code>.deps = NULL, .n_deps = 0</code>) and the
+generator’s no-deps header explicitly points authors at it.</p></li>
+</ul>
+<h3
+id="frameworkcomponent.c-nx_resolve_deps"><code>framework/component.c</code>
+— <code>nx_resolve_deps()</code></h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> nx_resolve_deps<span class="op">(</span><span class="dt">const</span> <span class="kw">struct</span> nx_component_descriptor <span class="op">*</span>d<span class="op">,</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>                    <span class="kw">struct</span> nx_slot <span class="op">*</span>self_slot<span class="op">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>                    <span class="dt">void</span> <span class="op">*</span>state<span class="op">);</span></span></code></pre></div>
+<ul>
+<li><p>Walks <code>d-&gt;deps[0..n_deps-1]</code>. Per dep:
+<code>nx_slot_lookup(name)</code>; if missing and required →
+<code>NX_ENOENT</code>; if missing and optional → skip (leave pointer
+as-is, no edge). If found: write the pointer at
+<code>state + dep-&gt;offset</code> <em>then</em> call
+<code>nx_connection_register(self_slot,   target, mode, stateful, policy, &amp;err)</code>.
+Pointer-first-then-edge order means an ENOMEM from the registry won’t
+leave a registered edge without the component field populated.</p></li>
+<li><p><code>self_slot</code> may be NULL: the registry already accepts
+<code>from_slot =   NULL</code> as the boot/external-entry edge marker,
+so passing NULL through <code>nx_resolve_deps</code> emits boot edges
+for each resolved dep. Useful for the first component wired at boot time
+(it has no “owning” slot yet).</p></li>
+</ul>
+<h3
+id="toolsgen-config.py-minimum-generator"><code>tools/gen-config.py</code>
+— minimum generator</h3>
+<ul>
+<li><p>~180 LOC, pure stdlib (<code>argparse</code>, <code>json</code>,
+<code>pathlib</code>, <code>sys</code>). Reads one
+<code>&lt;name&gt;_deps.json</code>-style manifest, emits
+<code>&lt;outdir&gt;/&lt;name&gt;_deps.h</code> with the deps struct and
+the <code>&lt;NAME&gt;_DEPS_TABLE</code> macro.</p></li>
+<li><p>Manifest schema for slice 3.4 (deliberately narrow): top-level
+<code>name</code> (required), <code>version</code> (optional, ignored),
+<code>requires</code> (map of deps), <code>optional</code> (map of
+deps). Each dep accepts <code>version</code> (string, optional),
+<code>mode</code> (<code>"async"</code>|<code>"sync"</code>, default
+<code>async</code>), <code>stateful</code> (bool, default
+<code>false</code>), <code>policy</code>
+(<code>"queue"</code>|<code>"reject"</code>|<code>"redirect"</code>,
+default <code>queue</code>).</p></li>
+<li><p>Defaults match DESIGN: async / stateless / queue. Only explicitly
+declared fields diverge from those defaults.</p></li>
+<li><p><strong>Deterministic output.</strong> Deps are emitted in sorted
+order (requires by name first, then optionals by name). Two consecutive
+runs produce byte-identical headers — a precondition for the R7
+diff-check planned in slice 3.7
+(<code>verify-registry.py</code>).</p></li>
+<li><p>Maps <code>mode</code>/<code>policy</code> string to the
+<code>NX_CONN_*</code> / <code>NX_PAUSE_*</code> enum names declared in
+<code>framework/registry.h</code>. The generator only needs to emit
+those identifiers; the C compiler resolves them.</p></li>
+<li><p>Input validation raises <code>ManifestError</code> with a
+descriptive message for: malformed JSON, missing <code>name</code>,
+non-boolean <code>stateful</code>, unknown <code>mode</code> /
+<code>policy</code>, duplicate dep name across requires/optional. Exit
+code 2 on error.</p></li>
+<li><p>No-deps manifest: emits a <code>struct &lt;name&gt;_deps</code>
+with a single <code>char _nx_no_deps</code> placeholder (C forbids empty
+structs) and omits the <code>_DEPS_TABLE</code> macro entirely; a
+comment directs authors to
+<code>NX_COMPONENT_REGISTER_NO_DEPS</code>.</p></li>
+</ul>
+<h3 id="test-fixtures-host-tests">Test fixtures + host tests</h3>
+<ul>
+<li><p><code>test/host/fixtures/sample_deps.json</code> — one required
+dep (<code>timer</code>, async, stateless, queue) and one optional dep
+(<code>stats</code>, sync, stateful, queue). Exercises all
+manifest-field combinations that matter at this slice: defaults,
+explicit overrides, a dep with a version string and one
+without.</p></li>
+<li><p><code>test/host/fixtures/trivial_deps.json</code> — name only; no
+deps.</p></li>
+<li><p><code>test/host/component_deps_test.c</code> — 9 tests
+covering:</p>
+<ul>
+<li><strong>Descriptor shape</strong> —
+<code>descriptor_fields_match_manifest</code>,
+<code>trivial_descriptor_has_zero_deps</code>. Asserts
+<code>name</code>, <code>state_size</code>, <code>deps_offset</code>,
+<code>n_deps</code>, per-dep
+<code>{name, offset, required,   version_req, mode, stateful, policy}</code>.</li>
+<li><strong>Resolution happy/edge paths</strong> —
+<code>resolve_deps_writes_pointers_and_registers_edges</code> (both deps
+present),
+<code>resolve_deps_with_optional_dep_missing_still_succeeds</code>,
+<code>resolve_deps_with_missing_required_returns_enoent</code> (verifies
+the state struct stays clean too),
+<code>resolve_deps_with_null_self_slot_emits_boot_edges</code>,
+<code>resolve_deps_on_trivial_descriptor_is_a_noop</code>.</li>
+<li><strong>Argument validation</strong> —
+<code>resolve_deps_rejects_null_args</code>.</li>
+<li><strong>Wiring correctness</strong> —
+<code>resolve_deps_preserves_mode_and_stateful_from_manifest</code>
+walks the connection list with a filter and asserts the timer edge is
+async+stateless, the stats edge is sync+stateful (sanity for the
+mode/policy/stateful pass-through).</li>
+</ul></li>
+</ul>
+<h3 id="test-makefile-wiring">Test Makefile wiring</h3>
+<ul>
+<li><p>Added <code>gen/%_deps.h: fixtures/%_deps.json $(GENCONF)</code>
+rule. <code>mkdir -p   gen</code> first so the first clean build doesn’t
+fail.</p></li>
+<li><p><code>component_deps_test.o</code> depends on both generated
+headers, so any manifest edit triggers regeneration before
+recompile.</p></li>
+<li><p><code>-I.</code> added to CFLAGS so
+<code>#include "gen/sample_deps.h"</code> from a different translation
+unit would also work if other tests adopted the pattern; today
+<code>component_deps_test.c</code>’s quote-form search finds the headers
+next to itself.</p></li>
+<li><p><code>clean</code> now <code>rm -rf gen/</code> in addition to
+<code>*.o</code> and <code>test_host</code>.</p></li>
+<li><p><code>PYTHON ?= python3</code> — defaults to system interpreter.
+When slice 3.5 adds jsonschema, this becomes
+<code>PYTHON ?= ../../.venv/bin/python3</code> (or the Make rule
+<code>source</code>s the venv’s activate). Deferring until there’s an
+actual dep.</p></li>
+</ul>
+<h2 id="results">Results</h2>
+<ul>
+<li><p><code>make test</code> → <strong>90/90 pass (84 host + 6 kernel),
+0 leaks, 0 errors, exit 0</strong>.</p></li>
+<li><p><code>make</code> (production kernel) unchanged — framework is
+host-side only until slice 3.9 wires it into boot.</p></li>
+<li><p><code>.venv/</code> created and ignored. Generator runs on the
+system Python; venv is ready for 3.5.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>GCC quote-form search is enough.</strong>
+<code>#include "gen/sample_deps.h"</code> from
+<code>test/host/component_deps_test.c</code> finds
+<code>test/host/gen/sample_deps.h</code> without any extra
+<code>-I</code> flag because the <code>"..."</code> form searches the
+including file’s directory first. This keeps the test build isolated
+from the production <code>gen/</code> directory (which lives at
+<code>sources/nonux/gen/</code>).</p></li>
+<li><p><strong>Section name must be a C identifier, not
+<code>.components</code>.</strong> DESIGN.md uses
+<code>.components</code>; GCC accepts both but GNU ld only
+auto-generates the <code>__start_/__stop_</code> markers for sections
+whose names are valid C identifiers. Switched to
+<code>nx_components</code> so the boot-time walker in slice 3.9 can
+reference <code>__start_nx_components</code> directly — same pattern as
+the existing <code>test_registry</code> (host) and
+<code>kernel_test_registry</code> (ktest) sections.</p></li>
+<li><p><strong>Descriptor <code>ops</code> left opaque.</strong>
+DESIGN.md shows <code>ops</code> as <code>struct component_ops *</code>
+(init/enable/pause/…). Slice 3.3’s lifecycle verbs operate on
+<code>nx_component</code>, not on the descriptor yet. The descriptor’s
+<code>ops</code> pointer will type-check against
+<code>nx_component_ops</code> once slice 3.6 introduces it. For now,
+tests stash a sentinel <code>const int *</code> and the only assertion
+is pointer equality.</p></li>
+<li><p><strong>Deterministic sort matters.</strong> First draft of the
+generator iterated manifest dict keys in insertion order (Python 3.7+
+behaviour). Swapped to <code>sorted()</code> so regenerating the same
+manifest twice produces byte-identical output — required for the
+regenerate-and-diff build gate in slice 3.7.</p></li>
+</ul>
+<h2 id="decisions">Decisions</h2>
+<ul>
+<li><p><strong>Two macros instead of one</strong> —
+<code>NX_COMPONENT_REGISTER</code> for the has-deps path and
+<code>NX_COMPONENT_REGISTER_NO_DEPS</code> for the zero-deps path.
+Merging them would either require a zero-length array (C UB) or a
+sentinel dep that the resolver has to skip. Separate macros keep the
+descriptor schema honest (<code>deps = NULL, n_deps = 0</code> is a
+clean encoding of “no deps”).</p></li>
+<li><p><strong><code>version_req</code> carried through but
+unused.</strong> Slice 3.4 ships the version string in the dep
+descriptor; version matching against the target component’s manifest is
+a slice 3.5 concern. This keeps the descriptor type stable so 3.5
+doesn’t have to change any generator output.</p></li>
+<li><p><strong>Pointer-first, edge-second in
+<code>resolve_deps</code>.</strong> See §component.c above — means a
+late <code>NX_ENOMEM</code> from the registry leaves the pointer written
+without a registered edge, which is the lesser evil; a registered edge
+without the pointer would make the pointer audit (planned for slice 3.7)
+fail confusingly.</p></li>
+<li><p><strong>Fixture manifests under
+<code>test/host/fixtures/</code>.</strong> Production components ship
+manifests under <code>components/&lt;name&gt;/manifest.json</code> per
+IMPLEMENTATION-GUIDE. The fixtures live apart from that tree so the test
+suite doesn’t accidentally imply that <code>sample</code> is a real
+component.</p></li>
+</ul>
+<h2 id="open-deferred">Open / Deferred</h2>
+<ul>
+<li><p><strong>Version matching + full schema.</strong> Slice 3.5
+(<code>validate-config.py</code>) owns:</p>
+<ul>
+<li>Real JSON schema for <code>manifest.json</code> (types / required
+fields / enum values).</li>
+<li>Cross-manifest version checks (<code>requires.timer.version</code>
+against the target component’s <code>"version": "0.1.0"</code>).</li>
+<li><code>kernel.json</code> composition → <code>gen/config.h</code> +
+<code>gen/sources.mk</code>.</li>
+<li>Cycle detection in the dep graph.</li>
+</ul></li>
+<li><p><strong>R7 regenerate-and-diff.</strong> Slice 3.7
+(<code>verify-registry.py</code>) will invoke the generator on every
+manifest, diff the output against the checked-in
+<code>gen/&lt;name&gt;_deps.h</code>, and fail the build on drift. The
+deterministic-output property landed this slice is the
+precondition.</p></li>
+<li><p><strong>Typed ops.</strong> Slice 3.6 lands
+<code>struct nx_component_ops</code> and re-types
+<code>nx_component_descriptor.ops</code>. Test descriptors using the
+sentinel pointer will need a trivial update then.</p></li>
+<li><p><strong>Boot-time walker.</strong> Slice 3.9 walks
+<code>__start_nx_components   … __stop_nx_components</code>, registers
+each descriptor’s component + slot, and calls
+<code>nx_resolve_deps</code> → <code>nx_component_init</code> →
+<code>nx_component_enable</code> in dependency order. The machinery for
+all three steps now exists; the walker itself is a thin glue
+layer.</p></li>
+</ul>
+<h2 id="next">Next</h2>
+<ul>
+<li><strong>Slice 3.5 — Config tooling.</strong> Extend
+<code>gen-config.py</code> to also read <code>kernel.json</code>, emit
+<code>gen/config.h</code> and <code>gen/sources.mk</code>, and add real
+schema validation (first use of the venv — <code>jsonschema</code>). Add
+<code>validate-config.py</code> as a separate entry point for the
+<code>make validate-config</code> target that already exists in the
+top-level Makefile.</li>
+</ul>
+</body>
+</html>

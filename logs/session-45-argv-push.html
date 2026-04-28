@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-45-argv-push – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-45-slice-7.6c.4-sys_exec-argv-push"
+id="toc-session-45-slice-7.6c.4-sys_exec-argv-push">Session 45: slice
+7.6c.4 — sys_exec argv push</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworksyscall.hc-nx_sys_exec-abi-extension"
+id="toc-frameworksyscall.hc-nx_sys_exec-abi-extension"><code>framework/syscall.{h,c}</code>
+— NX_SYS_EXEC ABI extension</a></li>
+<li><a href="#componentsposix_shimposix.h"
+id="toc-componentsposix_shimposix.h"><code>components/posix_shim/posix.h</code></a></li>
+<li><a href="#componentsposix_shimcrt0.s"
+id="toc-componentsposix_shimcrt0.s"><code>components/posix_shim/crt0.S</code></a></li>
+<li><a href="#v1-cap-bumps" id="toc-v1-cap-bumps">v1 cap bumps</a></li>
+<li><a href="#stack-boundary-fix-15-ktest_.c-callers"
+id="toc-stack-boundary-fix-15-ktest_.c-callers">Stack-boundary fix (15
+ktest_*.c callers)</a></li>
+<li><a href="#demo-argv_child_prog.c-argv_parent_prog.c"
+id="toc-demo-argv_child_prog.c-argv_parent_prog.c">Demo
+<code>argv_child_prog.c</code> +
+<code>argv_parent_prog.c</code></a></li>
+<li><a href="#testkernelktest_argv_push.c"
+id="toc-testkernelktest_argv_push.c"><code>test/kernel/ktest_argv_push.c</code></a></li>
+<li><a href="#initramfs" id="toc-initramfs">Initramfs</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-45-slice-7.6c.4-sys_exec-argv-push">Session 45: slice
+7.6c.4 — sys_exec argv push</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6c.4 (inserted ahead of 7.6c.3 musl pin) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>The slice 7.6c.0 crt0 had to fake argv =
+<code>{ "nonux", NULL }</code> because sys_exec ignored the
+user-supplied argv pointer. busybox + any real shell needs the kernel to
+forward argv across exec, so close that gap before the musl pin lands.
+This is a discrete kernel-ABI extension — clear scope,
+single-session-shaped.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>System V layout on the user stack, not a separate argv
+buffer.</strong> Could have allocated kernel-side memory for argv and
+exposed it via a per-task pointer. But every existing libc (musl, glibc,
+picolibc, etc.) reads argc/argv from <code>[sp]</code> per the System V
+ABI. Using the same layout means crt0 + the eventual musl pin both work
+without translation.</p></li>
+<li><p><strong>Cap argc at 16, argv strings at 1024 bytes.</strong>
+Stack-local staging buffer in <code>sys_exec</code> makes the limits
+configurable but keeps allocation off the kheap. Linux’s MAX_ARG_STRLEN
+is much larger (128 KiB) but v1 doesn’t need the headroom — even
+busybox’s invocations rarely exceed a dozen short args.</p></li>
+<li><p><strong>Copy argv BEFORE the TTBR0 flip; lay out AFTER.</strong>
+Two separate operations:</p>
+<ol type="1">
+<li>Pre-flip: argv pointers and strings live in the OLD user address
+space. copy_from_user reads them (with the existing bounds check against
+<code>mmu_user_window_*</code>).</li>
+<li>Post-flip: write the System V layout into the NEW user backing
+through the kernel-visible alias from
+<code>mmu_address_space_user_backing</code>. Same trick the ELF loader
+uses for PT_LOAD copies. Mixing the two would mean either accessing
+OLD-AS user memory after the flip (impossible) or accessing the NEW
+backing via user VAs before the flip (impossible).</li>
+</ol></li>
+<li><p><strong>crt0 reads argc from <code>[sp]</code> with argc==0
+fallback.</strong> For drop_to_el0 entries (no exec), the user backing
+is calloc’d, so <code>[sp]</code> reads as 0 — that’s the cue to use the
+synthesized default. For sys_exec entries, sys_exec ensures argc &gt; 0
+(at worst synthesizes <code>{ path, NULL }</code> if user passed NULL),
+so the stack-read path is always correct.</p></li>
+<li><p><strong>Bump v1 caps as needed; defer real reap.</strong>
+Cumulative test usage of stranded processes hit
+<code>NX_PROCESS_TABLE_CAPACITY</code> =</p>
+<ol start="16" type="1">
+<li>Real fix is reaping on <code>wait()</code>, but that’s been deferred
+since slice 7.4 because the test convention deliberately strands tasks
+(cross-test stable state). Bumping the cap to 32 buys us another dozen
+tests of headroom; the proper fix lands when slice 7.6d busybox’s
+exit-heavy workload makes the current convention untenable.</li>
+</ol></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="frameworksyscall.hc-nx_sys_exec-abi-extension"><code>framework/syscall.{h,c}</code>
+— NX_SYS_EXEC ABI extension</h3>
+<ul>
+<li><p>Header comment for <code>NX_SYS_EXEC = 14</code> rewritten to
+document the new (path, argv, envp) signature + the System V layout that
+sys_exec builds on the user stack.</p></li>
+<li><p><code>sys_exec</code> body — added two new sections:</p>
+<ol type="1">
+<li><p><strong>Pre-flip argv copy.</strong> Walks
+<code>user_argv[0..]</code>:</p>
+<ul>
+<li>copy_from_user(&amp;user_str_ptr, user_argv + i*8, 8) — read the
+i’th pointer from the user array.</li>
+<li>If NULL, terminate.</li>
+<li>copy_path_from_user(staging + offset, remain, user_str_ptr) — copy
+the string body into kernel staging.</li>
+<li>Track per-string offsets in <code>argv_offsets[]</code>. Caps: 16
+entries, 1024 bytes total of string data.</li>
+</ul></li>
+<li><p><strong>Synthesised argv = { path, NULL } when user passes
+NULL.</strong> Matches Linux convention. Programs that don’t supply argv
+still see argv[0] == path in their main.</p></li>
+<li><p><strong>Post-flip layout build.</strong> After the TTBR0
+flip:</p>
+<ul>
+<li>Strings copied to
+<code>backing + (window_size - argv_str_len)   &amp; ~7</code> (high
+end, 8-aligned).</li>
+<li>argc + argv pointer array + envp NULL placed below the strings,
+16-aligned for AAPCS.</li>
+<li><code>tf-&gt;sp_el0</code> = window_base + sp_offset (the argc
+slot’s user VA).</li>
+</ul></li>
+</ol></li>
+</ul>
+<h3
+id="componentsposix_shimposix.h"><code>components/posix_shim/posix.h</code></h3>
+<ul>
+<li><p><code>nx_posix_execve</code> now passes argv as the second SVC
+arg. envp is the third (reserved).</p></li>
+<li><p>Header comment notes the slice 7.6c.4 contract.</p></li>
+</ul>
+<h3
+id="componentsposix_shimcrt0.s"><code>components/posix_shim/crt0.S</code></h3>
+<ul>
+<li><code>_start</code> reads argc from <code>[sp]</code> first. Two
+paths:
+<ul>
+<li>Stack-pushed (<code>cbnz x0, ...</code>) → x1 = sp+8 (argv start),
+x2 = sp+16+8*argc (envp start).</li>
+<li>Synthesised (<code>cbz x0, _synth_argv</code>) → existing fallback
+that loads <code>_argv_storage</code> from <code>.rodata</code>.</li>
+</ul></li>
+<li>Both paths converge at <code>_call_main</code> →
+<code>bl main</code>.</li>
+</ul>
+<h3 id="v1-cap-bumps">v1 cap bumps</h3>
+<ul>
+<li><code>framework/process.c</code>:
+<code>NX_PROCESS_TABLE_CAPACITY</code> 16 → 32.</li>
+<li><code>core/mmu/mmu.c</code>: <code>MMU_MAX_ADDRESS_SPACES</code> 16
+→ 32.</li>
+<li><code>components/ramfs/ramfs.c</code>: <code>RAMFS_FILE_CAP</code>
+4096 → 8192.</li>
+</ul>
+<p>Each bump documented in a comment with the reason.</p>
+<h3 id="stack-boundary-fix-15-ktest_.c-callers">Stack-boundary fix (15
+ktest_*.c callers)</h3>
+<p>Every drop_to_el0 caller used to set
+<code>sp_el0 = (base + size) &amp; ~0xf</code> — top-of-window
+(exclusive). crt0’s new <code>ldr x0, [sp]</code> faults on that
+boundary. Bulk-updated via sed:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sed</span> <span class="at">-i</span> <span class="st">&#39;s|sp_el0 = (base + size) &amp; ~|sp_el0 = (base + size - 16u) \&amp; ~|&#39;</span> <span class="dt">\</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    test/kernel/ktest_<span class="pp">*</span>.c</span></code></pre></div>
+<p>15 files updated. Now sp_el0 = top-16, well within the window; crt0
+reads <code>[sp]</code> as 0 (zero-initialized backing) and falls back
+to the synthesized default.</p>
+<h3 id="demo-argv_child_prog.c-argv_parent_prog.c">Demo
+<code>argv_child_prog.c</code> + <code>argv_parent_prog.c</code></h3>
+<p>Two new C-compiled EL0 binaries:</p>
+<ul>
+<li><p><strong><code>argv_child_prog.c</code></strong> — exec’d target.
+Uses <code>int main(int   argc, char **argv, char **envp)</code>, prints
+argc + each argv slot via printf, validates each slot byte-for-byte
+against <code>{ "/argv_child", "hello", "world" }</code>, exits with
+<code>argc + 60</code> (success → 63). Six distinct error sentinel codes
+(81..85) pinpoint which slot regressed. Embedded in initramfs as
+<code>/argv_child</code> (alongside <code>/init</code> and
+<code>/banner</code>).</p></li>
+<li><p><strong><code>argv_parent_prog.c</code></strong> — drop-to-EL0
+entry point. fork()s; child execve’s <code>/argv_child</code> with the
+explicit argv; parent emits <code>[argv-parent]</code>, waits, asserts
+status == 63, emits <code>[argv-ok]</code>.</p></li>
+</ul>
+<h3
+id="testkernelktest_argv_push.c"><code>test/kernel/ktest_argv_push.c</code></h3>
+<p>Loads <code>argv_parent_prog.elf</code>, drops to EL0, asserts ≥ 7
+debug_writes (parent + child markers) + an EXITED process with exit_code
+== 63.</p>
+<h3 id="initramfs">Initramfs</h3>
+<ul>
+<li>New entry <code>/argv_child</code> mapped to
+<code>argv_child_prog.elf</code>.</li>
+<li>Initramfs grew from 2 entries to 3.</li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Off-by-one in the user-stack <code>fixed_size</code>
+formula.</strong> First pass had <code>fixed_size = 16 + 8*argc</code>.
+Should be <code>8*(3+argc)</code> — slot count is <code>argc</code>
+(argv body) + 1 (argv NULL terminator)</p>
+<ul>
+<li>1 (envp NULL) + 1 (argc cell) = <code>argc + 3</code>. The bug
+caused the argv pointer area to overlap the string area’s first 8 bytes,
+so argv[0] read as zeros while argv[1+] read correctly. Surfaced via a
+debug <code>[argv0 bytes=...]</code> print that showed all zeros despite
+argv[0] pointing at the right address.</li>
+</ul></li>
+<li><p><strong>drop_to_el0 callers’ sp_el0 was AT the boundary, not
+below.</strong> Pre-slice-7.6c.4 crt0 didn’t read <code>[sp]</code>, so
+the boundary bug went undetected. My new <code>ldr x0, [sp]</code>
+instantly faulted with ESR=9200000e (data abort, lower EL,
+permission-fault) at FAR=0x48200000 (one past the user window). Easy fix
+once diagnosed; sed-bulk-updated 15 files.</p></li>
+<li><p><strong>MMU_MAX_ADDRESS_SPACES is a separate cap from
+NX_PROCESS_TABLE_CAPACITY.</strong> First cap-bump-attempt missed this —
+bumped only the process-table cap to 32, but MMU topped out at 16 and
+<code>mmu_create_address_space</code> returned 0, causing
+<code>nx_process_create</code> to fail. Both caps need to match for any
+process-allocation path to work.</p></li>
+<li><p><strong>RAMFS_FILE_CAP needs to fit a real C-compiled
+program.</strong> argv_child_prog.elf is 4568 bytes (libnxlibc + main +
+printf). RAMFS_FILE_CAP was 4096 from slice 7.4c, sized for
+init_prog.elf (~800 bytes). My ramfs slurp silently skips entries that
+exceed the cap, so /argv_child wasn’t in the live FS — sys_exec returned
+NX_ENOENT, child took the exit(99) fallback, parent’s wait saw status !=
+63. Bumped to 8192.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Insert this as 7.6c.4, not 7.6c.3.</strong> Slice 7.6c.3
+is the musl pin — a multi-day integration task that’s been deferred for
+good reason. argv push is a discrete kernel ABI extension that takes a
+single session and is independently useful. Renumbering preserves the
+original “musl is 7.6c.3” promise while documenting the actual landing
+order.</p></li>
+<li><p><strong><code>int main(int argc, char **argv, char **envp)</code>
+in the demo, not <code>(int argc, char **argv)</code>.</strong>
+Three-arg form matches POSIX exactly + lets us probe envp’s NULL pass-
+through (no envp support yet, but the slot is reserved for slice 7.6c.3
+musl).</p></li>
+<li><p><strong>Bump caps to 32 not 64.</strong> 32 gives ~14 tests of
+headroom (currently 18 user-process-creating tests). 64 would postpone
+the proper-reap fix indefinitely; 32 keeps it as an actionable next
+step.</p></li>
+<li><p><strong>Roll Session 40 to archive.</strong> HANDOFF.md’s session
+list caps at 5; after inserting Session 45, Session 40 (slice 7.6a fork
+handle inheritance) moves to the archive.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>403/403 pass (51 python + 274
+host + 78 kernel), 0 leaks, 0 errors, exit 0</strong>. +1 kernel
+test.</p></li>
+<li><p><code>make run</code> boots cleanly.</p></li>
+<li><p>27 distinct EL0 markers across the test suite (now adds
+<code>[argv-parent]</code>, <code>[argv-child argc=N]</code>,
+<code>[argv-child   argv[i]=...]</code>, <code>[argv-child-ok]</code>,
+<code>[argv-ok]</code>).</p></li>
+<li><p>The C-runtime story is now end-to-end: a freshly-exec’d C program
+receives real argc/argv from the kernel, exactly the way busybox’s main
+expects.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p><strong>Slice 7.6c.3 — vendor + cross-build musl</strong> (next).
+Plan unchanged: vendored snapshot, patched syscall_arch.h, swap
+libnxlibc for libc.a on the demo link lines. argv push being in place
+means musl’s <code>__libc_start_main</code> will read argc/argv from
+<code>[sp]</code> exactly as it expects — no kernel-side change for
+musl.</p>
+<p><strong>Deferred (unchanged):</strong></p>
+<ul>
+<li><p>Proper cross-test task reap on <code>wait()</code>. Now visibly
+hitting caps; should land before slice 7.6d which will create many more
+processes.</p></li>
+<li><p>HANDLE_FILE fork inheritance.</p></li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/framework/syscall.h</code> — NX_SYS_EXEC ABI doc
+updated</li>
+<li><code>sources/nonux/framework/syscall.c</code> — argv copy + System
+V layout build</li>
+<li><code>sources/nonux/framework/process.c</code> —
+NX_PROCESS_TABLE_CAPACITY 16 → 32</li>
+<li><code>sources/nonux/core/mmu/mmu.c</code> — MMU_MAX_ADDRESS_SPACES
+16 → 32</li>
+<li><code>sources/nonux/components/ramfs/ramfs.c</code> — RAMFS_FILE_CAP
+4096 → 8192</li>
+<li><code>sources/nonux/components/posix_shim/posix.h</code> —
+nx_posix_execve passes argv</li>
+<li><code>sources/nonux/components/posix_shim/crt0.S</code> — read argc
+from [sp] with argc==0 fallback</li>
+<li><code>sources/nonux/test/kernel/ktest_*.c</code> — 15 callers:
+sp_el0 = top-16</li>
+<li><code>sources/nonux/test/kernel/argv_child_prog.c</code> — new
+(exec’d child, validates argv)</li>
+<li><code>sources/nonux/test/kernel/argv_parent_prog.c</code> — new
+(forks + execs child)</li>
+<li><code>sources/nonux/test/kernel/argv_parent_prog_blob.S</code> — new
+(.incbin wrapper)</li>
+<li><code>sources/nonux/test/kernel/ktest_argv_push.c</code> — new
+(kernel test)</li>
+<li><code>sources/nonux/Makefile</code> — argv_child_prog +
+argv_parent_prog rules; initramfs entry; KTEST_C/S; clean</li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.6c.4
+inserted; numbering updated</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 40 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

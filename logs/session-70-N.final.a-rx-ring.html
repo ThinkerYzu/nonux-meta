@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-70-N.final.a-rx-ring – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-70-slice-7.6d.n.final.a-pl011-rx-irq-console-rx-ring-blocking-nx_console_read-ioctltermios-stubs"
+id="toc-session-70-slice-7.6d.n.final.a-pl011-rx-irq-console-rx-ring-blocking-nx_console_read-ioctltermios-stubs">Session
+70: slice 7.6d.N.final.a — PL011 RX IRQ + console RX ring + blocking
+<code>nx_console_read</code> + ioctl/termios stubs</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#deliverables" id="toc-deliverables">Deliverables</a>
+<ul>
+<li><a href="#frameworkconsole.hc-rx-ring-irq-wiring-150-lines"
+id="toc-frameworkconsole.hc-rx-ring-irq-wiring-150-lines"><code>framework/console.{h,c}</code>
+— RX ring + IRQ wiring (~150 lines)</a></li>
+<li><a href="#frameworksyscall.c-nx_sys_ioctl-39-90-lines"
+id="toc-frameworksyscall.c-nx_sys_ioctl-39-90-lines"><code>framework/syscall.c</code>
+— <code>NX_SYS_IOCTL = 39</code> (~90 lines)</a></li>
+<li><a href="#sys_read-console-arm-drop-the-eof-hack"
+id="toc-sys_read-console-arm-drop-the-eof-hack"><code>sys_read</code>
+CONSOLE arm — drop the EOF hack</a></li>
+<li><a href="#musl-translation-table"
+id="toc-musl-translation-table">musl translation table</a></li>
+<li><a href="#corebootboot.c-wire-nx_console_init"
+id="toc-corebootboot.c-wire-nx_console_init"><code>core/boot/boot.c</code>
+— wire <code>nx_console_init</code></a></li>
+<li><a href="#tests" id="toc-tests">Tests</a></li>
+</ul></li>
+<li><a href="#discoveries-gotchas"
+id="toc-discoveries-gotchas">Discoveries / gotchas</a>
+<ul>
+<li><a href="#stale-.o-files-masquerading-as-test-failures"
+id="toc-stale-.o-files-masquerading-as-test-failures">Stale
+<code>.o</code> files masquerading as test failures</a></li>
+<li><a href="#adopting-the-timer-drivers-irq-wiring-shape"
+id="toc-adopting-the-timer-drivers-irq-wiring-shape">Adopting the timer
+driver’s IRQ-wiring shape</a></li>
+<li><a href="#nx_file_io_max-256-keeps-the-staging-arm-honest"
+id="toc-nx_file_io_max-256-keeps-the-staging-arm-honest"><code>NX_FILE_IO_MAX = 256</code>
+keeps the staging arm honest</a></li>
+</ul></li>
+<li><a href="#test-results" id="toc-test-results">Test results</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at end of session</a></li>
+<li><a href="#files-touched" id="toc-files-touched">Files
+touched</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-70-slice-7.6d.n.final.a-pl011-rx-irq-console-rx-ring-blocking-nx_console_read-ioctltermios-stubs">Session
+70: slice 7.6d.N.final.a — PL011 RX IRQ + console RX ring + blocking
+<code>nx_console_read</code> + ioctl/termios stubs</h1>
+<p><strong>Date:</strong> 2026-04-28 <strong>Phase:</strong> 7 slice
+7.6d.N.final.a (interactive busybox sh — kernel-side RX plumbing)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Session 69 closed the last batch of non-interactive busybox sh
+workloads (N.12 through N.15). Slice 7.6d.N.final is the only remaining
+slice in the 7.6d arc. User-direction questions resolved this session
+before any code:</p>
+<ul>
+<li><p><strong><code>/init</code> swap policy:</strong>
+build-flag-gated. Default <code>/init</code> stays the libnxlibc-linked
+test program so all 425 ktests keep their current entry path;
+<code>make run-busybox</code> (sub-slice b) repacks initramfs with
+<code>/init -&gt; busybox</code>.</p></li>
+<li><p><strong>Verification:</strong> eyeball-test for slice closure
+(sub-slice b), plus scriptable injection via
+<code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code> as a follow-up (sub-slice
+d).</p></li>
+</ul>
+<p>That carved N.final into four sub-slices:</p>
+<ul>
+<li><p><strong>N.final.a (this session)</strong> — RX IRQ + console RX
+ring + blocking <code>nx_console_read</code> + termios/ioctl
+stubs.</p></li>
+<li><p>N.final.b — <code>/init</code> swap policy + eyeball-test
+recipe.</p></li>
+<li><p>N.final.c — Ctrl-C → SIGINT + Ctrl-D EOF + signal
+trampoline.</p></li>
+<li><p>N.final.d — <code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code>.</p></li>
+</ul>
+<p>This slice closes the kernel-side mechanical core: <strong>bytes
+typed at the QEMU UART end up in <code>read(0, ...)</code> from
+EL0.</strong></p>
+<h2 id="deliverables">Deliverables</h2>
+<h3
+id="frameworkconsole.hc-rx-ring-irq-wiring-150-lines"><code>framework/console.{h,c}</code>
+— RX ring + IRQ wiring (~150 lines)</h3>
+<p>A single-producer (PL011 RX ISR or test injector) / single-consumer
+(<code>nx_console_read</code>) byte ring of 256 entries. Plain head/tail
+with C11 atomics on the indices; the IRQ runs with IRQs masked at the
+GIC, so no further synchronisation is needed on the producer side.</p>
+<p><code>nx_console_read</code> becomes a yield-loop: drain whatever is
+in the ring; if empty and nothing yet returned,
+<code>nx_task_yield</code>; on wake, drain again. POSIX read semantics —
+a successful read may return less than <code>cap</code>, and the caller
+(musl’s <code>__stdio_read</code>, ash’s cmdedit) loops as needed.</p>
+<p>Host build keeps the v1 EOF behaviour for empty ring; tests can prime
+the ring via <code>nx_console_test_inject_bytes</code> and drain it with
+the same <code>nx_console_read</code> (no scheduler / no yield, just the
+modular drain).</p>
+<p><code>nx_console_init</code> registers the ISR + enables IRQ 33 at
+the GIC + programs the PL011’s <code>IMSC</code> (RXIM | RTIM masks) and
+<code>IFLS</code> (receive FIFO threshold = 1/8, fires on first byte).
+Called from <code>boot_main</code> after <code>gic_init</code> and
+before <code>irq_enable_local</code>.</p>
+<p>The ISR drains the PL011 FIFO into the ring (so we don’t take
+back-to-back IRQs for already-buffered bytes) and clears RXIM + RTIM in
+<code>ICR</code>.</p>
+<h3
+id="frameworksyscall.c-nx_sys_ioctl-39-90-lines"><code>framework/syscall.c</code>
+— <code>NX_SYS_IOCTL = 39</code> (~90 lines)</h3>
+<p>Recognised cmds against a <code>NX_HANDLE_CONSOLE</code> fd:</p>
+<ul>
+<li><p><code>TCGETS = 0x5401</code> — fill 36 zero bytes
+(<code>struct termios</code>), return 0. musl’s <code>isatty</code>
+calls <code>tcgetattr</code> (= TCGETS); success makes isatty return
+1.</p></li>
+<li><p><code>TCSETS / TCSETSW / TCSETSF</code> (<code>0x5402</code> /
+<code>0x5403</code> / <code>0x5404</code>) — ignore + return 0.</p></li>
+<li><p><code>TIOCGWINSZ = 0x5413</code> — fill
+<code>struct winsize {row=24, col=80}</code>, return 0.</p></li>
+<li><p>everything else — return <code>-ENOTTY</code> (Linux
+<code>-25</code>, delivered through musl’s <code>__syscall_ret</code>
+which preserves Linux errno values regardless of our NX errno
+table).</p></li>
+</ul>
+<p>Non-CONSOLE fd → <code>-ENOTTY</code> (busybox tcgetattr on a regular
+file is supposed to fail with ENOTTY, not EINVAL).</p>
+<h3 id="sys_read-console-arm-drop-the-eof-hack"><code>sys_read</code>
+CONSOLE arm — drop the EOF hack</h3>
+<p>The previous arm passed <code>buf=NULL</code> to
+<code>nx_console_read</code> because the v1 implementation always
+returned 0=EOF. With the real RX path it fills bytes, so the arm now
+does the proper <code>copy_to_user</code> through a kernel staging
+buffer of <code>NX_FILE_IO_MAX = 256</code> bytes (matching the FILE
+arm).</p>
+<h3 id="musl-translation-table">musl translation table</h3>
+<p><code>__NR_ioctl (29) → NX_SYS_IOCTL (39)</code> in both
+<code>arch/aarch64/syscall_arch.h</code> (C-level) and
+<code>src/thread/aarch64/syscall_cp.s</code> (asm-level cancellation
+point). Comment block at the top of <code>syscall_arch.h</code> updated
+to record the mapping.</p>
+<h3
+id="corebootboot.c-wire-nx_console_init"><code>core/boot/boot.c</code> —
+wire <code>nx_console_init</code></h3>
+<p>One call between <code>timer_init(10)</code> and
+<code>nx_framework_bootstrap</code>, with a comment explaining the
+placement (must be after <code>gic_init</code> so the GIC is up; before
+<code>irq_enable_local</code> so the first key press doesn’t fire into a
+masked vector).</p>
+<h3 id="tests">Tests</h3>
+<p><strong><code>test/kernel/ktest_console_rx.c</code></strong> (new) —
+3 ktests exercising the ring without bringing up EL0:</p>
+<ul>
+<li><p><code>console_rx_inject_drain</code> — push 5 bytes via the test
+injector, read them back through <code>nx_console_read</code>, verify
+ordering and count. Read does NOT block (ring already has bytes) —
+fast-path coverage.</p></li>
+<li><p><code>console_rx_wraps_around</code> — push 200 + drain 200, then
+push 100 + drain 100. Forces <code>head</code> and <code>tail</code>
+past <code>RX_RING_SIZE = 256</code> and back, exercising the modular
+index arithmetic.</p></li>
+<li><p><code>console_rx_drop_on_full</code> — push 256 bytes; ring
+capacity is 256 minus the full sentinel, so 255 are accepted and the
+last is dropped. Drain returns exactly 255.</p></li>
+</ul>
+<p><strong><code>test/host/file_syscall_test.c</code></strong>
+(extended) — 2 host tests:</p>
+<ul>
+<li><p><code>sys_ioctl_console_termios_stubs_succeed</code> — TCGETS /
+TCSETS / TIOCGWINSZ all succeed, winsize struct is filled with 24×80.
+Unknown cmd → -ENOTTY.</p></li>
+<li><p><code>sys_ioctl_on_non_console_handle_returns_enotty</code> —
+open a regular FILE handle, ioctl returns -ENOTTY (busybox + musl rely
+on this for the “is this a tty?” test).</p></li>
+</ul>
+<p>The “block-then-wake” semantic of <code>nx_console_read</code> (read
+on empty ring yields, IRQ pushes a byte, read returns) is exercised
+implicitly by the busybox interactive path that lands in sub-slice
+b/c. Adding a kthread-based block-then-wake test in-kernel would require
+spinning up a producer kthread that the idle-task ktest framework
+doesn’t naturally provide; deferred to the EL0 sub-slice.</p>
+<h2 id="discoveries-gotchas">Discoveries / gotchas</h2>
+<h3 id="stale-.o-files-masquerading-as-test-failures">Stale
+<code>.o</code> files masquerading as test failures</h3>
+<p>First <code>make test</code> after the change reported one host
+failure (<code>syscall_unknown_number_returns_enosys_on_host</code>) and
+one kernel failure (<code>syscall_unknown_number_returns_enosys</code>).
+Both expected <code>NX_ENOSYS = -38</code> from a syscall number
+<code>&gt;= NX_SYSCALL_COUNT</code>; got <code>-1</code> (NX_EINVAL) and
+<code>-4</code> (NX_ENOENT) respectively.</p>
+<p>Root cause: adding <code>NX_SYS_IOCTL = 39</code> shifted
+<code>NX_SYSCALL_COUNT</code> from 39 → 40, but the test object files
+(<code>syscall_test.o</code>, <code>ktest_syscall.o</code>) were built
+against the old header and inlined <code>svc0(NX_SYSCALL_COUNT)</code>
+with the old value 39. The kernel/host dispatch — built fresh against
+the new header — happily routed slot 39 to <code>sys_ioctl</code>, which
+returned an errno consistent with whatever uninitialised values the test
+stuffed into the trap frame’s argument registers.</p>
+<p>The Makefile doesn’t automatically depend object files on header
+changes; routine work uses incremental builds, but a header edit that
+changes a sentinel constant requires a <code>make clean</code> to
+refresh test objects. No kernel-side change needed — the dispatch is
+correct; only the stale tests disagreed. Fix:
+<code>make clean &amp;&amp; make test</code>. Documented in this session
+log so the next sentinel-bumping edit doesn’t trip over the same
+trap.</p>
+<h3 id="adopting-the-timer-drivers-irq-wiring-shape">Adopting the timer
+driver’s IRQ-wiring shape</h3>
+<p><code>core/timer/timer.c:timer_init</code> was the natural template:
+<code>irq_register(N, handler, NULL); gic_enable(N)</code> is the
+two-step that registers the dispatch + unmasks the line.
+<code>framework/console.c:nx_console_init</code> mirrors it exactly.</p>
+<p>The PL011’s IRQ line on QEMU virt is <strong>SPI 1 = IRQ 33</strong>
+(= 32 SPI offset + 1). Not in any header; lifted from the QEMU virt
+machine model. Encoded as a <code>#define PL011_IRQ 33</code> in
+<code>framework/console.c</code> with a one-line comment above it so a
+later reader doesn’t re-derive it.</p>
+<h3
+id="nx_file_io_max-256-keeps-the-staging-arm-honest"><code>NX_FILE_IO_MAX = 256</code>
+keeps the staging arm honest</h3>
+<p>The CONSOLE read arm follows the FILE arm’s shape — bound by
+<code>NX_FILE_IO_MAX</code>, copy through a kernel staging buffer. Lower
+bound (1 byte) works the same. Unblocked the “what if EL0 asks for
+<code>cap = 8 KiB</code>?” question — we cap it at 256, the EL0 caller
+loops as needed.</p>
+<h2 id="test-results">Test results</h2>
+<p><code>make clean &amp;&amp; make test</code> →</p>
+<ul>
+<li>51 python tests pass</li>
+<li>277 host tests pass (was 275, +2 ioctl tests)</li>
+<li>102 kernel tests pass (was 99, +3 console_rx_* tests)</li>
+<li><strong>Total: 430/430 pass, 0 leaks, 0 errors, exit 0</strong></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at end of session</h2>
+<ul>
+<li><p>N.final.a complete. Kernel-side mechanical core for interactive
+shell is live: bytes typed at the QEMU UART end up in
+<code>read(0, ...)</code> from EL0. <code>isatty(0)</code> returns 1 via
+the ioctl stub.</p></li>
+<li><p>N.final.b (next) — <code>/init</code> swap policy. Sub-30-line
+tooling change (<code>tools/pack-initramfs.py</code> + Makefile
+target</p>
+<ul>
+<li>TESTING-GUIDE.md recipe). Eyeball-test on real keyboard closes the
+sub-slice.</li>
+</ul></li>
+<li><p>N.final.c — Ctrl-C / Ctrl-D + signal trampoline (~100 lines
+kernel).</p></li>
+<li><p>N.final.d — <code>tools/qemu-stdin-feed.sh</code> +
+<code>make test-interactive</code>.</p></li>
+</ul>
+<h2 id="files-touched">Files touched</h2>
+<p>Production:</p>
+<ul>
+<li><p><code>framework/console.h</code> — extended docstring + new
+<code>nx_console_init</code> / <code>nx_console_test_inject_bytes</code>
+declarations.</p></li>
+<li><p><code>framework/console.c</code> — RX ring + IRQ handler +
+blocking read + nx_console_init. ~120 net new lines.</p></li>
+<li><p><code>framework/syscall.h</code> — <code>NX_SYS_IOCTL = 39</code>
+enum entry.</p></li>
+<li><p><code>framework/syscall.c</code> — <code>sys_ioctl</code> body +
+dispatch table entry; <code>sys_read</code> CONSOLE arm rewritten for
+the real staging-buffer shape. ~95 net new lines.</p></li>
+<li><p><code>core/boot/boot.c</code> —
+<code>#include "framework/console.h"</code> +
+<code>nx_console_init()</code> call.</p></li>
+<li><p><code>third_party/musl/arch/aarch64/syscall_arch.h</code> —
+translation table entry for <code>__NR_ioctl (29) → 39</code> + comment
+update.</p></li>
+<li><p><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code> —
+same translation entry on the asm-level cancellation path.</p></li>
+</ul>
+<p>Tests:</p>
+<ul>
+<li><code>test/kernel/ktest_console_rx.c</code> (new, 3 ktests).</li>
+<li><code>test/host/file_syscall_test.c</code> — 2 new TEST()
+blocks.</li>
+<li><code>Makefile</code> — <code>KTEST_C</code> +=
+<code>ktest_console_rx.c</code>.</li>
+</ul>
+</body>
+</html>

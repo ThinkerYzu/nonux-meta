@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-50-busybox-relink – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-50-slice-7.6d.2a-re-link-busybox-at-user-window-va"
+id="toc-session-50-slice-7.6d.2a-re-link-busybox-at-user-window-va">Session
+50: slice 7.6d.2a — re-link busybox at user-window VA</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#toolsbuild-busybox.sh"
+id="toc-toolsbuild-busybox.sh"><code>tools/build-busybox.sh</code></a></li>
+</ul></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#drive-by-gotchas" id="toc-drive-by-gotchas">Drive-by
+gotchas</a></li>
+<li><a href="#what-was-not-done" id="toc-what-was-not-done">What Was Not
+Done</a></li>
+<li><a href="#test-counts" id="toc-test-counts">Test Counts</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-50-slice-7.6d.2a-re-link-busybox-at-user-window-va">Session
+50: slice 7.6d.2a — re-link busybox at user-window VA</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6d.2a (busybox integration, sub-sub-slice 1 of 3 — opens 7.6d.2)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>7.6d.2 (try to boot busybox <code>--help</code> from a libnxlibc
+parent) was originally one sub-slice. Planning surfaced two
+preconditions that have to land before any runtime discovery can
+happen:</p>
+<ol type="1">
+<li><p><strong>Address-space mismatch.</strong> busybox 1.36.1 is linked
+at VA <code>0x400000</code> (kbuild default for
+<code>-static -no-pie</code> aarch64). Our user window sits at
+<code>0x48000000</code>. Loading busybox-as-built would write to
+<code>0x400000</code>, which is in MMIO space — guaranteed
+fault.</p></li>
+<li><p><strong>Window too small.</strong> Even after re-linking,
+busybox’s text+data segments span ~1.91 MB, while the user window is
+only 2 MiB total — leaves no room for stack/heap.</p></li>
+</ol>
+<p>So 7.6d.2 was further sliced 7.6d.2a (re-link) / 7.6d.2b (grow window
++ relocate brk) / 7.6d.2c (caps + ramfs-seed + try to exec + capture
+failure). This session lands 7.6d.2a — the smallest of the three,
+build-script-only, no kernel changes, no ktest changes.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong><code>-Wl,-Ttext-segment=0x48000000</code> over a custom
+linker script.</strong> busybox’s kbuild link command is generated from
+<code>Makefile.flags</code> and <code>scripts/trylink</code>; injecting
+a full linker script there would require either patching the Makefile or
+replacing it with a custom one. <code>-Ttext-segment=...</code> rides
+through cleanly in <code>EXTRA_LDFLAGS</code>, which busybox already
+plumbs to its link line. The flag pins segment 1 (text+rodata, R+E) at
+the requested VA; segment 2 (data+bss, RW) follows the standard
+alignment offset (<code>p_align =   0x10000</code> per the program
+header) so it lands at <code>0x481d9770</code>, well above segment 1’s
+end at <code>0x481c6434</code>.</p></li>
+<li><p><strong>Hardcode <code>0x48000000</code> in build-busybox.sh, not
+derive from a kernel header.</strong> The VA is also hardcoded in
+<code>init_prog.ld</code>’s <code>. = 0x48000000;</code> and in
+<code>core/mmu/mmu.c</code>’s <code>USER_WINDOW_INDEX   = 64</code>
+macro arithmetic. Three places that have to track each other — but
+extracting a shared <code>USER_WINDOW_BASE</code> constant would force
+build-time generation of the linker script and the shell script from a
+single source, which is more plumbing than we want for a one-line value.
+The script comment flags the cross-reference; the next time the user
+window moves, this is one of the call sites the grep will find.</p></li>
+<li><p><strong>No size-hardening yet.</strong> The re-linked binary is
+the same size as the un-re-linked one (2,292,464 bytes — the only diff
+is the segment header VAs and a few absolute addresses in the text). No
+need to investigate <code>--gc-sections</code> / <code>-Os</code> /
+applet trimming yet; that’s only worth doing if 7.6d.2c surfaces a
+runtime size constraint we hadn’t predicted.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="toolsbuild-busybox.sh"><code>tools/build-busybox.sh</code></h3>
+<ul>
+<li><p>Added <code>USER_WINDOW_BASE="0x48000000"</code> constant +
+extended the <code>EXTRA_LDFLAGS</code> line to include
+<code>-Wl,-Ttext-segment=$USER_WINDOW_BASE</code>.</p></li>
+<li><p>14-line comment above the change documents the cross-reference to
+<code>core/mmu/mmu.c</code> + <code>init_prog.ld</code> and the
+rationale for not factoring the constant.</p></li>
+</ul>
+<p>That’s the entire code change. No Makefile change (the existing
+<code>$(BUSYBOX_BIN)</code> rule already invokes the script with the
+right deps). No kernel change. No new ktest.</p>
+<h2 id="verification">Verification</h2>
+<ul>
+<li><p><code>make busybox-clean &amp;&amp; make busybox</code> succeeds;
+output ELF is the same 2,292,464 bytes as Session 49’s first
+build.</p></li>
+<li><p><code>aarch64-linux-gnu-readelf -h</code> shows the new entry
+point:</p>
+<pre><code>Entry point address:   0x480005c0</code></pre>
+<p>(was <code>0x4005c0</code>).</p></li>
+<li><p><code>aarch64-linux-gnu-readelf -l</code> shows segments at the
+new VAs:</p>
+<pre><code>LOAD  Offset 0x000000   VirtAddr 0x48000000   FileSiz 0x1c6434  R E
+LOAD  Offset 0x1c9770   VirtAddr 0x481d9770   FileSiz 0x82aa    RW</code></pre>
+<p>Both segments now sit inside the user-window VA range
+(<code>0x48000000</code> – <code>0x48200000</code>).</p>
+<ul>
+<li>Segment 1 ends at <code>0x481c6434</code> (~1.86 MB into the
+window).</li>
+<li>Segment 2 ends at <code>0x481e8930</code> (~1.91 MB into the
+window).</li>
+<li>Top of window is <code>0x48200000</code> (2 MiB) — leaves ~84 KiB
+for stack + heap. Confirms the window-size issue 7.6d.2b will
+address.</li>
+</ul></li>
+<li><p><code>make test</code> → 407/407 pass (51 python + 275 host + 81
+kernel), 0 leaks, 0 errors, exit 0. No regression from the
+re-link.</p></li>
+</ul>
+<h2 id="drive-by-gotchas">Drive-by gotchas</h2>
+<p>None. The change went in clean on first try; busybox’s build system
+handled the new flag without complaint.</p>
+<h2 id="what-was-not-done">What Was Not Done</h2>
+<ul>
+<li><p><strong>No window growth.</strong> busybox still doesn’t fit the
+2 MiB window alongside heap+stack — that’s 7.6d.2b’s job.</p></li>
+<li><p><strong>No exec attempt.</strong> ramfs is still capped at 8 KiB
+per file; trying to seed a 2.29 MB busybox would silently truncate.
+7.6d.2c bumps the caps + ramfs-seeds + tries to exec.</p></li>
+<li><p><strong>No source-tree constants extracted.</strong> The
+<code>0x48000000</code> hardcode lives in three places (build-busybox.sh
++ init_prog.ld + mmu.c arithmetic) and that’s not changing this
+slice.</p></li>
+</ul>
+<h2 id="test-counts">Test Counts</h2>
+<ul>
+<li>Python: 51 (unchanged)</li>
+<li>Host: 275 (unchanged)</li>
+<li>Kernel: 81 (unchanged)</li>
+<li><strong>Total: 407/407 PASS</strong></li>
+</ul>
+<p>Build outputs:</p>
+<ul>
+<li><code>third_party/busybox/busybox</code> — re-linked at
+<code>0x48000000</code>, 2,292,464 bytes (identical size to
+pre-relink).</li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li><p><strong>7.6d.2b</strong> — Grow user window 2 MiB → 8 MiB;
+relocate brk region. <code>USER_WINDOW_SIZE</code> bumps to 4 contiguous
+L2 ram blocks (indexes 64..67); per-process backing alloc footprint
+scales 4× (~32 MiB raw + 8 MiB alignment slack); brk region moves from
+<code>[base+1 MiB .. base+1.5 MiB)</code> to
+<code>[base+6 MiB .. base+7.5 MiB)</code> (well past busybox’s segment-2
+end at ~<code>base+1.91 MiB</code>); <code>sp_el0</code> formula stays
+<code>top - 16</code> (since the formula references
+<code>mmu_user_window_base() + mmu_user_window_size()</code> rather than
+a hardcoded VA). Risk surface: every existing EL0 ktest depends on the 2
+MiB layout — has to stay green.</p></li>
+<li><p><strong>7.6d.2c</strong> — Bump <code>RAMFS_FILE_CAP</code> +
+<code>SYS_EXEC_MAX_FILE</code>; ramfs-seed <code>/bin/busybox</code>;
+libnxlibc parent execs it; capture failure mode. This is where the
+actual runtime discovery happens and 7.6d.3+ sub-slices get
+enumerated.</p></li>
+</ul>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-25</p>
+</body>
+</html>

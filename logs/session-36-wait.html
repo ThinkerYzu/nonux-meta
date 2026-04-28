@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-36-wait – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-36-slice-7.4b-nx_sys_wait-daif-mask-fix-in-nx_process_exit"
+id="toc-session-36-slice-7.4b-nx_sys_wait-daif-mask-fix-in-nx_process_exit">Session
+36: slice 7.4b — <code>NX_SYS_WAIT</code> + DAIF-mask fix in
+<code>nx_process_exit</code></a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworksyscall.hc-nx_sys_wait"
+id="toc-frameworksyscall.hc-nx_sys_wait"><code>framework/syscall.{h,c}</code>
+— <code>NX_SYS_WAIT</code></a></li>
+<li><a href="#frameworkprocess.c-irq-enable-in-nx_process_exit"
+id="toc-frameworkprocess.c-irq-enable-in-nx_process_exit"><code>framework/process.c</code>
+— IRQ-enable in <code>nx_process_exit</code></a></li>
+<li><a href="#el0-kernel-test" id="toc-el0-kernel-test">EL0 + kernel
+test</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-36-slice-7.4b-nx_sys_wait-daif-mask-fix-in-nx_process_exit">Session
+36: slice 7.4b — <code>NX_SYS_WAIT</code> + DAIF-mask fix in
+<code>nx_process_exit</code></h1>
+<p><strong>Date:</strong> 2026-04-24 <strong>Phase:</strong> 7 slice
+7.4b <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Close the fork/wait pair started by slice 7.4a. A parent that forks
+needs to be able to reap its child’s exit code — that’s
+<code>wait()</code>. Mechanically simpler than fork (no trap-frame
+replay, just a poll loop) but exposed a subtle interrupt-masking bug in
+<code>nx_process_exit</code> that had been latent since slice 7.1.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Blocking-via-poll, not wake-on-exit.</strong> Real
+kernels maintain a per-process “children-waiting” wait queue so
+<code>wait()</code> blocks efficiently. v1 polls with
+<code>nx_task_yield()</code> in a loop — simpler, works correctly, costs
+some CPU while the parent is waiting. For the ktest harness (one parent
++ one child + bounded run time) this is fine; a real workload with many
+concurrent waiters is when the wait queue becomes worth the
+complexity.</p></li>
+<li><p><strong>No zombie reaping.</strong> <code>wait()</code> returns
+the child’s exit_code but doesn’t free the child’s process struct or
+address space. A pid-leak exists. Acceptable in v1 because the
+process-table capacity (16 slots) is far above what any current test
+exercises.</p></li>
+<li><p><strong>Self-wait rejected with <code>NX_EINVAL</code>.</strong>
+Matches POSIX’s treatment of <code>wait()</code> on the caller’s own
+pid. Unknown pid and kernel-pid (0) both return
+<code>NX_ENOENT</code>.</p></li>
+<li><p><strong>Skip <code>nx_process_reset_for_test</code> in
+<code>ktest_wait</code>.</strong> Earlier ktests (specifically
+<code>ktest_fork</code>) strand EL0 tasks in <code>wfe</code> because
+there’s no way to dequeue a task whose process we don’t hold a handle
+to. Resetting the process table at the top of <code>ktest_wait</code>
+would leave those stranded tasks with dangling
+<code>task-&gt;process</code> pointers; the next
+<code>sched_check_resched</code> would dereference the garbage and flip
+TTBR0 to a bad value, crashing EL0 on the next instruction fetch. The
+fix is to NOT reset — user processes from prior tests stay alive (their
+tasks keep cycling harmlessly through <code>wfe</code>), and the wait
+test’s child-finding logic filters by pid &gt; its own parent’s pid so
+it can’t mistake a stranded process for its own child. A proper
+cross-test cleanup lands when <code>nx_process_destroy</code> grows a
+“dequeue all tasks pointing at this process” pass.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="frameworksyscall.hc-nx_sys_wait"><code>framework/syscall.{h,c}</code>
+— <code>NX_SYS_WAIT</code></h3>
+<ul>
+<li><code>NX_SYS_WAIT = 13</code> appended to the enum.</li>
+<li><code>sys_wait(pid, user_status)</code>:
+<ul>
+<li><code>nx_process_lookup_by_pid(pid)</code> → <code>NX_ENOENT</code>
+if NULL or the kernel process.</li>
+<li><code>nx_process_current()</code> → reject self-wait with
+<code>NX_EINVAL</code>.</li>
+<li><code>while (target-&gt;state != NX_PROCESS_STATE_EXITED)   nx_task_yield();</code>
+— unbounded loop; kernel parks the parent until the child exits.</li>
+<li><code>copy_to_user(user_status, &amp;target-&gt;exit_code, 4)</code>
+if user_status is non-NULL. Failure non-fatal — still returns the pid so
+the caller knows the target exited even if the status copy failed.</li>
+<li>Returns pid.</li>
+</ul></li>
+<li>Host stub returns <code>NX_EINVAL</code> (no scheduler / no user
+pointer semantics).</li>
+</ul>
+<h3
+id="frameworkprocess.c-irq-enable-in-nx_process_exit"><code>framework/process.c</code>
+— IRQ-enable in <code>nx_process_exit</code></h3>
+<ul>
+<li>Added <code>msr daifclr, #2</code> before the
+<code>for (;;) wfe</code> park loop.</li>
+<li>Why: hardware masks DAIF.I on every exception entry (SVC, IRQ,
+etc.). Until slice 7.4b, <code>nx_process_exit</code> inherited that
+masked state and entered <code>wfe</code> with interrupts masked. WFE
+does resume the CPU when a pending interrupt exists, but the interrupt
+isn’t <em>delivered</em> until the mask is cleared — so the CPU exits
+<code>wfe</code>, falls through to <code>b 1b</code>, re-enters
+<code>wfe</code>, and the IRQ queues indefinitely. The scheduler never
+preempts. Unmasking before the park lets timer ticks deliver
+normally.</li>
+</ul>
+<h3 id="el0-kernel-test">EL0 + kernel test</h3>
+<ul>
+<li><code>test/kernel/user_prog_wait.S</code>:
+<ul>
+<li>fork.</li>
+<li>Child branch: debug_write(“[wait-child]”); exit(42).</li>
+<li>Parent branch: save child pid in x19; debug_write( “[wait-parent]”);
+wait(x19, &amp;status_buf); load w2 from status_buf; compare to 42; if
+equal, debug_write( “[wait-ok]”); park.</li>
+</ul></li>
+<li><code>test/kernel/ktest_wait.c</code>:
+<ul>
+<li>Creates <code>wait-parent</code> process, spawns kthread pinned to
+it, drops to EL0.</li>
+<li>Yields up to 1024 times waiting for debug_write counter ≥ 3
+(parent-marker + child-marker + wait-ok).</li>
+<li>Independently verifies the child’s process struct reached EXITED
+with exit_code == 42 — only searches pids &gt; wait_parent_pid to avoid
+matching stranded processes from earlier ktests.</li>
+<li>Dequeues the wait parent task; child task stays stranded (same
+convention as earlier EL0 ktests).</li>
+</ul></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Hardware IRQ-mask + WFE is a silent trap.</strong> The
+bug only manifested when a child task tried to block on <code>wfe</code>
+<em>and</em> a parent was simultaneously polling for its exit: the
+parent could never get scheduled back because the child’s wfe loop ate
+all CPU. Other slices (7.4a fork, 7.3 ELF) had EL0 tasks that also
+parked in wfe but got dequeued externally by the ktest — which worked
+because the main body continued to run regardless of whether the EL0
+task was stuck. Only 7.4b required the parent to make forward progress
+<em>through</em> the scheduler, which needed IRQs to fire for timer
+ticks to do their preemption job. Lesson: any code path that expects
+<code>wfe</code> to sleep until preemption must unmask IRQs
+first.</p></li>
+<li><p><strong>Cross-test cleanup is a real hole.</strong> Stranded
+tasks with dangling <code>task-&gt;process</code> pointers will silently
+corrupt TTBR0 on the next context-switch touching them. Workaround in
+v1: tests that reset the process table must first dequeue or eliminate
+all user tasks. Properly: <code>nx_process_destroy</code> should walk
+the scheduler’s runqueue and dequeue any task whose process matches.
+Noted for a future follow-up.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Unmask IRQs in <code>nx_process_exit</code>, not in
+<code>nx_syscall_   dispatch</code>.</strong> The broader fix would be
+“unmask IRQs at the top of every syscall”. Correct semantics but touches
+every syscall path — scope creep. Unmasking in
+<code>nx_process_exit</code> is surgical: the only syscall that
+parks-forever currently. If a future syscall also needs to sleep (e.g.,
+blocking channel recv), it can unmask itself. If several grow that need,
+we revisit the blanket approach.</p></li>
+<li><p><strong>Poll-with-yield, not wake-queue.</strong> Simpler v1
+mechanism; matches the “we don’t have blocking semantics yet” state of
+the rest of the kernel. Real wait-queues land when there’s a second
+consumer that would also benefit (channels is the likely candidate,
+currently non-blocking).</p></li>
+<li><p><strong>Skip process-reset in ktest_wait.</strong> The “right”
+fix is universal cross-test cleanup, but that’s a broader change.
+Skipping the reset is a local workaround that keeps this slice focused.
+Documented the reason in the ktest body so a future reader understands
+why.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>392/392 pass (51 python + 274
+host + 67 kernel), 0 leaks, 0 errors, exit 0</strong>. +1 kernel
+test.</p></li>
+<li><p><code>make run</code> boots cleanly.</p></li>
+<li><p>EL0 markers now visible across the run: <code>[el0] hello</code>
+· <code>[el0-chan-ok]</code> · <code>[el0-file-ok]</code> ·
+<code>[el0-rdr-ok]</code> · <code>[el0-elf-ok]</code> ·
+<code>[fork-parent]</code> · <code>[fork-child]</code> ·
+<code>[wait-parent]</code> · <code>[wait-child]</code> ·
+<code>[wait-ok]</code>. Ten complete EL0 round-trips, each a distinct
+syscall or process-mechanism milestone.</p></li>
+<li><p>Fork + wait + exit form a closed loop: a parent can now spawn a
+child, wait for it to finish, and read its exit code — the spine of any
+Unix-style shell workload.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Slice 7.4c — <code>NX_SYS_EXEC(path)</code>.</p>
+<ul>
+<li><p>Blocked on the deferred 7.3.5 ramfs bump.
+<code>RAMFS_FILE_CAP</code> is currently 256 bytes; a minimal static ELF
+is ≥ 1 KiB (our build emits ~66 KiB due to phdr alignment). Need to
+raise the cap before exec can load from a ramfs path. Possibly bump to
+64 KiB to accommodate typical test programs.</p></li>
+<li><p>Then <code>sys_exec(path)</code>:</p>
+<ol type="1">
+<li>open + read the ELF via vfs_simple into a kernel buffer.</li>
+<li><code>nx_elf_parse</code> + validate.</li>
+<li>Allocate a fresh address space via
+<code>mmu_create_address_space</code>.</li>
+<li><code>nx_elf_load_into_process(current, blob, len)</code> into the
+fresh space.</li>
+<li>Swap: <code>current-&gt;ttbr0_root = new_root</code>;
+<code>mmu_switch_address_space(new_root)</code>;
+<code>mmu_destroy_address_space(old_root)</code>.</li>
+<li>Modify the current trap frame: <code>ELR_EL1 = entry</code>,
+<code>SP_EL0 = new_user_window_top</code>,
+<code>x0..x30 = 0</code>.</li>
+<li>Return. Dispatcher finishes normally; eret delivers control to the
+new ELF’s entry. Handle table carries over by default (exec doesn’t
+close inherited fds in v1).</li>
+</ol></li>
+</ul>
+<p>Slice 7.4d then wraps the NX_SYS_* set in a POSIX API component, and
+7.5–7.7 follow for pipes, signals, busybox.</p>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/framework/syscall.h</code> —
+<code>NX_SYS_WAIT = 13</code></li>
+<li><code>sources/nonux/framework/syscall.c</code> —
+<code>sys_wait</code> + dispatch entry</li>
+<li><code>sources/nonux/framework/process.c</code> — IRQ-enable in
+<code>nx_process_exit</code></li>
+<li><code>sources/nonux/test/kernel/user_prog_wait.S</code> — new (EL0
+fork+exit+wait demo)</li>
+<li><code>sources/nonux/test/kernel/ktest_wait.c</code> — new (kernel
+test)</li>
+<li><code>sources/nonux/Makefile</code> —
+<code>KTEST_S += user_prog_wait.S</code>;
+<code>KTEST_C += ktest_wait.c</code></li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.4b
+filled in with as-built details</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 31 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

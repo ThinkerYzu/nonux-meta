@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-41-initramfs – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-41-slice-7.6b-initramfs-format-cpio-newc-ramfs-slurp"
+id="toc-session-41-slice-7.6b-initramfs-format-cpio-newc-ramfs-slurp">Session
+41: slice 7.6b — initramfs format (cpio-newc) + ramfs slurp</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#toolspack-initramfs.py-new"
+id="toc-toolspack-initramfs.py-new"><code>tools/pack-initramfs.py</code>
+— new</a></li>
+<li><a href="#componentsramfsramfs.c-cpio-newc-parser"
+id="toc-componentsramfsramfs.c-cpio-newc-parser"><code>components/ramfs/ramfs.c</code>
+— cpio-newc parser</a></li>
+<li><a href="#testkernelinitramfs_blob.s-new"
+id="toc-testkernelinitramfs_blob.s-new"><code>test/kernel/initramfs_blob.S</code>
+— new</a></li>
+<li><a href="#makefile" id="toc-makefile">Makefile</a></li>
+<li><a href="#testkernelktest_initramfs.c-new"
+id="toc-testkernelktest_initramfs.c-new"><code>test/kernel/ktest_initramfs.c</code>
+— new</a></li>
+<li><a href="#testkernelktest_exec.c-refactor"
+id="toc-testkernelktest_exec.c-refactor"><code>test/kernel/ktest_exec.c</code>
+— refactor</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-41-slice-7.6b-initramfs-format-cpio-newc-ramfs-slurp">Session
+41: slice 7.6b — initramfs format (cpio-newc) + ramfs slurp</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6b <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Land an initramfs format and a ramfs that slurps it at boot. Slice
+7.6c (musl ↔︎ NX_SYS_*) and 7.6d (busybox cross-compile) both need to
+ship a binary set inside <code>kernel-test.bin</code> — busybox itself,
+plus applet symlinks, plus a few rootfs files. Hand-seeding via
+vfs_simple syscalls (the slice-7.4c pattern) doesn’t scale past a
+handful of files; we want a one-time blob walk at component init.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>cpio-newc, not a custom format.</strong> Three
+reasons:</p>
+<ol type="1">
+<li>busybox already speaks it (its <code>cpio</code> applet emits +
+parses newc natively). Slice 7.6d can hand the initramfs over to busybox
+without any format gymnastics.</li>
+<li>Linux’s initramfs is also cpio-newc, so any tooling we build now
+(the packer + the parser) is reusable if we ever boot nonux as a kernel
+underneath a Linux-style userspace.</li>
+<li>The parser is tiny — 110-byte ASCII-hex header, no compression, no
+checksums beyond a fixed-zero <code>c_check</code> field. Fits in ~50
+lines of C without any freestanding-unsafe library calls.</li>
+</ol></li>
+<li><p><strong>Generate the cpio at build time, embed via
+<code>.incbin</code>.</strong> Same pattern slice 7.3 used for
+<code>init_prog.elf</code>: a Python tool emits the binary blob; an asm
+file pulls it into <code>.rodata</code> between named labels; the C side
+declares the labels as externs and walks the bytes. Means no runtime
+cpio writer to worry about.</p></li>
+<li><p><strong>Weak fallbacks for production safety.</strong> ramfs is
+built into both <code>kernel.bin</code> and
+<code>kernel-test.bin</code>. Production doesn’t have an initramfs and
+shouldn’t carry one. Marking the blob symbols
+<code>__attribute__((weak))</code> lets <code>kernel.bin</code> link
+cleanly without <code>initramfs_blob.S</code>; the weak fallbacks
+resolve to NULL, ramfs_init’s <code>blob_end &gt; blob_start</code>
+guard short-circuits, and the slurp does nothing. Footprint on shipping
+kernels: zero (a few hundred bytes of code that never runs without the
+blob).</p></li>
+<li><p><strong>Regular files only in v1.</strong> cpio entries can be
+dirs, symlinks, special files, and FIFOs. ramfs is flat-namespace</p>
+<ul>
+<li>no symlink type, so anything except <code>S_IFREG</code> is silently
+skipped. busybox doesn’t actually need directory entries — its applets
+resolve absolute paths against the live FS, and the live FS is whatever
+ramfs has — so this is enough for slice 7.6d’s needs. When hierarchical
+paths land later, the slurp learns to mkdir on its own; the on-disk
+format is unchanged.</li>
+</ul></li>
+<li><p><strong>Test files: <code>/init</code> +
+<code>/banner</code>.</strong> <code>/init</code> is the existing
+<code>init_prog.elf</code> blob (lets <code>ktest_exec</code> drop its
+bespoke seeding code). <code>/banner</code> is a 21-byte ASCII payload
+(<code>hello from initramfs\n</code>) — a positive-control file that
+proves the slurp creates files via the public ramfs API and not through
+some side path. Originally named <code>/hello</code> but renamed after a
+registration-order race with <code>ktest_vfs</code> (which independently
+creates <code>/hello</code> via vfs_simple); disjoint namespaces are
+safer.</p></li>
+<li><p><strong>Drop <code>seed_init_file</code> from
+<code>ktest_exec</code>, but keep
+<code>init_prog_blob.S</code>.</strong> <code>ktest_elf</code> still
+uses the embedded ELF blob directly (it tests the parser + loader
+against an in-memory blob, not via vfs). Two distinct test scenarios,
+one shared source — <code>init_prog.elf</code> lives on disk twice (once
+as a <code>.incbin</code>, once inside the cpio) but the build rule
+generates both from the same canonical <code>.elf</code> so there’s no
+drift.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="toolspack-initramfs.py-new"><code>tools/pack-initramfs.py</code>
+— new</h3>
+<p>~120 lines of stdlib-only Python. Each invocation:</p>
+<ol type="1">
+<li><p>Iterates over <code>path-on-disk:archive-name</code> entries on
+argv.</p></li>
+<li><p>For each, opens the file, builds an entry record: header (110
+bytes ASCII-hex), name + NUL, padding to 4-byte boundary, data, padding
+to 4-byte boundary.</p></li>
+<li><p>Appends a <code>TRAILER!!!</code> sentinel record at
+end.</p></li>
+<li><p>Writes the blob to the output path.</p></li>
+</ol>
+<p>c_mtime is fixed to 0 for reproducible builds. Verified with
+<code>cpio -tv -F</code> on the system cpio — the system tool sees the
+same entries we encoded.</p>
+<h3
+id="componentsramfsramfs.c-cpio-newc-parser"><code>components/ramfs/ramfs.c</code>
+— cpio-newc parser</h3>
+<p>Three new helpers:</p>
+<ul>
+<li><p><code>cpio_hex8(p)</code> — parse 8 ASCII-hex chars into a uint;
+returns sentinel <code>0xFFFFFFFFu</code> on a non-hex char.</p></li>
+<li><p><code>cpio_align4(v)</code> — round up to the next 4-byte
+boundary.</p></li>
+<li><p><code>ramfs_slurp_initramfs(s, blob, total)</code> — the walk.
+For each record: validate magic, parse mode/filesize/namesize, find the
+name, stop at <code>TRAILER!!!</code>, optionally seed the file (only
+for <code>S_IFREG</code> mode bits and
+<code>filesize &lt;= RAMFS_FILE_CAP</code>), advance past data +
+padding, repeat.</p></li>
+</ul>
+<p><code>ramfs_init</code> calls the slurp if
+<code>__ramfs_initramfs_blob_end &gt; __ramfs_initramfs_blob_start</code>
+(with the <code>&amp;__sym[0]</code> form to evade
+<code>-Werror=array-compare</code>). The weak
+<code>extern char __ramfs_initramfs_blob_*[]</code> declarations are
+local to ramfs.c.</p>
+<h3
+id="testkernelinitramfs_blob.s-new"><code>test/kernel/initramfs_blob.S</code>
+— new</h3>
+<p><code>.incbin</code> of <code>test/kernel/initramfs.cpio</code>
+between <code>__ramfs_initramfs_blob_start</code> / <code>_end</code>
+labels. Mirrors <code>init_prog_blob.S</code>’s shape exactly.</p>
+<h3 id="makefile">Makefile</h3>
+<ul>
+<li><p>New <code>test/kernel/banner.txt</code> rule emits the ASCII
+payload at build time (so the file isn’t checked into git).</p></li>
+<li><p><code>test/kernel/initramfs.cpio</code> depends on the packer +
+<code>init_prog.elf</code> + <code>banner.txt</code>; runs the packer
+with the manifest entries.</p></li>
+<li><p><code>test/kernel/initramfs_blob.o</code> depends on the cpio so
+an edit triggers a rebuild.</p></li>
+<li><p><code>KTEST_S += test/kernel/initramfs_blob.S</code>.</p></li>
+<li><p><code>KTEST_C += test/kernel/ktest_initramfs.c</code>.</p></li>
+<li><p><code>clean</code> drops the cpio + banner.txt.</p></li>
+</ul>
+<h3
+id="testkernelktest_initramfs.c-new"><code>test/kernel/ktest_initramfs.c</code>
+— new</h3>
+<p>Two tests:</p>
+<ul>
+<li><p><code>initramfs_seed_makes_banner_readable_through_vfs</code> —
+opens <code>/banner</code>, reads 21 bytes, asserts <code>n == 21</code>
+and the bytes match <code>"hello from initramfs\n"</code>.</p></li>
+<li><p><code>initramfs_seed_includes_init_with_elf_magic</code> — opens
+<code>/init</code>, reads 4 bytes, asserts the ELF magic.</p></li>
+</ul>
+<p>Both use <code>nx_slot_lookup("vfs")</code> + the descriptor’s
+<code>iface_ops</code> — same path real syscalls take.</p>
+<h3
+id="testkernelktest_exec.c-refactor"><code>test/kernel/ktest_exec.c</code>
+— refactor</h3>
+<p>Dropped <code>seed_init_file</code> (28 lines). Updated the comment
+block to note that <code>/init</code> is now seeded by the slurp at
+boot. Removed includes of <code>framework/component.h</code>,
+<code>framework/registry.h</code>, <code>interfaces/vfs.h</code> that
+were only needed for the deleted seeding path.</p>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong><code>-Werror=array-compare</code> warns on
+<code>weak_array_end &gt;   weak_array_start</code>.</strong> When both
+operands are declared as array-typed externs, gcc 12+ assumes you meant
+to compare array contents (which is meaningless) and warns. The fix is
+to write <code>&amp;__sym[0]</code> on each side — the compiler now sees
+explicit pointer operands and accepts the comparison. The
+linker-resolved address comparison is identical at runtime; this is
+purely a frontend gripe.</p></li>
+<li><p><strong>KTEST registration order is link-order-dependent and
+matters when tests share filesystem state.</strong> Original cpio
+shipped <code>/hello</code>; <code>ktest_vfs</code> independently
+creates a <code>/hello</code> file via vfs_simple’s create flow.
+Whichever test runs first wins, the other reads the wrong content.
+Renaming to <code>/banner</code> keeps the namespaces disjoint. Worth a
+comment in the ktest header so a future reader doesn’t try to
+“harmonize” the names back together.</p></li>
+<li><p><strong>Build deps for <code>.incbin</code> need explicit
+<code>make</code> rules.</strong> GNU as doesn’t track
+<code>.incbin</code> dependencies — it just emits the bytes at assembly
+time. If the embedded file changes, the <code>.S</code> doesn’t, the
+assembler thinks the <code>.o</code> is up to date, and the build
+silently links a stale blob. Explicit prerequisite
+(<code>initramfs_blob.o: ... initramfs.cpio</code>) forces the assembler
+to re-run on every cpio rebuild.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Packer in Python, not in C.</strong> Build-time tooling
+that reads file content + writes binary output is much simpler in
+Python; <code>tools/gen-config.py</code> and
+<code>validate-config.py</code> are already Python, so adding another
+script keeps the toolbox uniform. The packer is stdlib-only — no
+jsonschema or similar runtime dep.</p></li>
+<li><p><strong>Fixed c_mtime = 0 for reproducibility.</strong> Real-time
+timestamps would make the cpio non-reproducible (same inputs → different
+outputs across builds), which complicates <code>make</code> dependency
+tracking and CI cache invalidation. busybox cpio doesn’t care about
+mtime (it accepts whatever the field says); we accept the cosmetic loss
+for a clean reproducibility story.</p></li>
+<li><p><strong>Skip non-regular files silently rather than
+warn.</strong> The parser-side data structure is regular-files-only. A
+noisy <code>kprintf("[ramfs] skipping dir entry...")</code> would
+clutter the boot log without giving the developer any new information.
+When dirs / symlinks become real, the parser learns to seed them and the
+silent skip becomes a positive action.</p></li>
+<li><p><strong>Don’t move <code>init_prog_blob.S</code> into the
+initramfs.</strong> <code>ktest_elf</code> still embeds
+<code>init_prog.elf</code> directly because it tests the parser + loader
+against an in-memory pointer (not via vfs). Two distinct test scenarios,
+both using the same canonical <code>init_prog.elf</code>
+source.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>399/399 pass (51 python + 274
+host + 74 kernel), 0 leaks, 0 errors, exit 0</strong>. +2 kernel
+tests.</p></li>
+<li><p><code>make run</code> boots cleanly (production kernel doesn’t
+pull in the cpio).</p></li>
+<li><p><code>make kernel-test.bin</code> reports
+<code>pack-initramfs.py: wrote test/kernel/initramfs.cpio (1180   bytes, 2 entries + trailer)</code>
+— <code>/init</code> (~800 bytes) + <code>/banner</code> (21 bytes),
+header overhead included.</p></li>
+<li><p>ktest_exec is the first slice-7.x test relying on
+initramfs-seeded files instead of bespoke vfs writes.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p><strong>Slice 7.6c — musl → NX_SYS_* adapter.</strong></p>
+<p>Pin musl as a git submodule under <code>third_party/musl</code>.
+Patch <code>arch/aarch64/syscall_arch.h</code> to emit our SVC numbers
+(musl’s internal numbering matches Linux’s; we layer a translation table
+or a <code>__nx_syscall(nr, ...)</code> shim). Validate with a tiny
+C-against-musl program that calls <code>write(1, ...)</code> +
+<code>_exit(...)</code>; ends up dispatching our
+<code>NX_SYS_DEBUG_WRITE</code> + <code>NX_SYS_EXIT</code>.</p>
+<p>The build will need:</p>
+<ul>
+<li><p>a musl submodule (or vendored snapshot) under
+<code>third_party/musl/</code>;</p></li>
+<li><p>a separate cross-compile flow (musl produces its own libc.a,
+linkable by user programs);</p></li>
+<li><p>a small bootstrap header that maps Linux SYS_* →
+NX_SYS_*.</p></li>
+</ul>
+<p>No kernel changes — slice 7.6c is purely a build-system + libc-config
+slice.</p>
+<p><strong>Slice 7.6d — busybox cross-compile + boot to
+shell.</strong></p>
+<p>Build busybox against the patched musl, drop the binary into the
+initramfs at <code>/bin/busybox</code> + applet symlinks, set
+<code>/init</code> to busybox’s <code>sh</code>. <code>make run</code>
+lands on a shell prompt.</p>
+<p><strong>Deferred (unchanged):</strong></p>
+<ul>
+<li>HANDLE_FILE fork inheritance.</li>
+<li>C-level crt0 for <code>main(argc, argv)</code>.</li>
+<li>Proper cross-test task reap.</li>
+<li>Per-test <code>SCHED_RR_DEFAULT_QUANTUM_TICKS</code> override.</li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/tools/pack-initramfs.py</code> — new (cpio-newc
+packer)</li>
+<li><code>sources/nonux/components/ramfs/ramfs.c</code> — cpio-newc
+parser + slurp at init()</li>
+<li><code>sources/nonux/test/kernel/initramfs_blob.S</code> — new
+(.incbin wrapper)</li>
+<li><code>sources/nonux/test/kernel/ktest_initramfs.c</code> — new
+(slurp validation)</li>
+<li><code>sources/nonux/test/kernel/ktest_exec.c</code> — drop
+seed_init_file (already-seeded /init)</li>
+<li><code>sources/nonux/Makefile</code> — banner.txt + initramfs.cpio +
+initramfs_blob.o rules; KTEST_C/S updates; clean</li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.6b
+filled in with as-built details</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 36 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

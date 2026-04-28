@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-64-busybox-sh-cat-runs – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-64-slice-7.6d.n.7-busybox-sh--c-cat-banner-runs-end-to-end"
+id="toc-session-64-slice-7.6d.n.7-busybox-sh--c-cat-banner-runs-end-to-end">Session
+64: slice 7.6d.N.7 — <code>busybox sh -c "cat /banner"</code> runs
+end-to-end</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#implementation" id="toc-implementation">Implementation</a>
+<ul>
+<li><a href="#testkernelposix_busybox_sh_cat_prog.c"
+id="toc-testkernelposix_busybox_sh_cat_prog.c"><code>test/kernel/posix_busybox_sh_cat_prog.c</code></a></li>
+<li><a href="#testkernelposix_busybox_sh_cat_prog_blob.s"
+id="toc-testkernelposix_busybox_sh_cat_prog_blob.s"><code>test/kernel/posix_busybox_sh_cat_prog_blob.S</code></a></li>
+<li><a href="#testkernelktest_posix_busybox_sh_cat.c"
+id="toc-testkernelktest_posix_busybox_sh_cat.c"><code>test/kernel/ktest_posix_busybox_sh_cat.c</code></a></li>
+<li><a href="#makefile" id="toc-makefile"><code>Makefile</code></a></li>
+</ul></li>
+<li><a href="#outcome-clean-first-try"
+id="toc-outcome-clean-first-try">Outcome — clean, first try</a></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#files-changed" id="toc-files-changed">Files
+changed</a></li>
+<li><a href="#whats-next-7.6d.n.8-candidates"
+id="toc-whats-next-7.6d.n.8-candidates">What’s next (7.6d.N.8
+candidates)</a></li>
+<li><a href="#build-side-gotcha-still-unresolved"
+id="toc-build-side-gotcha-still-unresolved">Build-side gotcha (still
+unresolved)</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-64-slice-7.6d.n.7-busybox-sh--c-cat-banner-runs-end-to-end">Session
+64: slice 7.6d.N.7 — <code>busybox sh -c "cat /banner"</code> runs
+end-to-end</h1>
+<p><strong>Date:</strong> 2026-04-27 <strong>Phase:</strong> 7 slice
+7.6d.N.7 (busybox-as-shell, cat reads a real file)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d.N.6b (session 63) closed the first multi-process pipeline
+(<code>echo hello | cat</code>) by introducing the CONSOLE handle, slot
+0/1/2 reservation, channel EOF, and <code>waitpid(-1)</code>. In that
+slice cat’s stdin was a CHANNEL handle (the read end of the pipe) — a
+non-seekable byte stream with explicit peer-close → EOF semantics.</p>
+<p>This sub-slice escalates one rung sideways: drive cat against a
+<strong>real ramfs file</strong> (<code>/banner</code>, seeded by
+initramfs as <code>hello from initramfs\n</code>). Differences from the
+pipe slice:</p>
+<ol type="1">
+<li><p>cat’s input is a <code>HANDLE_FILE</code> (slice 6.3 vfs reads),
+not a <code>HANDLE_CHANNEL</code> — exercises the FILE arm of
+<code>sys_read</code> and EOF-by-end-of-file rather than
+EOF-by-peer-closed.</p></li>
+<li><p>ash forks once (one stage) instead of twice — closes a different
+control-flow path through ash’s eval loop.</p></li>
+<li><p>cat may take a different fast path: <code>bb_copyfd_eof</code>
+can choose sendfile (regular-file optimisation) before falling back to
+the read-write loop. Slice 7.6d.N.6a noted that
+<code>__NR_sendfile (71)</code> is unmapped, so cat should land on the
+read-loop path; this slice confirms the fall-through actually
+works.</p></li>
+<li><p>PATH walk for <code>/bin/cat</code> was already exercised by
+slice 7.6d.N.4 (cpio-duplicate added then), so this sub-slice inherits a
+working PATH lookup for cat verbatim.</p></li>
+</ol>
+<p>Discovery-driven, just like the prior 7.6d.N.x sub-slices. Write the
+test, observe, plan the next sub-slice from what surfaces.</p>
+<h2 id="implementation">Implementation</h2>
+<h3
+id="testkernelposix_busybox_sh_cat_prog.c"><code>test/kernel/posix_busybox_sh_cat_prog.c</code></h3>
+<p>libnxlibc-linked program. Forks; child does:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>nxlibc_execve<span class="op">(</span><span class="st">&quot;/bin/busybox&quot;</span><span class="op">,</span> <span class="op">{</span> <span class="st">&quot;sh&quot;</span><span class="op">,</span> <span class="st">&quot;-c&quot;</span><span class="op">,</span> <span class="st">&quot;cat /banner&quot;</span><span class="op">,</span> NULL <span class="op">},</span> NULL<span class="op">);</span></span></code></pre></div>
+<p>Parent waits + emits <code>[bbsh-cat-parent]</code>,
+<code>[bbsh-cat-status=NN]</code>, and one of <code>[bbsh-cat-ok]</code>
+(status==0) / <code>[bbsh-cat-failed]</code> (anything else). Same shape
+as <code>posix_busybox_sh_pipe_prog</code>; only the embedded -c string
+differs.</p>
+<h3
+id="testkernelposix_busybox_sh_cat_prog_blob.s"><code>test/kernel/posix_busybox_sh_cat_prog_blob.S</code></h3>
+<p><code>.incbin</code> of the linked ELF with
+<code>__posix_busybox_sh_cat_prog_blob_{start,end}</code> symbols.</p>
+<h3
+id="testkernelktest_posix_busybox_sh_cat.c"><code>test/kernel/ktest_posix_busybox_sh_cat.c</code></h3>
+<p>Drives the program through the existing kernel-test infrastructure
+(process_create, elf_load_into_process, sched_spawn_kthread +
+drop_to_el0). Same yield-cap as the prior busybox tests (32768 ticks).
+Asserts only parent-side liveness (parent reached the marker print,
+emitted ≥3 debug_writes; nxlibc_write to fd 1/2 still routes through
+<code>NX_SYS_DEBUG_WRITE</code> for libnxlibc-linked callers).</p>
+<h3 id="makefile"><code>Makefile</code></h3>
+<p>Three sources added to <code>KTEST_C</code> / <code>KTEST_S</code> /
+build rules + the cleanup list. Same recipe as the pipe test; only the
+embedded -c string differs.</p>
+<h2 id="outcome-clean-first-try">Outcome — clean, first try</h2>
+<pre><code>posix_busybox_sh_cat_parent_forks_and_execs_busybox_sh_cat [bbsh-cat-parent]hello from initramfs
+[bbsh-cat-status=00][bbsh-cat-ok]PASS</code></pre>
+<p><code>hello from initramfs\n</code> — cat read the full /banner
+content through the FILE handle and wrote it to stdout (CONSOLE).
+<code>[bbsh-cat-status=00]</code> — child exited 0
+<code>[bbsh-cat-ok]</code> — success-path marker</p>
+<p>End-to-end: ash parsed <code>-c "cat /banner"</code>, walked PATH,
+fstatat found <code>/bin/cat</code>, forked, child execve’d
+<code>/bin/cat /banner</code>, busybox dispatched to the cat applet, cat
+opened <code>/banner</code> (HANDLE_FILE at slot 3+), looped
+<code>read(fd, buf, N)</code> against the FILE arm of
+<code>sys_read</code>, saw EOF when the read returned 0 bytes, wrote
+each chunk through the CONSOLE arm of <code>sys_write</code> (slot 1 →
+<code>g_nx_console</code>), closed the file, exited 0; ash returned that
+status as its own exit code.</p>
+<p>No new kernel-side gaps surfaced. cat fell off the sendfile fast-path
+correctly (the <code>__NR_sendfile (71)</code> ENOSYS noted in slice
+7.6d.N.6a), the read-write loop worked, and FILE → CONSOLE
+byte-shuffling worked identically to the established CHANNEL → CONSOLE
+path from the pipe slice.</p>
+<h2 id="verification">Verification</h2>
+<p><code>make test</code> → <strong>416/416 PASSED</strong> (51 python +
+275 host + 90 kernel; +1 kernel test from this slice), 0 leaks, 0
+errors, exit 0.</p>
+<p><code>posix_busybox_sh_cat_parent_forks_and_execs_busybox_sh_cat</code>
+captures
+<code>[bbsh-cat-parent]hello from initramfs\n[bbsh-cat-status=00][bbsh-cat-ok]</code>.</p>
+<p>All prior busybox tests stay green (<code>--help</code>,
+<code>sh exit 42</code>, <code>sh echo hello</code>,
+<code>sh echo a; echo b</code>, <code>sh ls /</code>,
+<code>sh echo hello | cat</code>).</p>
+<h2 id="files-changed">Files changed</h2>
+<p>Production: none.</p>
+<p>Test:</p>
+<ul>
+<li><p>New: <code>test/kernel/posix_busybox_sh_cat_prog.c</code> (~60
+lines)</p></li>
+<li><p>New: <code>test/kernel/posix_busybox_sh_cat_prog_blob.S</code>
+(15 lines)</p></li>
+<li><p>New: <code>test/kernel/ktest_posix_busybox_sh_cat.c</code> (~95
+lines)</p></li>
+<li><p>Modified: <code>Makefile</code> (3 list additions + 1 build rule
+block + 1 cleanup-list entry)</p></li>
+</ul>
+<p>Total: 4 files net (3 new, 1 Makefile edit), ~180 lines.</p>
+<h2 id="whats-next-7.6d.n.8-candidates">What’s next (7.6d.N.8
+candidates)</h2>
+<p>The escalation ladder so far:</p>
+<ul>
+<li>single statement, builtin, no I/O (<code>exit 42</code>,
+7.6d.N.1)</li>
+<li>single statement, builtin, stdio write (<code>echo hello</code>,
+7.6d.N.2)</li>
+<li>multi-statement sequence (<code>echo a; echo b</code>,
+7.6d.N.3)</li>
+<li>non-builtin via PATH walk (<code>ls /</code> failed, 7.6d.N.4)</li>
+<li>directory listing (<code>ls /</code> works, 7.6d.N.5)</li>
+<li>first multi-process pipeline (<code>echo hello | cat</code>,
+7.6d.N.6b)</li>
+<li>non-builtin reading a real file to stdout (<code>cat /banner</code>,
+this slice)</li>
+</ul>
+<p>Natural next escalations, each likely to surface a real kernel
+gap:</p>
+<ol type="1">
+<li><p><strong>3-stage pipeline.</strong>
+<code>ls / | cat | wc -l</code> or <code>echo hello | cat | cat</code>.
+Forks 3 processes wired via 2 pipes. Slice 7.6d.N.6b only tested 2
+stages; chained pipes exercise the same machinery but multiply the
+handle-table / process-table pressure. 64-slot caps start feeling tight;
+reap-on-wait deferred since slice 7.4 may finally need to land.
+<code>wc -l</code> itself is another applet — exercises a different read
+pattern (counts newlines).</p></li>
+<li><p><strong>Output redirection to a file.</strong>
+<code>echo a &gt; /tmp/foo</code> (or <code>&gt; /banner.copy</code>).
+Tests:</p>
+<ul>
+<li><code>O_CREAT | O_WRONLY | O_TRUNC</code> open path (slice 6.3’s
+<code>sys_open</code> gates O_CREAT, but the ramfs <code>create</code>
+op covers it; needs verification end-to-end through ash).</li>
+<li>ash performing <code>dup3(fd_of_foo, 1)</code> before
+<code>execve("echo", ...)</code> — exercises FILE-handle dup (slice
+7.6d.N.6a’s <code>sys_dup3</code> only special-cased CHANNEL semantics;
+FILE branch is in code but unexercised at this layer).</li>
+<li>Fork inheritance for HANDLE_FILE — slice 7.6a left this deferred
+because vfs_simple’s per-open cursor is owned by the per-handle object
+pointer. Lands here if ash forks after <code>dup3</code>’ing the file
+fd.</li>
+</ul></li>
+<li><p><strong>Input redirection from a file.</strong>
+<code>cat &lt; /banner</code>. Same as <code>cat /banner</code> from
+cat’s POV but exercises the shell-side redirection plumbing: ash opens
+/banner, dup3’s onto fd 0, execs cat with no argv. Slightly different
+from <code>cat /banner</code> because cat reads from stdin
+(whatever-fd-0-is) rather than opening its own argv-named file.</p></li>
+<li><p><strong>Variable expansion + command substitution.</strong>
+<code>echo $(cat /banner)</code>. Exercises ash’s <code>$()</code>
+machinery — fork+pipe+wait, then re-tokenise the output as arguments to
+the next command. Stretches the pipeline machinery but doesn’t surface
+much new kernel-side.</p></li>
+<li><p><strong>Conditional execution.</strong>
+<code>cat /banner &amp;&amp; echo done</code> (<code>&amp;&amp;</code>)
+or <code>cat /missing || echo failed</code> (<code>||</code>) —
+exercises ash’s short-circuit evaluator + observed exit-status capture.
+Single-process per command. Light kernel exercise, more shell-machinery
+exercise.</p></li>
+</ol>
+<p><strong>Recommended next:</strong> option 2,
+<strong><code>echo a &gt; /tmp/foo</code></strong> (or
+<code>&gt; /tmp.txt</code> — picking a path that doesn’t already exist
+in the ramfs). Most likely to surface a real kernel gap (FILE-fd
+inheritance through fork + dup3; ramfs <code>O_CREAT</code> exercised
+end-to-end; potentially a missing write-side syscall in the ramfs/vfs
+layer). Plus it unblocks the slice 7.6a deferred FILE-inheritance
+work.</p>
+<p>The 3-stage pipeline (option 1) is also tempting but is mostly a
+stress-test of existing infrastructure rather than a discovery
+escalation; defer until a third user actually hits the 64-slot cap.</p>
+<h2 id="build-side-gotcha-still-unresolved">Build-side gotcha (still
+unresolved)</h2>
+<p>When musl’s <code>syscall_arch.h</code> / <code>syscall_cp.s</code>
+change, busybox’s incremental build doesn’t reliably rebuild against new
+musl. Workaround:
+<code>rm -f test/kernel/initramfs.cpio test/kernel/initramfs_blob.o kernel-test.bin kernel-test.elf &amp;&amp; make test</code>.</p>
+<p>This session didn’t touch musl, so the issue didn’t bite. The
+two-line fix (<code>touch $BUSYBOX_BIN</code> after the inner
+<code>make</code> in <code>tools/build-busybox.sh</code>) is still on
+the opportunistic list.</p>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-27</p>
+</body>
+</html>

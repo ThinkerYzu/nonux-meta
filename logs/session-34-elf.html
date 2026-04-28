@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-34-elf – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-34-slice-7.3-elf-loader-first-standalone-built-el0-program"
+id="toc-session-34-slice-7.3-elf-loader-first-standalone-built-el0-program">Session
+34: slice 7.3 — ELF loader + first standalone-built EL0 program</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#frameworkelf.hc-new"
+id="toc-frameworkelf.hc-new"><code>framework/elf.{h,c}</code> —
+new</a></li>
+<li><a href="#coremmummu.hc-user-backing-accessor"
+id="toc-coremmummu.hc-user-backing-accessor"><code>core/mmu/mmu.{h,c}</code>
+— user-backing accessor</a></li>
+<li><a href="#standalone-el0-elf-artifact"
+id="toc-standalone-el0-elf-artifact">Standalone EL0 ELF
+artifact</a></li>
+<li><a href="#makefile-rules" id="toc-makefile-rules">Makefile
+rules</a></li>
+<li><a href="#tests" id="toc-tests">Tests</a></li>
+<li><a href="#wiring" id="toc-wiring">Wiring</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-34-slice-7.3-elf-loader-first-standalone-built-el0-program">Session
+34: slice 7.3 — ELF loader + first standalone-built EL0 program</h1>
+<p><strong>Date:</strong> 2026-04-24 <strong>Phase:</strong> 7 slice 7.3
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Stop baking EL0 programs into the kernel-test source code. Slice 5.5
+(hello), 5.6 (channel), 6.3 (file), and 6.4 (readdir) all ship their EL0
+programs as hand-written <code>.S</code> files that get compiled into
+<code>kernel-test.bin</code>’s <code>.rodata</code> and then memcpy’d
+into the user window byte-for-byte. That works but it scales badly —
+every program has to be PC-relative, no separately-linked toolchain
+support, no way for a future slice to load a program that wasn’t built
+with the kernel.</p>
+<p>Slice 7.3 introduces the ELF loader: parse a PT_LOAD-bearing AArch64
+executable, copy segments into a target process’s address space, return
+the entry point. Now any EL0 program can be built as its OWN artifact —
+<code>.text</code> at whatever VA the ELF specifies, entry point where
+the ELF says, all the normal linker-script knobs available.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>In-memory blob, not vfs path.</strong>
+<code>nx_elf_load_into_process</code> takes <code>(blob, len)</code> — a
+raw byte buffer. Reading from a ramfs path via vfs_simple is a natural
+follow-up but requires bumping <code>RAMFS_FILE_CAP</code> (currently
+256 bytes, way too small for even a minimal ELF — ours is ~66 KiB due to
+phdr alignment). That bump lands opportunistically or with slice 7.4
+where fork/exec’s exec() needs path-based loading anyway. For 7.3 the
+blob is embedded into <code>kernel-test.bin</code> via
+<code>.incbin</code>, giving us the benefit (EL0 program separately
+linked) without the ramfs rework.</p></li>
+<li><p><strong>ET_EXEC only.</strong> Static executables with absolute
+VAs. ET_DYN (position-independent) would require relocation handling —
+deferred. Our <code>init_prog.ld</code> links at <code>0x48000000</code>
+(the user-window base), which matches what slice 7.2’s
+<code>mmu_create_address_space</code> lays out per process.</p></li>
+<li><p><strong>No TTBR0 flip during the copy.</strong> The loader writes
+via the kernel-visible identity-map alias of the process’s user backing,
+not via the per-process TTBR0. Requires a new
+<code>mmu_address_space_user_backing(root)</code> helper to expose that
+pointer. Benefit: kernel context stays coherent; no worry about TLB
+stale entries during multi-segment copies.</p></li>
+<li><p><strong>I-cache flush after copy, not before
+drop-to-EL0.</strong> The loader emits
+<code>dsb ish ; ic iallu ; dsb ish ; isb</code> after all segments are
+in place. Data cache doesn’t need an explicit clean-to-PoU because
+<code>ic iallu</code> implies enough ordering with the
+<code>dsb ish</code> beforehand (the stores hit coherent caches which
+the <code>ic iallu</code> invalidates). Without this, a freshly-written
+page might be fetched as stale instruction bytes from the
+I-cache.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="frameworkelf.hc-new"><code>framework/elf.{h,c}</code> — new</h3>
+<ul>
+<li><p><code>struct nx_elf_info {entry, segment_count}</code> — the
+compact header summary.
+<code>struct nx_elf_segment {file_offset, vaddr,   file_size, mem_size, flags}</code>
+— per-PT_LOAD shape.</p></li>
+<li><p><code>nx_elf_parse(blob, len, *out)</code> — validates ELF magic
+(<code>0x7F 'E' 'L' 'F'</code>), <code>ELFCLASS64</code>,
+<code>ELFDATA2LSB</code>, <code>ET_EXEC</code>, <code>EM_AARCH64</code>,
+and that the phdr table fits in the blob. Populates <code>out</code> if
+given. Returns <code>NX_OK</code> or <code>NX_EINVAL</code>.</p></li>
+<li><p><code>nx_elf_segment(blob, len, idx, *out)</code> — dense
+iterator: skips non-LOAD phdrs internally so the caller’s
+<code>idx</code> matches <code>info.segment_count</code>. Returns one
+segment’s raw shape.</p></li>
+<li><p><code>nx_elf_load_into_process(target, blob, len, *out_entry)</code>
+— the end-to-end loader. Walks every PT_LOAD, computes the
+kernel-visible destination via `mmu_address_space_user_backing</p>
+<ul>
+<li>(vaddr -
+user_window_base)<code>, memcopies</code>file_size<code>bytes, zeros</code>mem_size
+-
+file_size<code>, emits the dcache/icache barrier sequence, writes the entry to</code>*out_entry`.
+Host stub validates the blob and reflects the entry point without
+actually copying (no MMU).</li>
+</ul></li>
+</ul>
+<h3
+id="coremmummu.hc-user-backing-accessor"><code>core/mmu/mmu.{h,c}</code>
+— user-backing accessor</h3>
+<ul>
+<li><p><code>mmu_address_space_user_backing(root)</code> looks up the
+bookkeeping entry keyed by <code>root</code> and returns the per-process
+2 MiB backing’s kernel-visible pointer (identity- map alias, VA==PA).
+Returns NULL for root==0, for the kernel root (no per-process backing),
+or an unrecognised root. Host returns NULL.</p></li>
+<li><p>No ABI/test impact on existing code: the previously-added
+<code>mmu_*</code> entry points are unchanged.</p></li>
+</ul>
+<h3 id="standalone-el0-elf-artifact">Standalone EL0 ELF artifact</h3>
+<ul>
+<li><p><code>test/kernel/init_prog.S</code> — <code>_start</code> calls
+<code>NX_SYS_DEBUG_WRITE("[el0-elf-ok]", 13)</code> and parks in
+<code>wfe</code>. No PC-relative gymnastics needed since this program is
+a real ELF with absolute VAs linked at the user-window base.</p></li>
+<li><p><code>test/kernel/init_prog.ld</code> — linker script:
+<code>ENTRY(_start); . =   0x48000000; .text : { *(.text*) *(.rodata*) } .data : { ... }   .bss (NOLOAD) : { ... }</code>.
+Discards <code>.comment</code>, <code>.note*</code>,
+<code>.ARM.attributes</code>, <code>.eh_frame</code> — the loader
+doesn’t consume them and keeping them would bloat the blob.</p></li>
+<li><p><code>test/kernel/init_prog_blob.S</code> —
+<code>.incbin   "test/kernel/init_prog.elf"</code> wrapped between
+<code>__init_prog_blob_{start,end}</code> labels for C code to
+reference.</p></li>
+</ul>
+<h3 id="makefile-rules">Makefile rules</h3>
+<ul>
+<li><p><code>test/kernel/init_prog.o</code>: standard
+<code>.S → .o</code>.</p></li>
+<li><p><code>test/kernel/init_prog.elf</code>: linked with
+<code>-T init_prog.ld</code>.</p></li>
+<li><p><code>test/kernel/init_prog_blob.o</code>: explicit prereq on
+<code>init_prog.elf</code> so the assembler picks up regenerated bytes
+(standard <code>.S</code> rule doesn’t track <code>.incbin</code>
+deps).</p></li>
+<li><p><code>KTEST_S += init_prog_blob.S</code> pulls the blob into
+<code>kernel-test.bin</code>.</p></li>
+<li><p><code>clean</code> target removes
+<code>init_prog.elf</code>.</p></li>
+</ul>
+<h3 id="tests">Tests</h3>
+<ul>
+<li><code>test/kernel/ktest_elf.c</code> — three tests:
+<ul>
+<li><code>elf_parse_header_reports_entry_and_one_pt_load</code> — parser
+summary matches <code>init_prog.ld</code>.</li>
+<li><code>elf_parse_rejects_malformed_magic</code> — negative case: flip
+byte 0 in a copy of the blob, expect <code>NX_EINVAL</code>.</li>
+<li><code>elf_load_and_drop_to_el0_runs_marker_syscall</code> — the
+headline round-trip. Creates a process, loads the blob, spawns a
+kthread, reassigns <code>task-&gt;process = target</code>, yields until
+<code>debug_write_calls &gt; 0</code> (proof EL0 ran), dequeues the
+stranded task, restores kernel TTBR0, destroys the process.
+<code>[el0-elf-ok]</code> joins the other five EL0 markers in the live
+ktest log.</li>
+</ul></li>
+<li><code>test/host/elf_test.c</code> — 8 tests on synthetic blobs:
+<ul>
+<li><code>accepts_valid_single_load</code> — happy path.</li>
+<li><code>skips_non_load_phdrs_in_count</code> — one PT_NULL pad + 3
+PT_LOADs → parser reports 3.</li>
+<li><code>iterates_by_dense_index</code> — <code>idx=0..2</code> each
+returns the expected vaddr + sizes.</li>
+<li><code>rejects_bad_magic</code> /
+<code>wrong_class_or_encoding</code> /
+<code>wrong_type_or_machine</code> / <code>truncated_blob</code> —
+validation failure paths.</li>
+<li><code>host_stub_reflects_entry</code> — the host loader returns the
+entry even though it can’t actually copy anything.</li>
+</ul></li>
+<li>Synthetic-blob builder in the host test file writes bytes
+field-by-field into a static buffer. Readable, reviewable, and tied to
+the spec values (<code>ELFCLASS64 = 2</code>, <code>ET_EXEC = 2</code>,
+etc.) directly.</li>
+</ul>
+<h3 id="wiring">Wiring</h3>
+<ul>
+<li><p>Top Makefile: <code>FW_C += framework/elf.c</code>;
+<code>KTEST_C +=   ktest_elf.c</code>;
+<code>KTEST_S += init_prog_blob.S</code>; Makefile rules for building
+<code>init_prog.elf</code> and its <code>.o</code>.</p></li>
+<li><p><code>test/host/Makefile</code>: <code>SRCS += elf_test.c</code>
++ <code>elf.c</code>.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong><code>.incbin</code> beats manual bin2c.</strong> Our
+first design used a Python <code>tools/bin2c.py</code> to emit a C byte
+array from the ELF. GAS’s <code>.incbin</code> directive does the same
+thing in one line, requires no new tooling, and keeps the blob out of
+the preprocessor. The only gotcha is that <code>.incbin</code> doesn’t
+auto-track dependencies — Makefile needs an explicit prereq on the ELF
+file for the <code>.S</code> wrapper’s <code>.o</code>.</p></li>
+<li><p><strong>Kernel loader without TTBR0 flip is cleaner than
+with.</strong> Alternative: switch TTBR0 to the target during copy,
+switch back after. That works but adds TLB-flush cost per load +
+complicates the kernel-only invariant (“we never run kernel code under a
+user TTBR0 unless we’re about to context-switch into that task”). The
+user-backing-alias approach keeps the kernel firmly in its own TTBR0
+during the copy. Requires <code>mmu_address_space_user_backing</code>
+but that’s a small addition.</p></li>
+<li><p><strong>I-cache flush is mandatory, not merely
+defensive.</strong> First draft of <code>ktest_elf_*</code> occasionally
+ran garbage from the user window — turns out the program bytes were in
+the D-cache post-copy, but the CPU was fetching from I-cache via the old
+mapping (from the slice-7.2 “two-processes-different-bytes” test earlier
+in the run). Adding <code>dsb ish ; ic iallu ; dsb   ish ; isb</code>
+after the copy makes every subsequent load run on freshly-fetched
+instruction bytes.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Host loader is a validation stub.</strong> Alternative:
+make the loader a no-op on host that returns NX_ENOTSUP. Chose
+validate-and-reflect because host tests want to verify the PARSER side
+works even though they can’t exercise the MMU side — running
+<code>nx_elf_parse</code> through the loader path is the simplest way to
+get that coverage without a third entry point. How to apply: whenever a
+kernel-only function has a data-validation sub-step, reflect that
+sub-step in the host stub instead of returning NX_ENOTSUP.</p></li>
+<li><p><strong>Loader takes <code>struct nx_process *</code>, not a
+TTBR0 root.</strong> Alternative:
+<code>nx_elf_load_into_ttbr0(uint64_t root, ...)</code>. Chose the
+process handle because (a) callers already have it, (b) it lets a future
+slice plug in per-process quota checks / perms without changing the
+signature, (c) it matches the vocabulary of everything else in
+<code>framework/</code>. How to apply: any future loader-ish function
+takes the process, not a lower-level primitive, so extra per-process
+context can be consulted without API churn.</p></li>
+<li><p><strong>Don’t migrate existing EL0 ktests to the loader.</strong>
+The baked-in <code>user_prog_*.S</code> files still work; migrating them
+would mean assembling four more standalone ELFs + maintaining their
+build rules. Worth it when there’s a pay-off — e.g., slice 7.4 where
+fork/exec will need the ELF loader anyway and the migration rides along.
+How to apply: “migrate when there’s a reason,” not “migrate because the
+new thing is prettier.”</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>390/390 pass (51 python + 274
+host + 65 kernel), 0 leaks, 0 errors, exit 0</strong>. +11 from slice
+7.2 (+8 host, +3 kernel).</p></li>
+<li><p><code>make run</code> boots cleanly under QEMU. The ELF loader is
+only exercised by <code>ktest_elf</code>; normal boot doesn’t touch
+it.</p></li>
+<li><p>Live ktest log now shows six complete EL0 round-trips:
+<code>[el0] hello</code> · <code>[el0-chan-ok]</code> ·
+<code>[el0-file-ok]</code> · <code>[el0-rdr-ok]</code> ·
+<code>[el0-elf-ok]</code> · (plus the various <code>ktest</code>
+internals) — each a distinct syscall family or loading
+mechanism.</p></li>
+<li><p><code>init_prog.elf</code> is 66 KiB on disk (phdr alignment is
+0x10000) but only ~36 bytes of actual program code. First slice where
+build-system-emitted artefact size becomes worth noting; if it becomes a
+space concern, a custom linker script that packs segments more tightly
+would help.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Slice 7.3.5 (opportunistic) or roll into 7.4:</p>
+<ul>
+<li><p>Bump <code>RAMFS_FILE_CAP</code> from 256 bytes to something that
+can hold a minimal static ELF (at least 1 KiB; probably 64 KiB to match
+our build output). Every pre-existing ramfs test still passes because
+nothing depends on the 256 cap today.</p></li>
+<li><p>Add <code>nx_process_create_from_elf(path)</code> — opens the
+path via the <code>vfs</code> slot, reads bytes into a kernel buffer,
+delegates to <code>nx_elf_load_into_process</code>. Probably introduces
+a <code>framework/process.c</code> helper or a utility in
+<code>elf.c</code>.</p></li>
+<li><p>Seed ramfs with <code>/init</code> (the same
+<code>init_prog.elf</code> blob) at bootstrap time via a new
+<code>ramfs_seed_from_blob</code> helper, so the loader has something to
+load without every test populating it manually.</p></li>
+</ul>
+<p>Slice 7.4 proper (after the ramfs-path loader):</p>
+<ul>
+<li><p><code>components/posix_shim/</code> — map POSIX calls onto the
+existing nonux syscalls.</p></li>
+<li><p><code>NX_SYS_FORK</code> — duplicate process’s address space
+(eager copy via <code>mmu_create_address_space</code> + byte-copy of the
+user backing; slice 8’s hot-swap can revisit COW later) + handle table;
+child resumes from fork with x0 = 0.</p></li>
+<li><p><code>NX_SYS_EXEC(path)</code> — load a new ELF into the caller’s
+process (allocate a fresh address space, swap in, free the old; handle
+table carries over).</p></li>
+<li><p><code>NX_SYS_WAIT(pid, *status)</code> — polls with yield until
+target is EXITED, returns exit code.</p></li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/framework/elf.h</code> — new (parser + loader
+API)</li>
+<li><code>sources/nonux/framework/elf.c</code> — new (implementation,
+kernel + host variants)</li>
+<li><code>sources/nonux/core/mmu/mmu.h</code> —
+<code>mmu_address_space_user_backing</code> prototype</li>
+<li><code>sources/nonux/core/mmu/mmu.c</code> — implementation</li>
+<li><code>sources/nonux/test/kernel/init_prog.S</code> — new (standalone
+EL0 program)</li>
+<li><code>sources/nonux/test/kernel/init_prog.ld</code> — new (linker
+script)</li>
+<li><code>sources/nonux/test/kernel/init_prog_blob.S</code> — new
+(<code>.incbin</code> wrapper)</li>
+<li><code>sources/nonux/test/kernel/ktest_elf.c</code> — new (3
+tests)</li>
+<li><code>sources/nonux/test/host/elf_test.c</code> — new (8 tests on
+synthetic blobs)</li>
+<li><code>sources/nonux/Makefile</code> — FW_C += elf.c; KTEST_C +=
+ktest_elf.c; KTEST_S += init_prog_blob.S; rules for init_prog.elf + blob
+prereq; clean adds init_prog.elf</li>
+<li><code>sources/nonux/test/host/Makefile</code> — SRCS += elf_test.c +
+elf.c</li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.3
+rewritten with as-built details</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 29 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

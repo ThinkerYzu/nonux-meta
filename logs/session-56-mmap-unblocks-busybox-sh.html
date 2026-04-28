@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-56-mmap-unblocks-busybox-sh – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-56-slice-7.6d.n.1-minimal-anonymous-mmap-unblocks-busybox-sh"
+id="toc-session-56-slice-7.6d.n.1-minimal-anonymous-mmap-unblocks-busybox-sh">Session
+56: slice 7.6d.N.1 — minimal anonymous <code>mmap</code> unblocks
+<code>busybox sh</code></a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#implementation" id="toc-implementation">Implementation</a>
+<ul>
+<li><a href="#frameworksyscall.h"
+id="toc-frameworksyscall.h"><code>framework/syscall.h</code></a></li>
+<li><a href="#frameworkprocess.h"
+id="toc-frameworkprocess.h"><code>framework/process.h</code></a></li>
+<li><a href="#frameworkprocess.c"
+id="toc-frameworkprocess.c"><code>framework/process.c</code></a></li>
+<li><a href="#frameworksyscall.c"
+id="toc-frameworksyscall.c"><code>framework/syscall.c</code></a></li>
+<li><a href="#third_partymuslarchaarch64syscall_arch.h"
+id="toc-third_partymuslarchaarch64syscall_arch.h"><code>third_party/musl/arch/aarch64/syscall_arch.h</code></a></li>
+<li><a href="#third_partymuslsrcthreadaarch64syscall_cp.s"
+id="toc-third_partymuslsrcthreadaarch64syscall_cp.s"><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code></a></li>
+</ul></li>
+<li><a href="#result" id="toc-result">Result</a></li>
+<li><a href="#build-issues-encountered-and-what-to-fix"
+id="toc-build-issues-encountered-and-what-to-fix">Build issues
+encountered (and what to fix)</a></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#files-changed" id="toc-files-changed">Files
+changed</a></li>
+<li><a href="#whats-next-7.6d.n.2-candidates"
+id="toc-whats-next-7.6d.n.2-candidates">What’s next (7.6d.N.2
+candidates)</a></li>
+<li><a href="#long-term-concerns" id="toc-long-term-concerns">Long-term
+concerns</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-56-slice-7.6d.n.1-minimal-anonymous-mmap-unblocks-busybox-sh">Session
+56: slice 7.6d.N.1 — minimal anonymous <code>mmap</code> unblocks
+<code>busybox sh</code></h1>
+<p><strong>Date:</strong> 2026-04-27 <strong>Phase:</strong> 7 slice
+7.6d.N.1 (busybox-as-shell, mmap addition) <strong>Branch:</strong>
+master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Close the gap surfaced in slice 7.6d.N.0 (session 55): musl mallocng
+calls <code>mmap(MAP_PRIVATE|MAP_ANON)</code> for every slab allocation,
+and our translation table left <code>__NR_mmap (222)</code> unmapped →
+-ENOSYS → malloc NULL → ash’s <code>bb_msg_memory_exhausted</code>
+exit.</p>
+<p>Add the smallest mmap implementation that covers the mallocng shape,
+then re-run <code>posix_busybox_sh</code> and observe the next failure
+mode.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Bump-arena, not real demand-paging.</strong> The full
+memory rework (per-process VMAs + L3 4 KiB pages + page-fault-driven
+page allocation) is a multi-slice project and explicitly deferred to
+post-Phase-7 (per the long-term plan in HANDOFF.md → “Real per-process
+memory management”). This sub-slice keeps the current “8 MiB contiguous
+user backing per process” model and carves out a sub-region as a
+per-process anonymous-mmap arena. Bump pointer only; no reclaim until
+process exit.</p></li>
+<li><p><strong>Arena placement:
+<code>[base + 2 MiB, base + 5 MiB)</code>.</strong> Sits in the unused
+window region between busybox’s text+data+bss end (~+1.91 MiB) and the
+kernel-pre-init TLS area (+5 MiB). 3 MiB is enough for ash’s startup
+mallocng allocations (mallocng’s first slab is 64 KiB, growing
+geometrically) and doesn’t overlap with the brk heap at +6 MiB or the
+stack near the top.</p></li>
+<li><p><strong>No MAP_FIXED, no per-page protection.</strong> The
+user_window is uniformly EL0-RW; we don’t have the L3 page tables to
+enforce per-page prot. mallocng asks for MAP_FIXED only for guard pages
+— and ignores the return — so rejecting it is safe.</p></li>
+<li><p><strong><code>munmap</code> as a no-op success.</strong> mallocng
+treats <code>munmap</code> failure as fatal (it ASSUMES it succeeds and
+forgets the pointer), so we can’t return -ENOSYS. PMM reclaim happens at
+process exit when the whole 8 MiB user_window is freed; for ash’s
+startup we leak at most a few hundred KiB until the parent reaps the
+child. Adequate for v1.</p></li>
+<li><p><strong>Pages are zeroed on the way out.</strong> MAP_ANONYMOUS’s
+contract is zeroed pages. Our underlying user_window backing is plain
+<code>malloc()</code> memory and may carry stale bytes from earlier exec
+cycles or from un-touched memcpy alignment slack. <code>memset</code>
+the returned region to zero before returning the VA to
+userspace.</p></li>
+</ul>
+<h2 id="implementation">Implementation</h2>
+<h3 id="frameworksyscall.h"><code>framework/syscall.h</code></h3>
+<p>Two new enum values, <code>NX_SYS_MMAP = 19</code> +
+<code>NX_SYS_MUNMAP = 20</code>, with header comments documenting the
+supported shape. <code>NX_SYSCALL_COUNT</code> advances from 19 to 21
+automatically.</p>
+<h3 id="frameworkprocess.h"><code>framework/process.h</code></h3>
+<p>New per-process bump pointer field:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">uint64_t</span> mmap_bump<span class="op">;</span></span></code></pre></div>
+<p>Plus the layout constants:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#define NX_PROCESS_MMAP_OFFSET  </span><span class="op">(</span><span class="dv">2</span><span class="bu">u</span><span class="pp"> </span><span class="op">&lt;&lt;</span><span class="pp"> </span><span class="dv">20</span><span class="op">)</span><span class="pp">   </span><span class="co">/* 2 MiB into window */</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#define NX_PROCESS_MMAP_LIMIT   </span><span class="op">(</span><span class="dv">5</span><span class="bu">u</span><span class="pp"> </span><span class="op">&lt;&lt;</span><span class="pp"> </span><span class="dv">20</span><span class="op">)</span><span class="pp">   </span><span class="co">/* 5 MiB into window */</span></span></code></pre></div>
+<p>The window-layout comment is updated to include the new region.</p>
+<h3 id="frameworkprocess.c"><code>framework/process.c</code></h3>
+<p>Initialize <code>mmap_bump</code> to
+<code>mmu_user_window_base() + NX_PROCESS_MMAP_OFFSET</code> in
+<code>nx_process_create</code> (kernel only; host stays 0 since there’s
+no MMU). Inherit it across <code>fork</code> the same way
+<code>brk_addr</code> is inherited — the forked backing already contains
+the parent’s mmap’d pages byte-for-byte.</p>
+<h3 id="frameworksyscall.c"><code>framework/syscall.c</code></h3>
+<p><code>sys_mmap</code> body (~50 lines including comments):</p>
+<ol type="1">
+<li><p>Parse the 6 args. Reject zero-length, non-(-1) fd, non-zero
+offset, missing MAP_ANONYMOUS, MAP_FIXED. Per-page prot is silently
+ignored — we don’t have it.</p></li>
+<li><p>Round length up to 4 KiB.</p></li>
+<li><p>Range-check the bump against the arena. Lazy re-init if the bump
+drifts out of range (defensive for a hypothetical future
+munmap).</p></li>
+<li><p>Allocate from the bump. <code>memset</code> the returned region
+to 0.</p></li>
+<li><p>Return the new VA. Failure returns small negative (NX_EINVAL or
+NX_ENOMEM) which musl’s <code>__syscall_ret</code> turns into MAP_FAILED
++ errno.</p></li>
+</ol>
+<p><code>sys_munmap</code> body: 1 line (<code>return NX_OK</code>) plus
+a header comment explaining why arg validation is intentionally loose
+(mallocng can pass arbitrary derived pointers).</p>
+<p><code>sys_exec</code> updates: the address-space-rebuild logic resets
+<code>brk_addr</code>; same logic added for <code>mmap_bump</code>.
+Three lines: save old, reset to fresh, restore on rollback.</p>
+<p>Dispatch table: two new entries (<code>NX_SYS_MMAP → sys_mmap</code>,
+<code>NX_SYS_MUNMAP → sys_munmap</code>).</p>
+<h3
+id="third_partymuslarchaarch64syscall_arch.h"><code>third_party/musl/arch/aarch64/syscall_arch.h</code></h3>
+<p>Two new entries in <code>__nx_translate</code>:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="cf">case</span> <span class="dv">215</span><span class="op">:</span> <span class="cf">return</span> <span class="dv">20</span><span class="op">;</span>  <span class="co">/* __NR_munmap -&gt; NX_SYS_MUNMAP */</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="cf">case</span> <span class="dv">222</span><span class="op">:</span> <span class="cf">return</span> <span class="dv">19</span><span class="op">;</span>  <span class="co">/* __NR_mmap   -&gt; NX_SYS_MMAP */</span></span></code></pre></div>
+<p>Header comment block updated.</p>
+<h3
+id="third_partymuslsrcthreadaarch64syscall_cp.s"><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code></h3>
+<p>Mirror of the C-level table for the cancellation-point syscall path
+(matches the slice 7.6c.3a discipline of keeping the asm-level table in
+lockstep with the C one):</p>
+<pre><code>cmp x1, #215;  b.eq .Lnx_munmap
+cmp x1, #222;  b.eq .Lnx_mmap
+
+.Lnx_munmap:   mov x8, #20; b .Lnx_run    // NX_SYS_MUNMAP
+.Lnx_mmap:     mov x8, #19; b .Lnx_run    // NX_SYS_MMAP</code></pre>
+<h2 id="result">Result</h2>
+<p>Live ktest log fragment:</p>
+<pre><code>posix_busybox_sh_parent_forks_and_execs_busybox_sh [bbsh-parent][bbsh-status=2a][bbsh-ok]PASS</code></pre>
+<p><code>[bbsh-status=2a]</code> = 0x2a = 42. <code>[bbsh-ok]</code> is
+the marker for the success path (<code>status == 42</code>).</p>
+<p>End-to-end: ash startup ran without OOM, ash parsed
+<code>-c "exit 42"</code>, ran the <code>exit</code> builtin, and exited
+cleanly with status 42. Substantially better than expected — the
+7.6d.N.0 plan predicted that mmap would unblock malloc but ash would
+then hit a sigaction / getuid / ioctl gap. For the simple
+<code>-c "exit 42"</code> path none of those were needed; ash exited via
+the builtin directly without consulting any of those subsystems.</p>
+<h2 id="build-issues-encountered-and-what-to-fix">Build issues
+encountered (and what to fix)</h2>
+<p>When <code>syscall_arch.h</code> and <code>syscall_cp.s</code>
+change, the top-level <code>make musl-libc</code> rebuilds libc.a, but
+<code>make test</code> doesn’t propagate the change to busybox’s link
+line. Two reasons:</p>
+<ol type="1">
+<li><p>The Makefile rule <code>$(BUSYBOX_BIN): $(MUSL_LIBC)</code>
+re-invokes <code>tools/build-busybox.sh</code>, which delegates to
+busybox’s own <code>make</code>. busybox’s incremental build only
+rebuilds .o files whose source/header dependencies changed — the libc.a
+is a link-time artifact, and the previous link’s outputs are still
+considered up-to-date. busybox’s link step is skipped.</p></li>
+<li><p>Even when busybox IS rebuilt (via
+<code>make busybox-clean &amp;&amp;    make busybox</code>), the
+<code>initramfs.cpio</code> rule’s $(BUSYBOX_BIN) prereq doesn’t
+reliably trigger a regeneration on the next <code>make test</code> — the
+cpio stays at its old timestamp and so does kernel-test.bin.</p></li>
+</ol>
+<p>Workaround used in this session:
+<code>rm -f test/kernel/initramfs.cpio test/kernel/initramfs_blob.o kernel-test.bin kernel-test.elf &amp;&amp; make test</code>
+after the musl patch. Forces the full test-binary chain to rebuild
+against the new busybox.</p>
+<p>Real fix (deferred, opportunistic): make
+<code>tools/build-busybox.sh</code> <code>touch $BUSYBOX_BIN</code>
+after the inner <code>make</code> so the timestamp always advances even
+when nothing actually rebuilt. Or add an <code>.libc-stamp</code> file
+that the busybox link line consumes as a phony “force re-link if libc
+changed” indicator. Either is a 2-line change. Lands when a future slice
+burns time on this again.</p>
+<h2 id="verification">Verification</h2>
+<p><code>make test</code> → <strong>411/411 PASSED</strong> (51 python +
+275 host + 85 kernel), 0 leaks, 0 errors, exit 0.</p>
+<p>Same test count as session 55 — no new ktests added. The
+<code>posix_busybox_sh_parent_forks_and_execs_busybox_sh</code> test
+that captured the OOM in 7.6d.N.0 now captures status 42 + emits
+<code>[bbsh-ok]</code>. No code-side assertion change needed; the test
+asserts parent liveness only.</p>
+<h2 id="files-changed">Files changed</h2>
+<p>Production:</p>
+<ul>
+<li><p><code>framework/syscall.h</code> — 2 new enum values + comments
+(~60 lines)</p></li>
+<li><p><code>framework/syscall.c</code> — 2 new syscall bodies + 2
+dispatch entries + sys_exec mmap_bump reset (~120 lines)</p></li>
+<li><p><code>framework/process.h</code> — <code>mmap_bump</code> field +
+layout constants + comment update (~20 lines)</p></li>
+<li><p><code>framework/process.c</code> — init + fork-inherit (~5
+lines)</p></li>
+</ul>
+<p>Vendored musl patches:</p>
+<ul>
+<li><p><code>third_party/musl/arch/aarch64/syscall_arch.h</code> — 2 new
+translate-table entries</p></li>
+<li><p><code>third_party/musl/src/thread/aarch64/syscall_cp.s</code> — 2
+new cmp+branch + 2 new label blocks</p></li>
+</ul>
+<p>Total: 6 files, ~210 lines of net change (mostly comments).</p>
+<h2 id="whats-next-7.6d.n.2-candidates">What’s next (7.6d.N.2
+candidates)</h2>
+<p><code>busybox sh -c "exit 42"</code> is now boring — the test exits
+cleanly with status 42. The next discovery-driven sub-slice should
+escalate the workload to surface what’s still missing:</p>
+<ol type="1">
+<li><p><strong><code>busybox sh -c "echo hello"</code></strong> —
+exercises <code>write(1, ...)</code> from inside the shell (already
+works via stdio magic-fd handling) plus argv parsing + builtin dispatch
+from a non-trivial -c string.</p></li>
+<li><p><strong><code>busybox sh -c "ls /"</code></strong> — first
+non-builtin: ash forks + execs the <code>ls</code> applet via
+<code>/proc/self/exe</code> discovery (which we don’t have) or via PATH
+lookup (no <code>/etc/profile</code> or <code>$PATH</code> in our env).
+Will surface multiple gaps at once (process management, fs lookup, etc).
+Skip until simpler tests stabilize.</p></li>
+<li><p><strong><code>busybox sh</code> (interactive, with a UART RX → fd
+0 line discipline)</strong> — the actual slice-7.6d.N.final goal. Needs
+UART RX plumbing in the kernel (currently TX-only) plus ash’s
+interactive setup (sigaction for SIGINT + SIGTERM, isatty /
+ioctl(TIOCGWINSZ), terminal mode set via tcsetattr).</p></li>
+</ol>
+<p>The natural next step is option (1) — minimal escalation, exercises
+one new busybox path (<code>echo</code> builtin), and any new gap
+surfaces clearly.</p>
+<h2 id="long-term-concerns">Long-term concerns</h2>
+<p>The bump-arena is fundamentally a v1 hack. Real mmap should be backed
+by demand-paged 4 KiB L3 entries with VMAs, so:</p>
+<ul>
+<li><p><code>length</code> doesn’t have to fit in a hardcoded 3 MiB
+region;</p></li>
+<li><p>pages aren’t allocated until first touch (current scheme
+pre-allocates the entire 8 MiB user_window per process);</p></li>
+<li><p><code>munmap</code> actually reclaims;</p></li>
+<li><p><code>mprotect</code> becomes possible for the guard-page
+idiom.</p></li>
+</ul>
+<p>The relevant DESIGN.md callout already exists in HANDOFF.md under
+“Real per-process memory management (long-term, post-Phase-7)”. This
+sub-slice doesn’t change the long-term plan — it just buys us
+busybox-shell coverage in the simple v1 model.</p>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-27</p>
+</body>
+</html>

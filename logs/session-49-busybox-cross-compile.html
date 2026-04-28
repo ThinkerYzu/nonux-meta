@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-49-busybox-cross-compile – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-49-slice-7.6d.1-cross-compile-busybox"
+id="toc-session-49-slice-7.6d.1-cross-compile-busybox">Session 49: slice
+7.6d.1 — cross-compile busybox</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#third_partybusybox-vendored-source"
+id="toc-third_partybusybox-vendored-source"><code>third_party/busybox/</code>
+— vendored source</a></li>
+<li><a href="#third_partybusyboxconfigsnonux_defconfig"
+id="toc-third_partybusyboxconfigsnonux_defconfig"><code>third_party/busybox/configs/nonux_defconfig</code></a></li>
+<li><a href="#toolsbuild-busybox.sh"
+id="toc-toolsbuild-busybox.sh"><code>tools/build-busybox.sh</code></a></li>
+<li><a href="#top-level-makefile" id="toc-top-level-makefile">Top-level
+<code>Makefile</code></a></li>
+<li><a href="#gitignore"
+id="toc-gitignore"><code>.gitignore</code></a></li>
+</ul></li>
+<li><a href="#drive-by-gotchas" id="toc-drive-by-gotchas">Drive-by
+gotchas</a></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#what-was-not-done" id="toc-what-was-not-done">What Was Not
+Done</a></li>
+<li><a href="#test-counts" id="toc-test-counts">Test Counts</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-49-slice-7.6d.1-cross-compile-busybox">Session 49: slice
+7.6d.1 — cross-compile busybox</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6d.1 (busybox integration, sub-slice 1 of N — opens 7.6d)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d (busybox cross-compile + boot to shell) is large enough to
+warrant the same vendor-then-discover decomposition that 7.6c.3 used.
+This sub-slice covers the build infrastructure only:</p>
+<ul>
+<li><p>Vendor busybox 1.36.1 under <code>third_party/busybox/</code>
+(mirrors how musl was vendored in slice 7.6c.3a — full source tree
+checked in, patches live in tree).</p></li>
+<li><p>Commit a minimal <code>nonux_defconfig</code> derived from
+upstream defconfig with networking, modutils, login utilities,
+mail/print/runit, and syslog stripped out.</p></li>
+<li><p>Write <code>tools/build-busybox.sh</code> that drives the
+cross-compile against our patched musl via a private sysroot.</p></li>
+<li><p>Wire top-level Makefile <code>busybox</code> /
+<code>busybox-clean</code> targets matching the existing
+<code>musl-libc</code> / <code>musl-clean</code> block.</p></li>
+<li><p>Verify the output is a static aarch64 ELF.</p></li>
+</ul>
+<p>Explicitly out of scope: actually running busybox against the kernel.
+That’s slice 7.6d.2’s job — and where the discovery-driven follow-ups
+(mmap, the four svc-direct asm files, process-table caps) get triaged.
+No new EL0 demos and no new ktests in this slice; sanity check is
+<code>file</code> + <code>readelf -h</code> on the resulting binary.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>busybox 1.36.1, not 1.37.0.</strong> 1.37 (July 2024) is
+a noisy series — it rewrote substantial parts of the shell (the ash
+variant we care about) and reshuffled several Config.in trees. 1.36.1
+(May</p>
+<ol start="2023" type="1">
+<li>is the most-deployed version across embedded distros and is by far
+the most-exercised musl combination upstream, which is what matters when
+our musl patches collide with libc-internals assumptions. Bumping later
+is cheap (drop a new tarball into <code>third_party/busybox/</code> +
+re-run oldconfig); going earlier would buy nothing.</li>
+</ol></li>
+<li><p><strong>Vendor the full source tree under
+<code>third_party/busybox/</code>.</strong> Mirrors the musl pattern
+from slice 7.6c.3a. 20 MB on disk, trivially worth it for the property
+that anyone cloning the repo can <code>make busybox</code> without a
+network round-trip. Future patches to busybox internals (anticipated in
+7.6d.2+) live in tree alongside the vendored source.</p></li>
+<li><p><strong><code>make defconfig</code> then strip, not
+<code>make allnoconfig</code> then add.</strong> defconfig is busybox’s
+“sensible kitchen-sink” preset and is the config most upstream patches
+are written against. Starting from it and disabling problem subsystems
+gives us a config where every on-by-default applet stays on (so our
+smoke-test set — <code>sh</code>, <code>ls</code>, <code>echo</code>,
+<code>cat</code>, <code>ps</code>, <code>mkdir</code>, <code>rm</code>,
+<code>mv</code>, <code>cp</code>, <code>pwd</code>, <code>true</code>,
+<code>false</code> — falls out of the box without our having to remember
+to enable each one). allnoconfig demands you re-enable each applet
+explicitly + chase down its libbb dependencies; way too much manual
+surface for a slice that’s supposed to be infrastructure only.</p></li>
+<li><p><strong>Strip via <code># CONFIG_X is not set</code> markers, not
+<code>CONFIG_X=n</code>.</strong> busybox’s kconfig (like the Linux
+kernel’s) ignores <code>CONFIG_X=n</code> and re-defaults the symbol on
+the next <code>oldconfig</code>. Force-off requires the comment marker.
+This is also what <code>make   menuconfig</code> writes when you toggle
+a symbol off interactively.</p></li>
+<li><p><strong>Disable problem subsystems by directory, not by
+hand-picked applet list.</strong> Walked
+<code>find networking modutils mailutils   printutils runit sysklogd loginutils selinux -name 'Config.*'</code>
+and forced off every <code>config FOO</code> symbol declared in those
+trees (~278 keys). Plus a handful of cross-cutting symbols
+(<code>PAM</code>, <code>FEATURE_USE_INITTAB</code>, the four
+<code>*RPC*</code> keys, the <code>MOUNT_NFS</code> family). Result: 875
+→ 659 enabled symbols. None of the disabled subsystems would compile
+against musl on a freestanding kernel anyway (the first failure I
+observed was <code>networking/tc.c</code> referencing
+<code>TCF_CBQ_LSS_BOUNDED</code>, a kernel- header constant musl doesn’t
+ship).</p></li>
+<li><p><strong>Private musl sysroot at
+<code>third_party/musl/_sysroot/</code>.</strong> busybox needs musl’s
+headers to compile against, and they don’t exist until
+<code>make install-headers</code> runs. Approach:</p>
+<ul>
+<li><code>install-headers prefix=$(MUSL_DIR)/_sysroot</code> populates
+<code>include/</code>.</li>
+<li><code>mkdir -p $(SYSROOT)/lib &amp;&amp; ln -sf ../../lib/{libc,crt1,crti,crtn}.{a,o}   $(SYSROOT)/lib/</code>
+makes the libs visible at the sysroot-standard location without copying
+— symlinks back to <code>musl/lib/</code> so the sysroot stays coherent
+with whatever the top-level <code>make   musl-libc</code> last
+produced.</li>
+<li>Build with <code>EXTRA_CFLAGS="--sysroot=$SYSROOT"</code> and
+matching <code>EXTRA_LDFLAGS="--sysroot=$SYSROOT -static"</code>.
+<code>--sysroot</code> is cleaner than <code>-nostdinc -isystem</code>
+because it covers both include search and library search in one switch
+and matches the standard cross-toolchain idiom.</li>
+</ul></li>
+<li><p><strong>busybox is NOT (yet) a dep of
+<code>make test</code>.</strong> The build takes ~30 s and the artefact
+isn’t consumed by any ktest in 7.6d.1; no reason to penalize the test
+loop. It becomes a test dep when 7.6d.2 first execs busybox from a
+libnxlibc parent.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="third_partybusybox-vendored-source"><code>third_party/busybox/</code>
+— vendored source</h3>
+<ul>
+<li>Full extraction of <code>busybox-1.36.1.tar.bz2</code> (sha256
+<code>b8cc24c9574d809e7279c3be349795c5d5ceb6fdf19ca709f80cde50e47de314</code>,
+official 2023-05-19 release from busybox.net). ~20 MB on disk; no
+in-tree <code>.gitignore</code> (busybox 1.36.1 doesn’t ship one).</li>
+</ul>
+<h3
+id="third_partybusyboxconfigsnonux_defconfig"><code>third_party/busybox/configs/nonux_defconfig</code></h3>
+<ul>
+<li>Generated by:
+<ol type="1">
+<li><code>make defconfig</code> in the busybox tree → 875 enabled
+symbols.</li>
+<li>Force off every <code>config FOO</code> declared in the
+<code>networking / modutils / mailutils / printutils / runit /     sysklogd / loginutils / selinux</code>
+directory trees (~278 symbols total) by rewriting each
+<code>CONFIG_FOO=y</code> line to
+<code># CONFIG_FOO is not set</code>.</li>
+<li>Force off the cross-cutting handful: <code>CONFIG_PAM</code>,
+<code>CONFIG_FEATURE_USE_INITTAB</code>,
+<code>CONFIG_FEATURE_HAVE_RPC</code>,
+<code>CONFIG_FEATURE_INETD_RPC</code>,
+<code>CONFIG_FEATURE_MOUNT_NFS</code>,
+<code>CONFIG_NFSMOUNT</code>.</li>
+<li><code>yes "" | make oldconfig</code> to fill in any new-default
+symbols and resolve <code>select</code>-clause dependencies.</li>
+</ol></li>
+<li>1223-line snapshot with 659 enabled symbols. Committed as the
+authoritative config; the build script copies it into
+<code>.config</code>
+<ul>
+<li>re-runs <code>oldconfig</code> each invocation so symbol-tree
+changes in future busybox bumps surface as nonux_defconfig diffs.</li>
+</ul></li>
+</ul>
+<h3 id="toolsbuild-busybox.sh"><code>tools/build-busybox.sh</code></h3>
+<ul>
+<li>Idempotent build driver. Five steps:
+<ol type="1">
+<li>Verify <code>third_party/musl/lib/libc.a</code> exists (top-level
+<code>make    musl-libc</code> must have run). Fail fast with a clear
+error otherwise.</li>
+<li>Populate the private sysroot lazily — <code>install-headers</code>
+only runs if <code>$SYSROOT/include/stdio.h</code> is missing; lib
+symlinks are recreated unconditionally (cheap, and it covers the case
+where someone manually nuked <code>_sysroot/lib/</code>).</li>
+<li>Stage the config: <code>cp configs/nonux_defconfig .config</code>
+then <code>yes "" | make oldconfig</code>. pipefail is briefly disabled
+around the pipe because <code>yes</code> exits with SIGPIPE (141) once
+<code>oldconfig</code> closes its stdin — that’s expected, not an
+error.</li>
+<li>Real build:
+<code>make -j$(nproc) ARCH=arm64    CROSS_COMPILE=aarch64-linux-gnu- EXTRA_CFLAGS=--sysroot=...    EXTRA_LDFLAGS="--sysroot=... -static" SKIP_STRIP=y</code>.
+The SKIP_STRIP=y leaves debug info in the binary so 7.6d.2 can
+<code>readelf</code> segments and follow musl’s call graph when things
+trap.</li>
+<li><code>file busybox</code> + size print as a self-test;
+<code>set -e</code> catches a corrupt link upstream of the file
+check.</li>
+</ol></li>
+</ul>
+<h3 id="top-level-makefile">Top-level <code>Makefile</code></h3>
+<ul>
+<li>New block right after <code>musl-clean</code>:
+<ul>
+<li><code>BUSYBOX_DIR := third_party/busybox</code></li>
+<li><code>BUSYBOX_BIN := $(BUSYBOX_DIR)/busybox</code></li>
+<li><code>BUSYBOX_CONFIG := $(BUSYBOX_DIR)/configs/nonux_defconfig</code></li>
+<li><code>BUSYBOX_BUILD := tools/build-busybox.sh</code></li>
+<li><code>$(BUSYBOX_BIN)</code> rule depends on the script + config +
+the musl libc archive (so a musl rebuild correctly triggers a busybox
+rebuild against the new libs).</li>
+<li><code>busybox</code> (.PHONY) and <code>busybox-clean</code>
+(.PHONY). busybox-clean runs busybox’s own <code>make clean</code> +
+drops the staged <code>.config</code>.</li>
+</ul></li>
+<li><code>musl-clean</code> extended to
+<code>rm -rf $(MUSL_DIR)/_sysroot</code> so the private sysroot doesn’t
+outlive the libc it was carved from.</li>
+</ul>
+<h3 id="gitignore"><code>.gitignore</code></h3>
+<ul>
+<li>Added a new section “Slice 7.6d.1” with:
+<ul>
+<li><code>third_party/musl/_sysroot/</code> (build output, regenerated
+on demand).</li>
+<li><code>third_party/busybox/busybox</code> +
+<code>busybox_unstripped</code> + <code>.config*</code> (busybox’s
+top-level outputs that don’t carry extensions covered by the existing
+<code>*.o</code> / <code>*.a</code> rules).</li>
+<li>The handful of generated headers under
+<code>third_party/busybox/include/</code> (<code>autoconf.h</code>,
+<code>applets.h</code>, <code>applet_tables.h</code>,
+<code>bbconfigopts.h</code>, <code>bbconfigopts_bz2.h</code>,
+<code>common_bufsiz.h</code>, <code>embedded_scripts.h</code>,
+<code>NUM_APPLETS.h</code>, <code>usage_compressed.h</code>).</li>
+<li>The kconfig parser-generated bits
+(<code>scripts/basic/fixdep</code>, <code>scripts/kconfig/conf</code>,
+<code>scripts/kconfig/zconf.tab.c</code>,
+<code>scripts/kconfig/lex.zconf.c</code>,
+<code>scripts/kconfig/zconf.hash.c</code>).</li>
+<li><code>applets_sh/applet_tables</code>.</li>
+</ul></li>
+</ul>
+<h2 id="drive-by-gotchas">Drive-by gotchas</h2>
+<ul>
+<li><p><strong><code>yes "" | make oldconfig</code> exits 141 under
+pipefail.</strong> <code>yes</code> receives SIGPIPE the moment
+<code>oldconfig</code> closes stdin; with <code>set -o pipefail</code>
+(which the script uses for the rest of its body) that propagates as
+failure. Bracketing the one pipe with <code>set +o pipefail</code> /
+<code>set -o pipefail</code> is the cleanest fix — the alternatives
+(<code>(yes "" || true) | ...</code>, counting the oldconfig question
+count and using <code>printf '\n%.0s' {1..N}</code> instead) are all
+worse.</p></li>
+<li><p><strong>busybox 1.36.1 has no <code>olddefconfig</code>.</strong>
+That target was added to the kernel-derived kconfig in a later release.
+<code>oldconfig</code> with empty stdin is the equivalent. Documented as
+a comment next to the <code>set +o pipefail</code> to head off the next
+person who tries to “fix” the script by switching to
+olddefconfig.</p></li>
+<li><p><strong>musl’s <code>install-headers</code> lays out
+<code>prefix/include/</code>, not
+<code>prefix/usr/include/</code>.</strong> Standard sysroot convention
+is the latter, so when wiring <code>--sysroot</code> you have to also
+pass <code>-isystem $SYSROOT/include</code> explicitly … except gcc
+accepts <code>--sysroot</code> pointing at any prefix where
+<code>include/</code> and <code>lib/</code> sit at the top, which is
+what we have. No explicit <code>-isystem</code> needed.</p></li>
+<li><p><strong>No qemu-user-static available locally.</strong> Couldn’t
+run busybox under user-mode qemu for an extra-belt-and-braces sanity
+check. Live ktest run is what 7.6d.2 will provide; for now
+<code>file</code> + <code>readelf -h</code> are sufficient.</p></li>
+</ul>
+<h2 id="verification">Verification</h2>
+<ul>
+<li><p><code>make busybox</code> (clean → built):</p>
+<pre><code>/home/thinker/.../third_party/busybox/busybox: ELF 64-bit LSB
+executable, ARM aarch64, version 1 (GNU/Linux), statically linked,
+BuildID[sha1]=991ca039e6590e9a586e9babaca2610e2931b433, for
+GNU/Linux 3.7.0, not stripped
+build-busybox.sh: ok (2292464 bytes)</code></pre>
+<ul>
+<li>2.29 MB static aarch64 ELF.</li>
+<li><code>readelf -h</code> shows entry point <code>0x4005c0</code>, two
+LOAD segments at <code>0x400000</code> (text/rodata) and
+<code>0x5d9770</code> (data/bss), no dynamic section
+(<code>There is no dynamic section in this file.</code>).</li>
+<li>“GNU/Linux 3.7.0” in <code>file</code> is musl’s identification of
+the <code>.note.ABI-tag</code> section musl emits — not a kernel-version
+requirement. The binary makes only NX_SYS_* syscalls (musl is patched to
+translate Linux numbers into ours before <code>svc 0</code>), so it’ll
+go wherever the patched libc.a goes.</li>
+</ul></li>
+<li><p><code>make test</code> → <strong>407/407 pass</strong> (51 python
++ 275 host + 81 kernel), 0 leaks, 0 errors, exit 0. Identical to slice
+7.6c.3c’s baseline — no regression from the new build
+infrastructure.</p></li>
+</ul>
+<h2 id="what-was-not-done">What Was Not Done</h2>
+<ul>
+<li><p><strong>No EL0 demo runs busybox.</strong> By design — that’s
+slice 7.6d.2’s one job, and it’s where the kernel-side discoveries
+happen.</p></li>
+<li><p><strong>No ktests added.</strong> Same reason.</p></li>
+<li><p><strong>No initramfs integration.</strong> busybox doesn’t appear
+in <code>tools/pack-initramfs.py</code>’s list yet. 7.6d.2 will add it
+(or not — depending on whether we can drive busybox via drop_to_el0
+during the discovery sub-slice without going through the initramfs path;
+TBD).</p></li>
+<li><p>**No clone.s / vfork.s / __unmapself.s / restore.s patches** to
+musl. Predicted in slice 7.6c.3a + flagged in the HANDOFF crystal-ball,
+but the demo set in 7.6d.1 didn’t pull them in. busybox links against
+musl but doesn’t <em>run</em> in this slice, so the asm files aren’t on
+the call graph yet. They land in whichever 7.6d.3.x sub-slice 7.6d.2
+surfaces them.</p></li>
+</ul>
+<h2 id="test-counts">Test Counts</h2>
+<ul>
+<li>Python: 51 (unchanged)</li>
+<li>Host: 275 (unchanged)</li>
+<li>Kernel: 81 (unchanged)</li>
+<li><strong>Total: 407/407 PASS</strong></li>
+</ul>
+<p>Build outputs new to this slice:</p>
+<ul>
+<li><p><code>third_party/busybox/busybox</code> — 2.29 MB static aarch64
+ELF (gitignored).</p></li>
+<li><p><code>third_party/musl/_sysroot/</code> — musl headers + lib
+symlinks (gitignored).</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li><p><strong>7.6d.2</strong> — Try to boot busybox <code>--help</code>
+from a libnxlibc parent. Discovery-driven sub-slice. Small libnxlibc
+parent forks + execs <code>/bin/busybox</code> with argv
+<code>{ "/bin/busybox",   "--help", NULL }</code> against a ramfs-seeded
+busybox. Expected: some combination of (a) musl tries <code>mmap</code>
+for mallocng’s first slab → ENOSYS, (b) musl’s <code>__clone</code>
+reachable through some pthread-init code path → SVC trap with
+un-translated x8, (c) process-table or address-space caps exhaust after
+a few iterations. Deliverable: kernel test capturing the failure mode +
+written list of follow-up sub-slices.</p></li>
+<li><p><strong>7.6d.3+</strong> — Close whichever gaps 7.6d.2 surfaces.
+Most-likely candidates: <code>NX_SYS_MMAP</code>, the four svc-direct
+musl asm files, process-table cap bump or proper reap-on-wait.</p></li>
+<li><p><strong>7.6d.N</strong> — <code>/init = busybox sh</code> boots
+to a shell prompt. <code>tools/pack-initramfs.py</code> learns to emit
+the <code>/bin/busybox</code> + applet-symlink layout; production
+<code>make run</code> lands on a shell prompt over serial.</p></li>
+</ul>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-25</p>
+</body>
+</html>

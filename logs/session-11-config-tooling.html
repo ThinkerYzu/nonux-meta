@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-11-config-tooling – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-11-config-tooling-slice-3.5"
+id="toc-session-11-config-tooling-slice-3.5">Session 11: Config tooling
+(slice 3.5)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#toolsschemas-json-schema-draft-2020-12-definitions"
+id="toc-toolsschemas-json-schema-draft-2020-12-definitions"><code>tools/schemas/</code>
+— JSON Schema Draft 2020-12 definitions</a></li>
+<li><a href="#toolsgen-config.py-manifest-kernel-subcommands"
+id="toc-toolsgen-config.py-manifest-kernel-subcommands"><code>tools/gen-config.py</code>
+— <code>manifest</code> + <code>kernel</code> subcommands</a></li>
+<li><a href="#toolsvalidate-config.py-first-venv-dependent-tool"
+id="toc-toolsvalidate-config.py-first-venv-dependent-tool"><code>tools/validate-config.py</code>
+— first venv-dependent tool</a></li>
+<li><a href="#makefile-wiring" id="toc-makefile-wiring">Makefile
+wiring</a></li>
+<li><a href="#toolsrequirements.txt"
+id="toc-toolsrequirements.txt"><code>tools/requirements.txt</code></a></li>
+<li><a href="#toolstests-python-unit-tests"
+id="toc-toolstests-python-unit-tests"><code>tools/tests/</code> — Python
+unit tests</a></li>
+</ul></li>
+<li><a href="#results" id="toc-results">Results</a></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions" id="toc-decisions">Decisions</a></li>
+<li><a href="#open-deferred" id="toc-open-deferred">Open /
+Deferred</a></li>
+<li><a href="#next" id="toc-next">Next</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-11-config-tooling-slice-3.5">Session 11: Config tooling
+(slice 3.5)</h1>
+<p><strong>Date:</strong> 2026-04-21 <strong>Phase:</strong> 3 —
+Component framework <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li><p>Extend the Python tool chain from slice 3.4 into a full config
+pipeline: read <code>kernel.json</code>, emit <code>gen/config.h</code>
+(kernel config defines) and <code>gen/sources.mk</code> (compile list);
+validate the whole tree against real JSON schemas; perform
+cross-manifest version checks and dep-graph cycle detection; wire the
+project venv into the Makefiles so <code>make validate-config</code> /
+<code>make deps</code> / <code>make   deps-dot</code> work out of the
+box.</p></li>
+<li><p>Install the first Python dependency (<code>jsonschema</code>) —
+proves the venv machinery landed in slice 3.4 is actually
+usable.</p></li>
+<li><p>Add Python unit tests so the tooling has the same regression
+coverage as the C side.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="toolsschemas-json-schema-draft-2020-12-definitions"><code>tools/schemas/</code>
+— JSON Schema Draft 2020-12 definitions</h3>
+<ul>
+<li><p><code>manifest.schema.json</code> — per-component manifest:
+requires <code>name</code> (valid C identifier) and <code>version</code>
+(<code>X.Y.Z</code>); optional <code>iface</code> (slot interface tag,
+validated harder in 3.7), <code>requires</code> and
+<code>optional</code> maps, each keyed by dep name. Dep spec: optional
+<code>version</code> (<code>&gt;=X.Y.Z</code> only in v1),
+<code>mode</code> (<code>async</code>/<code>sync</code>), boolean
+<code>stateful</code>, <code>policy</code>
+(<code>queue</code>/<code>reject</code>/<code>redirect</code>). No extra
+properties — typos fail loudly.</p></li>
+<li><p><code>kernel.schema.json</code> — top-level composition: requires
+<code>target</code> (string) and non-empty <code>components</code> map
+(slot → binding). Slot bindings require <code>impl</code> (valid C
+identifier) and allow optional <code>config</code> (object) and
+<code>iface</code>. Connection overrides are typed. <code>hooks</code>
+and <code>posix</code> are lenient (shape finalises in 3.8 / Phase
+7).</p></li>
+</ul>
+<h3
+id="toolsgen-config.py-manifest-kernel-subcommands"><code>tools/gen-config.py</code>
+— <code>manifest</code> + <code>kernel</code> subcommands</h3>
+<ul>
+<li><p>Refactored to argparse subcommands:</p>
+<ul>
+<li><code>manifest &lt;manifest.json&gt; &lt;outdir&gt;</code> —
+unchanged deps.h emission from slice 3.4. Test/host/Makefile updated to
+pass the <code>manifest</code> subcommand.</li>
+<li><code>kernel &lt;kernel.json&gt; &lt;components_dir&gt; &lt;outdir&gt;</code>
+— new. Emits:
+<ul>
+<li><code>gen/config.h</code> — <code>#define NX_TARGET</code>, per-slot
+<code>#define NX_SLOT_&lt;SLOT&gt;_IMPL "&lt;impl&gt;"</code>,
+per-component
+<code>#define NX_CONFIG_&lt;COMP&gt;_&lt;KEY&gt; &lt;literal&gt;</code>
+from each binding’s <code>config</code> block. Dotted slot names like
+<code>char_device.serial</code> flatten to
+<code>CHAR_DEVICE_SERIAL</code>.</li>
+<li><code>gen/sources.mk</code> —
+<code>COMPONENT_SRCS := components/&lt;impl&gt;/&lt;impl&gt;.c \   …</code>
+for every referenced impl. Deduplicated and sorted.</li>
+</ul></li>
+<li><code>components_dir</code> argument currently accepted but unused —
+reserved for slice 3.7 where <code>verify-registry.py</code> will need
+to cross-resolve manifests.</li>
+</ul></li>
+<li><p><code>c_literal()</code> maps Python values to C tokens: ints
+verbatim, bools → <code>1</code>/<code>0</code>, strings quoted with
+JSON-style escaping, numeric- looking strings (hex <code>0x…</code> or
+decimal) passed through as literal integers — so
+<code>"base_addr": "0x09000000"</code> lands as
+<code>#define NX_CONFIG_UART_PL011_BASE_ADDR 0x09000000</code> instead
+of a quoted string.</p></li>
+<li><p>Deterministic: slot/component/config-key keys are sorted before
+emission in both subcommands.</p></li>
+<li><p>Still stdlib-only. Kernel mode does NOT invoke jsonschema —
+schema validation is <code>validate-config.py</code>’s job.</p></li>
+</ul>
+<h3
+id="toolsvalidate-config.py-first-venv-dependent-tool"><code>tools/validate-config.py</code>
+— first venv-dependent tool</h3>
+<ul>
+<li><p>Runs four checks in order, accumulating errors so a single pass
+surfaces everything:</p>
+<ol type="1">
+<li><strong>Schema</strong> — kernel.json against
+<code>kernel.schema.json</code>; every resolved component’s
+manifest.json against <code>manifest.schema.json</code>. Uses
+<code>jsonschema.Draft202012Validator.iter_errors</code> with sorted
+paths so error output is stable.</li>
+<li><strong>Existence</strong> — every <code>impl</code> referenced in
+kernel.json has a <code>components/&lt;impl&gt;/manifest.json</code>,
+and the manifest’s <code>name</code> matches the directory.</li>
+<li><strong>Versions</strong> — <code>&gt;=X.Y.Z</code> constraints on
+<code>requires.&lt;dep&gt;.version</code> /
+<code>optional.&lt;dep&gt;.version</code> are satisfied by the target
+component’s top-level <code>version</code>. Only <code>&gt;=</code>
+supported in v1; any other operator is a validation error, not a silent
+skip.</li>
+<li><strong>Cycles</strong> — iterative DFS over the slot → dep-slot
+graph (both <code>requires</code> and <code>optional</code> edges are
+included, because a cycle through optionals is still a boot-order
+impossibility). Self-loops produce <code>[a, a]</code>; longer cycles
+reconstruct the full path.</li>
+</ol></li>
+<li><p>Same binary also serves <code>make deps</code>
+(<code>--deps</code>, one edge per line) and <code>make deps-dot</code>
+(<code>--deps-dot</code>, graphviz digraph).</p></li>
+<li><p>Exit code 2 on any check failure — Make surfaces as an error.
+Reports still print even when validation fails, so a user investigating
+a problem can see the partial graph.</p></li>
+<li><p>Missing <code>jsonschema</code> at import time prints a pointer
+to <code>make venv</code> /
+<code>pip install -r tools/requirements.txt</code> and exits 2.</p></li>
+</ul>
+<h3 id="makefile-wiring">Makefile wiring</h3>
+<ul>
+<li><p>New variables at the top: <code>VENV</code> /
+<code>VENV_PY</code> / <code>VENV_STAMP</code> / <code>PYTHON</code>.
+<code>VENV_STAMP = $(VENV)/.installed</code> is a plain file that
+<code>make venv</code> touches after <code>pip install</code> — avoids
+touching <code>$(VENV)/bin/python3</code>, which is a symlink to the
+system interpreter (previous attempt hit “Permission denied” because
+<code>touch</code> followed the symlink).</p></li>
+<li><p><code>make venv</code> — one-shot: creates <code>.venv/</code> if
+missing, installs <code>tools/requirements.txt</code>, stamps the
+sentinel. Re-running is a no-op when requirements haven’t
+changed.</p></li>
+<li><p><code>make kernel-config</code> — <strong>phony</strong> target
+that emits <code>gen/config.h</code> + <code>gen/sources.mk</code>.
+Deliberately NOT a file-target, because an ordinary rule whose outputs
+include <code>gen/sources.mk</code> would fire from the top-level
+<code>-include gen/sources.mk</code> and try to compile the
+referenced-but-nonexistent <code>components/*.c</code> files. Phony
+keeps generation opt-in until real components land in Phase 4+.</p></li>
+<li><p><code>make validate-config</code> / <code>make deps</code> /
+<code>make deps-dot</code> now depend on <code>$(VENV_STAMP)</code> so
+they install deps on first use.</p></li>
+<li><p><code>make test-tools</code> — new test target that runs
+<code>python3 -m unittest discover -s tools/tests</code>. Wired into
+<code>make test</code> alongside <code>test-host</code> and
+<code>test-kernel</code>.</p></li>
+<li><p><code>test/host/Makefile</code> — the existing
+<code>gen/%_deps.h</code> rule now invokes
+<code>gen-config.py manifest …</code> (the subcommand), per the
+refactored CLI.</p></li>
+</ul>
+<h3 id="toolsrequirements.txt"><code>tools/requirements.txt</code></h3>
+<ul>
+<li>Single line: <code>jsonschema&gt;=4.0</code>. Pulled in only by
+<code>validate-config.py</code>; the generator stays stdlib-only so
+<code>make test-host</code> doesn’t need the venv activated.</li>
+</ul>
+<h3 id="toolstests-python-unit-tests"><code>tools/tests/</code> — Python
+unit tests</h3>
+<ul>
+<li><p>Stdlib <code>unittest</code> only — no pytest dep, no
+<code>conftest.py</code>, no fixtures plugin. Tests discoverable via
+<code>unittest discover</code>.</p></li>
+<li><p><code>_helpers.load_tool()</code> loads
+<code>gen-config.py</code> and <code>validate-config.py</code> as
+importable modules despite the hyphenated filenames, via
+<code>importlib.util.spec_from_file_location</code>. The alternative —
+renaming the tools — would have bent the filename convention for the
+sake of the tests, which felt wrong.</p></li>
+<li><p><code>test_gen_config.py</code> — 15 tests covering both
+subcommands: struct-field-per-dep, default propagation, explicit
+overrides, deterministic output across runs, alphabetical sorting within
+requires/optional, no-deps placeholder + no DEPS_TABLE, duplicate
+dep-name rejection, invalid-mode rejection, minimal kernel emission,
+dotted-slot-to-underscore, config-value literal shapes (int /
+numeric-string / plain-string / bool), impl dedup in sources.mk,
+determinism, missing-target, empty-components.</p></li>
+<li><p><code>test_validate_config.py</code> — 16 tests: version matching
+(<code>satisfies</code>, <code>parse_semver</code>), cycle detection
+(acyclic / self- loop / 2-node / 3-node), and eight end-to-end
+fixture-driven cases: valid tree, missing manifest, name-directory
+mismatch, version constraint unsatisfied, required dep slot missing from
+kernel, optional dep slot missing (still OK), dependency cycle, invalid
+JSON, schema violation. All fixture trees are built in
+<code>tempfile.TemporaryDirectory()</code> so tests don’t share state or
+leave disk residue.</p></li>
+<li><p><code>jsonschema</code>-dependent tests skip gracefully if the
+module isn’t installed —
+<code>@unittest.skipUnless(HAVE_JSONSCHEMA, …)</code>.</p></li>
+</ul>
+<h2 id="results">Results</h2>
+<ul>
+<li><p><code>make test</code> now runs <strong>three</strong>
+suites:</p>
+<ul>
+<li><code>test-tools</code> → 31 Python tests, all pass.</li>
+<li><code>test-host</code> → 84 C host tests, 0 leaks, 0 errors.</li>
+<li><code>test-kernel</code> → 6 kernel tests under QEMU.</li>
+<li><strong>Total: 121/121 pass.</strong></li>
+</ul></li>
+<li><p><code>make venv</code> creates the venv + installs requirements
+(~4 s).</p></li>
+<li><p><code>make kernel-config</code> emits <code>gen/config.h</code> +
+<code>gen/sources.mk</code> from the repo’s aspirational
+<code>kernel.json</code> successfully.</p></li>
+<li><p><code>make validate-config</code> / <code>make deps</code>
+correctly return exit 2 on the aspirational config (missing manifests) —
+expected state until real components land in Phase 4+.</p></li>
+<li><p>Production <code>kernel.bin</code> unchanged this slice.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong><code>-include gen/sources.mk</code> auto-rebuilds if a
+rule names <code>gen/sources.mk</code> as an output.</strong> First
+draft of the Makefile had
+<code>gen/config.h gen/sources.mk: kernel.json $(GENCONFIG)</code> as an
+ordinary rule. <code>make test</code> → <code>-include</code> triggered
+the generator → sources.mk populated with nonexistent
+<code>components/*.c</code> → link failed. Fix: make
+<code>kernel-config</code> a phony target whose recipe writes the files
+as a <em>side-effect</em>; don’t name them as outputs.
+<code>-include gen/sources.mk</code> then silently picks them up when
+they’re there and silently skips when they’re not.</p></li>
+<li><p><strong><code>touch</code> follows symlinks by default.</strong>
+Using <code>$(VENV)/bin/python3</code> as the venv sentinel failed with
+“Permission denied” because <code>python3</code> is a symlink to a
+system-owned <code>python3.13</code>. Switched to a plain stamp file
+<code>$(VENV)/.installed</code>, which we own.</p></li>
+<li><p><strong><code>components_dir</code> unused in kernel mode
+today.</strong> Kept the CLI argument even though
+<code>gen-config.py kernel</code> only reads <code>kernel.json</code> —
+the signature matches <code>validate-config.py</code>’s and gives slice
+3.7 (<code>verify-registry.py</code>) a place to hang cross-manifest
+checks without a CLI break.</p></li>
+</ul>
+<h2 id="decisions">Decisions</h2>
+<ul>
+<li><p><strong>Only one venv dep for now</strong> —
+<code>jsonschema</code>. Not pulling in <code>pyyaml</code>,
+<code>click</code>, <code>pydantic</code> etc. until there’s a concrete
+need. Stdlib <code>argparse</code> and <code>json</code> carry the tool
+fine.</p></li>
+<li><p><strong>Stdlib <code>unittest</code>, not
+<code>pytest</code>.</strong> No extra dep means
+<code>make test-tools</code> works out of the box with just the venv
+created by <code>make venv</code>. Loss of features vs. pytest is small
+at 31 tests.</p></li>
+<li><p><strong><code>&gt;=X.Y.Z</code> is the only version
+operator.</strong> Semver complexity (<code>^</code>, <code>~</code>,
+ranges, prerelease) isn’t justified yet — a real case in components/ can
+drive it later.</p></li>
+<li><p><strong>Cycle detection includes optional edges.</strong> A cycle
+through optionals means no topological boot order exists, even though
+any one optional edge could be dropped. Flagging it now beats surprising
+debug sessions later.</p></li>
+<li><p><strong>No auto-regeneration of
+<code>gen/&lt;name&gt;_deps.h</code> from kernel mode.</strong> Each
+component’s deps.h is a per-manifest artefact; production Makefile rules
+(and the test/host/Makefile’s existing rule) generate them
+one-at-a-time. Keeps gen-config.py’s two subcommands
+single-purpose.</p></li>
+</ul>
+<h2 id="open-deferred">Open / Deferred</h2>
+<ul>
+<li><p><strong>Real components in <code>components/</code></strong> —
+slice 3.5 proves the tool chain works against a valid fixture tree (in
+Python tests and tempdir-based cases). The repo’s aspirational
+<code>kernel.json</code> references manifests that don’t exist yet;
+<code>make validate-config</code> correctly refuses to validate until
+they do. Phase 4’s first component (<code>sched_rr</code>) will lift the
+aspirational flag.</p></li>
+<li><p><strong><code>iface</code> field matching.</strong> Both schemas
+allow an optional <code>iface</code> string but don’t yet check that a
+slot’s declared <code>iface</code> matches the chosen
+<code>impl</code>’s declared <code>iface</code>. Slice 3.7
+(<code>verify-registry.py</code>) will pick this up.</p></li>
+<li><p><strong>Typed ops in the component descriptor.</strong> Still
+<code>const void *</code> (carried over from 3.4). Slice 3.6 types it as
+<code>struct nx_component_ops *</code>.</p></li>
+<li><p><strong>R7 regenerate-and-diff gate.</strong> Slice 3.7 will
+invoke <code>gen-config.py manifest</code> on every manifest under
+components/ and diff against the checked-in
+<code>gen/&lt;name&gt;_deps.h</code>. The deterministic-output property
+was a precondition; it held up under the new unit tests (see
+<code>test_deterministic_output</code> and
+<code>test_deterministic_output_across_runs</code>).</p></li>
+</ul>
+<h2 id="next">Next</h2>
+<ul>
+<li><strong>Slice 3.6 — IPC router.</strong> Introduces
+<code>struct nx_component_ops</code> (types
+<code>nx_component_descriptor.ops</code>), the async-default /
+sync-shortcut message router, cap-array scanning
+(<code>ipc_scan_send_caps</code> / <code>ipc_scan_recv_caps</code>), and
+<code>slot_ref_retain</code> / <code>slot_ref_release</code> for
+cap-transferred slot refs that a receiver wants to hold past the
+handler.</li>
+</ul>
+</body>
+</html>

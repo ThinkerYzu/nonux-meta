@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-44-printf – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-44-slice-7.6c.2-printf-stdio-in-libnxlibc"
+id="toc-session-44-slice-7.6c.2-printf-stdio-in-libnxlibc">Session 44:
+slice 7.6c.2 — printf + stdio in libnxlibc</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#componentsposix_shimnxlibc.h"
+id="toc-componentsposix_shimnxlibc.h"><code>components/posix_shim/nxlibc.h</code></a></li>
+<li><a href="#componentsposix_shimnxlibc.c"
+id="toc-componentsposix_shimnxlibc.c"><code>components/posix_shim/nxlibc.c</code></a></li>
+<li><a href="#demo-testkernelposix_printf_prog.c"
+id="toc-demo-testkernelposix_printf_prog.c">Demo
+<code>test/kernel/posix_printf_prog.c</code></a></li>
+<li><a href="#testkernelposix_printf_prog_blob.s-ktest_posix_printf.c"
+id="toc-testkernelposix_printf_prog_blob.s-ktest_posix_printf.c"><code>test/kernel/posix_printf_prog_blob.S</code>
++ <code>ktest_posix_printf.c</code></a></li>
+<li><a href="#makefile" id="toc-makefile">Makefile</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-44-slice-7.6c.2-printf-stdio-in-libnxlibc">Session 44:
+slice 7.6c.2 — printf + stdio in libnxlibc</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6c.2 (was musl pin; renamed) <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>The original slice plan put musl integration as 7.6c.2. Honest
+appraisal: vendoring + cross-building musl is a multi-day project
+(autoconf flags, syscall-number remapping, TLS stubs, missing syscalls
+like <code>mmap</code>/<code>brk</code>/<code>set_tid_address</code>,
+argv/envp stack push) that doesn’t fit a single session. Defer musl to
+7.6c.3 and use this session for a smaller, immediately-useful insert:
+add <code>printf(3)</code> + supporting stdio to
+<code>libnxlibc.a</code>. Programs can then format output without
+hand-rolling decimal-to-ASCII or calling <code>write</code> on pre-built
+strings.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Subset of <code>printf(3)</code>, not the whole
+thing.</strong> Glibc’s <code>printf</code> parses width / precision /
+flags / 18 conversions including floats — easily 1000+ lines. v1 nxlibc
+supports <code>%d / %i / %u / %x / %X / %s / %c / %%</code> — eight
+conversions, no formatting modifiers. Enough for hand-written EL0 demos
+and slice 7.6d’s pre-busybox smoke tests; the full surface comes with
+the eventual musl pin.</p></li>
+<li><p><strong>Stack-buffered, not stdio-buffered.</strong> glibc’s
+<code>printf</code> emits into a per-stream <code>FILE*</code> buffer
+that get flushed on <code>\n</code> / <code>\0</code> / fclose. v1
+nxlibc skips the FILE layer entirely: each <code>printf</code> formats
+into a 256-byte stack-local buffer, then ONE
+<code>nxlibc_write(STDOUT_FILENO, buf, n)</code> flushes it. Simpler,
+predictable, no global state. Means each <code>printf</code> call
+produces exactly one debug_write — useful as a ktest signal.</p></li>
+<li><p><strong>256-byte buffer matches our existing size class.</strong>
+<code>NX_FILE_IO_MAX = NX_CHANNEL_MSG_MAX = 256</code>. Output longer
+than 256 bytes truncates — POSIX-shaped behavior is
+<code>snprintf</code> truncates, and the return value reports the
+would-have-been length so callers can detect overflow.</p></li>
+<li><p><strong><code>__attribute__((format(printf, ...)))</code> for
+type-checking.</strong> GCC checks the format string against the
+variadic args at every call site. Catches <code>printf("%s", 42)</code>
+at compile time rather than runtime. Free safety net.</p></li>
+<li><p><strong>No <code>errno</code> translation.</strong> POSIX
+<code>printf</code> returns negative on I/O error and sets errno. v1
+nxlibc returns the negative status directly (matching the rest of the
+libnxlibc convention); no errno yet. When musl arrives in 7.6c.3 it
+brings full POSIX errno + the global symbol.</p></li>
+<li><p><strong>Insert before musl in the slice numbering.</strong>
+Renamed the planned slice 7.6c.2 (musl) to 7.6c.3, made this session
+7.6c.2. Two reasons: (1) printf is genuinely useful to ship before the
+musl integration which might run into surprises;</p>
+<ol start="2" type="1">
+<li>gives 7.6c.3’s musl-vs-libnxlibc diff a richer baseline to compare
+against.</li>
+</ol></li>
+<li><p><strong>Single demo exercising every conversion.</strong> A
+regression in one formatter (e.g. <code>%X</code> emits lowercase)
+breaks exactly one marker in the live ktest log — easier to diff than
+separate tests per conversion.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="componentsposix_shimnxlibc.h"><code>components/posix_shim/nxlibc.h</code></h3>
+<p>Added declarations for
+<code>nxlibc_printf / vsnprintf / snprintf / putchar / puts / atoi</code>.
+Each variadic form gets the GCC <code>format(printf, ...)</code>
+attribute.</p>
+<h3
+id="componentsposix_shimnxlibc.c"><code>components/posix_shim/nxlibc.c</code></h3>
+<p>Eight new functions:</p>
+<ul>
+<li><p><code>emit_char</code> / <code>emit_str</code> /
+<code>emit_uint</code> / <code>emit_int</code> — internal-only helpers
+that write a single value into the output buffer at a given position.
+All four take <code>(buf, cap, pos, value)</code> and return the new
+<code>pos</code>; if <code>pos   &gt;= cap</code>, they continue
+counting but stop writing (snprintf-style overflow tracking).</p></li>
+<li><p><code>nxlibc_vsnprintf(buf, cap, fmt, ap)</code> — the printf
+core. Walks the format string a char at a time; for each <code>%X</code>
+conversion, dispatches via a <code>switch</code>. Returns the
+would-have-been length.</p></li>
+<li><p><code>nxlibc_snprintf(buf, cap, fmt, ...)</code> — varargs
+wrapper around vsnprintf.</p></li>
+<li><p><code>nxlibc_printf(fmt, ...)</code> — formats into a 256-byte
+stack buffer, writes via
+<code>nxlibc_write(STDOUT_FILENO, buf, n)</code> (capped at the buffer
+size in case of truncation).</p></li>
+<li><p><code>nxlibc_putchar(c)</code> — single-byte write to
+stdout.</p></li>
+<li><p><code>nxlibc_puts(s)</code> — string + ‘’ to stdout.</p></li>
+<li><p><code>nxlibc_atoi(s)</code> — POSIX-shaped: skip whitespace,
+optional sign, decimal digits.</p></li>
+</ul>
+<p>Conversion implementations:</p>
+<ul>
+<li><code>%d / %i</code> — signed decimal via emit_int.</li>
+<li><code>%u</code> — unsigned decimal via emit_uint(base=10).</li>
+<li><code>%x / %X</code> — hex via emit_uint(base=16) with case
+flag.</li>
+<li><code>%s</code> — string via emit_str (null-safe → “(null)”).</li>
+<li><code>%c</code> — single character.</li>
+<li><code>%%</code> — literal ‘%’.</li>
+<li>Trailing ‘%’ with no conversion → emit ‘%’ literally + stop.</li>
+<li>Unknown conversion (e.g. <code>%q</code>) → emit <code>%X</code>
+literally so the mistake is visible in the output.</li>
+</ul>
+<h3 id="demo-testkernelposix_printf_prog.c">Demo
+<code>test/kernel/posix_printf_prog.c</code></h3>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-int=</span><span class="sc">%d</span><span class="st">]&quot;</span><span class="op">,</span>   <span class="dv">42</span><span class="op">);</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-uint=</span><span class="sc">%u</span><span class="st">]&quot;</span><span class="op">,</span>  <span class="op">(</span><span class="dt">unsigned</span><span class="op">)</span><span class="bn">0xDEADBEEF</span><span class="op">);</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-hex=</span><span class="sc">%x</span><span class="st">]&quot;</span><span class="op">,</span>   <span class="op">(</span><span class="dt">unsigned</span><span class="op">)</span><span class="bn">0xff</span><span class="op">);</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-HEX=</span><span class="sc">%X</span><span class="st">]&quot;</span><span class="op">,</span>   <span class="op">(</span><span class="dt">unsigned</span><span class="op">)</span><span class="bn">0xCAFE</span><span class="op">);</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-str=</span><span class="sc">%s</span><span class="st">]&quot;</span><span class="op">,</span>   argv <span class="op">?</span> argv<span class="op">[</span><span class="dv">0</span><span class="op">]</span> <span class="op">:</span> <span class="st">&quot;(no-argv)&quot;</span><span class="op">);</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-char=</span><span class="sc">%c</span><span class="st">]&quot;</span><span class="op">,</span>  <span class="ch">&#39;Q&#39;</span><span class="op">);</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-pct=</span><span class="sc">%%</span><span class="st">]&quot;</span><span class="op">);</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[printf-multi=</span><span class="sc">%d</span><span class="st">/</span><span class="sc">%s</span><span class="st">/</span><span class="sc">%x</span><span class="st">]&quot;</span><span class="op">,</span> argc<span class="op">,</span> argv<span class="op">[</span><span class="dv">0</span><span class="op">],</span> <span class="bn">0xab</span><span class="op">);</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>nxlibc_printf<span class="op">(</span><span class="st">&quot;[atoi=</span><span class="sc">%d</span><span class="st">]&quot;</span><span class="op">,</span> nxlibc_atoi<span class="op">(</span><span class="st">&quot;  -23xyz&quot;</span><span class="op">));</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>nxlibc_puts<span class="op">(</span><span class="st">&quot;[printf-puts]&quot;</span><span class="op">);</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>nxlibc_exit<span class="op">(</span><span class="dv">37</span><span class="op">);</span></span></code></pre></div>
+<p>Each call produces exactly one debug_write (printf body or puts
+body+newline = 2 writes). Live log carries the formatted strings
+verbatim.</p>
+<h3
+id="testkernelposix_printf_prog_blob.s-ktest_posix_printf.c"><code>test/kernel/posix_printf_prog_blob.S</code>
++ <code>ktest_posix_printf.c</code></h3>
+<p>Standard slice-7.x scaffolding: <code>.incbin</code> wrapper + an
+ELF-loader-driven ktest. ktest asserts ≥ 10 debug_writes (9 printfs +
+atoi-printf + puts-pair) + exit_code == 37.</p>
+<h3 id="makefile">Makefile</h3>
+<ul>
+<li><p><code>KTEST_C += test/kernel/ktest_posix_printf.c</code></p></li>
+<li><p><code>KTEST_S += test/kernel/posix_printf_prog_blob.S</code></p></li>
+<li><p>New rules for <code>posix_printf_prog.{o,elf,_blob.o}</code>
+mirroring <code>posix_libc_prog</code>’s.</p></li>
+<li><p><code>clean</code> drops
+<code>posix_printf_prog.elf</code>.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong><code>-mgeneral-regs-only</code> doesn’t break va_args
+for integer arguments.</strong> Was concerned that disabling SIMD/FP
+might affect variadic argument passing. AArch64 PCS uses x0..x7 for
+integer args + v0..v7 for FP — <code>-mgeneral-regs-only</code> bans use
+of v0..v7 in <em>generated</em> code, but the va_arg machinery for
+integer-only varargs is just stack pointer arithmetic, no SIMD. Compiles
++ works fine. We’d have a problem only if we tried <code>%f</code>
+(which would need v0).</p></li>
+<li><p><strong>Live ktest log makes printf regressions easy to
+spot.</strong> Each conversion gets a tagged marker
+(<code>[printf-int=42]</code>, etc.). If <code>%d</code> ever emits “0”
+instead of “42”, exactly one marker is wrong — visible at a glance in
+the log diff. Far better than a cryptic “exit code 1” from a unified
+test.</p></li>
+<li><p><strong><code>__attribute__((format(printf, ...)))</code> works
+on freestanding builds.</strong> GCC’s format-checking is purely a
+frontend warning — doesn’t pull in any runtime support. Caught one
+mistake during development (<code>%s</code> paired with an
+<code>int</code> arg).</p></li>
+<li><p><strong>256-byte stack buffer is plenty for hand-written
+demos.</strong> The longest demo line is ~30 bytes; even a 4-line
+message with multiple <code>%s</code> substitutions stays well under
+256. When busybox arrives in 7.6d, its <code>printf</code>-heavy code
+paths will benefit from musl’s larger / heap-backed buffers, so the
+limit doesn’t constrain anything we’d realistically ship in v1.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>Renumber slice 7.6c.2 → 7.6c.3 (musl).</strong> printf is
+a cleaner cut than musl integration for a single session. Both
+HANDOFF.md and IMPLEMENTATION-GUIDE.md updated to reflect the new order.
+Honest scope-tracking matters more than preserving the original
+numbering.</p></li>
+<li><p><strong>No <code>%lld</code> / <code>%ld</code> / size suffixes
+in v1.</strong> Only int / unsigned in the supported conversions. 64-bit
+value formatting (e.g. <code>%lld</code>) would need
+<code>va_arg(ap, long long)</code> and a wider <code>emit_uint</code>.
+Adds noise without immediate payoff; lands either in a follow-up
+libnxlibc slice or with musl directly.</p></li>
+<li><p><strong><code>nxlibc_puts</code> writes the body + newline as TWO
+writes.</strong> Could fuse them into one (allocate body+1 buffer,
+append ‘’, single write). Two writes is simpler — and the ktest counts
+exact write counts, so each test author has a clear formula. When the
+libnxlibc layer retires, musl’s <code>puts</code> uses one buffer + one
+write; the ktest count differs by 1 but the marker check still
+passes.</p></li>
+<li><p><strong>Roll Session 39 to archive.</strong> HANDOFF.md’s session
+list caps at 5; after inserting Session 44, the old Session 39 (slice
+7.5 pipes + signals) moves to the archive.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>402/402 pass (51 python + 274
+host + 77 kernel), 0 leaks, 0 errors, exit 0</strong>. +1 kernel
+test.</p></li>
+<li><p><code>make run</code> boots cleanly.</p></li>
+<li><p>Artefacts:</p>
+<ul>
+<li><code>components/posix_shim/libnxlibc.a</code> — 7.4 KB (was 4.5 KB
+before this slice).</li>
+<li><code>test/kernel/posix_printf_prog.elf</code> — 4.5 KB linked
+against libnxlibc.</li>
+</ul></li>
+<li><p>Live UART now carries formatted markers — first time we have a
+libc-style print API in EL0.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p><strong>Slice 7.6c.3 — vendor + cross-build musl</strong> (still
+pending, just renumbered). Plan unchanged: vendored snapshot under
+<code>third_party/musl/</code>, patched
+<code>arch/aarch64/syscall_arch.h</code>, out-of-tree configure + make
+to produce <code>libc.a</code>, swap <code>libnxlibc.a</code> for
+<code>libc.a</code> on the demo link lines.</p>
+<p>When 7.6c.3 lands, libnxlibc will retire — musl’s printf is
+substantially fuller (width / precision / flags / float). Until then,
+libnxlibc is the production libc surface for nonux EL0 programs.</p>
+<p><strong>Slice 7.6d — busybox cross-compile + boot to shell</strong>
+(after 7.6c.3).</p>
+<p><strong>Deferred (unchanged):</strong></p>
+<ul>
+<li>sys_exec argv/envp push (real busybox CLI args).</li>
+<li>HANDLE_FILE fork inheritance.</li>
+<li>Proper cross-test task reap.</li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/components/posix_shim/nxlibc.h</code> — printf /
+vsnprintf / snprintf / putchar / puts / atoi declarations</li>
+<li><code>sources/nonux/components/posix_shim/nxlibc.c</code> — printf
+core (emit_* helpers + vsnprintf + dispatchers)</li>
+<li><code>sources/nonux/test/kernel/posix_printf_prog.c</code> — new
+(printf demo)</li>
+<li><code>sources/nonux/test/kernel/posix_printf_prog_blob.S</code> —
+new (.incbin wrapper)</li>
+<li><code>sources/nonux/test/kernel/ktest_posix_printf.c</code> — new
+(kernel test)</li>
+<li><code>sources/nonux/Makefile</code> —
+posix_printf_prog.{o,elf,_blob.o} rules; KTEST_C/S; clean</li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.6c.2
+(printf) inserted; old 7.6c.2 renumbered → 7.6c.3</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 39 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

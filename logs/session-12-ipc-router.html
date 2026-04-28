@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-12-ipc-router – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-12-ipc-router-slice-3.6"
+id="toc-session-12-ipc-router-slice-3.6">Session 12: IPC router (slice
+3.6)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#registry-descriptor-type-plumbing"
+id="toc-registry-descriptor-type-plumbing">Registry + descriptor type
+plumbing</a></li>
+<li><a href="#frameworkipc.h-types-and-api"
+id="toc-frameworkipc.h-types-and-api"><code>framework/ipc.h</code> —
+types and API</a></li>
+<li><a href="#frameworkipc.c-the-router"
+id="toc-frameworkipc.c-the-router"><code>framework/ipc.c</code> — the
+router</a></li>
+<li><a href="#tests-16-new-in-testhostcomponent_ipc_test.c"
+id="toc-tests-16-new-in-testhostcomponent_ipc_test.c">Tests — 16 new in
+<code>test/host/component_ipc_test.c</code></a></li>
+</ul></li>
+<li><a href="#results" id="toc-results">Results</a></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions" id="toc-decisions">Decisions</a></li>
+<li><a href="#open-deferred" id="toc-open-deferred">Open /
+Deferred</a></li>
+<li><a href="#next" id="toc-next">Next</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-12-ipc-router-slice-3.6">Session 12: IPC router (slice
+3.6)</h1>
+<p><strong>Date:</strong> 2026-04-21 <strong>Phase:</strong> 3 —
+Component framework <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li><p>Land the IPC router described in DESIGN.md §IPC Framework: typed
+component ops, a message router with async-default / sync-shortcut
+dispatch, per-slot inbox queues, typed capabilities in messages, send-
+and recv-side cap scanning, and <code>slot_ref_retain</code> /
+<code>slot_ref_release</code> for cap-held slot refs.</p></li>
+<li><p>Plumb the typed <code>struct nx_component_ops</code> into the
+component descriptor (promoted from <code>const void *</code> since
+slice 3.4) and into <code>nx_component</code> itself (so the router can
+find handlers).</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="registry-descriptor-type-plumbing">Registry + descriptor type
+plumbing</h3>
+<ul>
+<li><p><code>framework/registry.h</code>: forward-declares
+<code>struct   nx_component_descriptor</code> and adds two caller-owned
+fields to <code>nx_component</code>:</p>
+<ul>
+<li><code>void *impl</code> — the <code>self</code> pointer passed to
+every <code>ops-&gt;handle_msg(self, msg)</code> invocation.</li>
+<li><code>const struct nx_component_descriptor *descriptor</code> —
+back-link to the descriptor so the router can reach
+<code>descriptor-&gt;ops</code>. Like <code>manifest_id</code> /
+<code>state</code>, these fields are caller-owned; the registry never
+touches them. Slice 3.9’s descriptor walker sets both during boot;
+today’s tests set them by hand.</li>
+</ul></li>
+<li><p><code>framework/component.h</code>: introduces
+<code>struct nx_component_ops</code> (init / enable / pause / resume /
+disable / destroy / handle_msg — all nullable) and types
+<code>nx_component_descriptor.ops</code> as
+<code>const   struct nx_component_ops *</code>. The lifecycle callbacks
+are declared now so slice 3.9 can plumb them into
+<code>nx_component_init</code> / etc. without changing the descriptor
+shape; only <code>handle_msg</code> is exercised by the router in this
+slice.</p></li>
+<li><p>Existing 3.4 tests (<code>component_deps_test.c</code>) updated
+to pass a real all-NULL <code>struct nx_component_ops</code> instead of
+an <code>int</code> sentinel.</p></li>
+</ul>
+<h3 id="frameworkipc.h-types-and-api"><code>framework/ipc.h</code> —
+types and API</h3>
+<ul>
+<li><p><code>enum nx_cap_kind</code> (currently just
+<code>NX_CAP_SLOT_REF</code>; <code>NX_CAP_HANDLE</code> /
+<code>NX_CAP_VMO_CHUNK</code> arrive with Phases 5 / 7).</p></li>
+<li><p><code>enum nx_cap_ownership</code> = <code>NX_CAP_BORROW</code>
+(default) / <code>NX_CAP_TRANSFER</code>.</p></li>
+<li><p><code>struct nx_ipc_cap</code> —
+<code>{ kind, ownership, union u{slot_ref},   cap_id, claimed }</code>.
+<code>claimed</code> is the handshake the router uses to tell retained
+caps from dropped caps on handler return.</p></li>
+<li><p><code>struct nx_ipc_message</code> —
+<code>{ src_slot, dst_slot, msg_type, flags,   n_caps, caps, payload_len, payload, _next }</code>.
+<code>_next</code> is framework-owned (queue linkage) and callers must
+not touch it.</p></li>
+<li><p>Public API:</p>
+<ul>
+<li><code>nx_ipc_send(msg)</code> — router entry. Looks up the
+connection edge from <code>src_slot</code> to <code>dst_slot</code>
+(<code>NX_ENOENT</code> if none), runs
+<code>nx_ipc_scan_send_caps</code>, then dispatches SYNC (direct call)
+or ASYNC (enqueue).</li>
+<li><code>nx_ipc_dispatch(slot, max)</code> — drain helper for tests.
+Pops up to <code>max</code> messages from <code>slot</code>’s inbox,
+invokes the active component’s
+<code>ops-&gt;handle_msg(impl, msg)</code>, runs the recv-cap sweep,
+returns count dispatched. Stops on first handler error. Slice 3.9
+replaces explicit calls to this with a pinned per-CPU dispatcher
+thread.</li>
+<li><code>nx_ipc_inbox_depth(slot)</code> / <code>nx_ipc_reset()</code>
+— introspection and test-only teardown.</li>
+<li><code>nx_ipc_scan_send_caps(sender, msg)</code> — returns
+<code>NX_EINVAL</code> on the first slot-ref cap whose target has no
+registered incoming edge from <code>sender</code>.</li>
+<li><code>nx_ipc_scan_recv_caps(recv, msg)</code> — returns the count of
+unclaimed <code>TRANSFER</code> caps (borrows are silently dropped per
+DESIGN).</li>
+<li><code>nx_slot_ref_retain(self, cap, purpose, out_conn)</code> —
+promotes a borrowed/transferred slot ref into a registered connection
+edge owned by <code>self</code>; marks
+<code>cap-&gt;claimed = true</code>; returns the new connection via
+<code>out_conn</code> for the caller to release later.</li>
+<li><code>nx_slot_ref_release(self, target)</code> — walks
+<code>self</code>’s outgoing edges, finds the one to
+<code>target</code>, unregisters it. No-op if the edge is already
+gone.</li>
+</ul></li>
+</ul>
+<h3 id="frameworkipc.c-the-router"><code>framework/ipc.c</code> — the
+router</h3>
+<ul>
+<li><p>Per-slot inbox stored in a side table (<code>g_queues</code> — a
+singly-linked list of <code>struct ipc_slot_queue</code>) rather than
+extending <code>struct nx_slot</code>. Keeps the registry API clean of
+IPC-specific fields; slice 3.9 can swap the lookup for a hash without
+touching the slot type.</p></li>
+<li><p>Connection-edge lookup via
+<code>nx_slot_foreach_dependency(from, cb,   ctx)</code> + a first-match
+callback. Registry’s per-slot outgoing list makes this O(deg(from))
+without a global scan.</p></li>
+<li><p><code>invoke_handler</code> is the single code path for SYNC and
+ASYNC post- dequeue; it checks for
+<code>active-&gt;descriptor-&gt;ops-&gt;handle_msg</code>, calls it,
+then unconditionally runs <code>nx_ipc_scan_recv_caps</code> — even when
+the handler errors, borrowed caps must drop and transfers must be
+accounted for.</p></li>
+<li><p>Send-time: forged caps rejected before the connection edge is
+even consulted; the dispatch path and the queue stay clean.</p></li>
+<li><p><code>nx_ipc_reset()</code> free s every queue head but leaves
+caller-owned <code>nx_ipc_message</code> storage alone — it clears
+<code>_next</code> links so dangling pointers don’t linger after a
+reset.</p></li>
+<li><p><code>nx_slot_ref_retain()</code> calls
+<code>nx_connection_register(self, target,   NX_CONN_ASYNC, false, NX_PAUSE_QUEUE, &amp;err)</code>
+— retain doesn’t carry per-connection mode / stateful / policy metadata
+yet. When that matters (slice 3.8 with hooks on retained edges), the cap
+payload can grow a mode hint.</p></li>
+</ul>
+<h3 id="tests-16-new-in-testhostcomponent_ipc_test.c">Tests — 16 new in
+<code>test/host/component_ipc_test.c</code></h3>
+<ul>
+<li><p><strong>Shared fixture</strong> —
+<code>ipc_fixture_init(&amp;f, mode)</code> builds a sender</p>
+<ul>
+<li>receiver pair, registers both slots + components, binds each to its
+slot, wires the descriptor / <code>impl</code> fields on the receiver so
+the router can dispatch, and registers a sender→receiver edge in the
+chosen mode.</li>
+</ul></li>
+<li><p><strong>Sync:</strong>
+<code>sync_send_invokes_handler_directly</code>,
+<code>sync_send_without_edge_returns_enoent</code>,
+<code>sync_send_to_slot_without_active_handler_returns_enoent</code>,
+<code>send_rejects_null_or_incomplete_message</code>.</p></li>
+<li><p><strong>Async:</strong>
+<code>async_send_enqueues_and_dispatch_drains</code> (FIFO order +
+granular dispatch count), <code>dispatch_stops_on_handler_error</code>,
+<code>dispatch_on_empty_slot_is_zero</code>.</p></li>
+<li><p><strong>Cap scanning:</strong>
+<code>scan_send_caps_accepts_registered_slot_ref</code>,
+<code>scan_send_caps_rejects_forged_slot_ref</code>,
+<code>send_rejects_forged_caps</code> (the real <code>nx_ipc_send</code>
+path — handler must not fire),
+<code>scan_recv_caps_drops_borrowed_silently</code>,
+<code>scan_recv_caps_flags_unclaimed_transfer</code>.</p></li>
+<li><p><strong>retain/release:</strong>
+<code>slot_ref_retain_registers_edge_and_claims_cap</code> (edge appears
++ recv-scan no longer flags the claimed transfer),
+<code>slot_ref_release_unregisters_edge</code> (double-release is safe),
+<code>slot_ref_retain_rejects_bad_caps</code> (NULL, wrong kind, null
+target, already-claimed).</p></li>
+<li><p><strong>Reset:</strong>
+<code>ipc_reset_clears_all_inboxes</code>.</p></li>
+</ul>
+<h2 id="results">Results</h2>
+<ul>
+<li><p><code>make test</code> → <strong>137/137 pass (31 python + 100
+host + 6 kernel), 0 leaks, 0 errors, exit 0</strong>.</p></li>
+<li><p>Production <code>kernel.bin</code> unchanged —
+<code>framework/ipc.c</code> is built into host tests only. Slice 3.9
+brings it into the kernel build.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Side table for inboxes, not a field on
+<code>nx_slot</code>.</strong> Extending <code>struct nx_slot</code>
+with <code>void *fw_private</code> would have been easier to write but
+harder to maintain: every future framework subsystem would want its own
+slot-attached storage, turning the slot struct into a junk drawer.
+Lookup-by-pointer in <code>g_queues</code> is O(slots) but the registry
+API stays clean; slice 3.9 can swap to a hash or a generational side
+index without any header churn.</p></li>
+<li><p><strong><code>invoke_handler</code> runs recv-scan even on
+handler error.</strong> First draft only ran the sweep on success; that
+left unclaimed transfer caps invisible when a handler returned non-zero.
+Running the sweep unconditionally matches DESIGN.md’s “drop borrowed
+refs on handler return, flag unclaimed transfers” without
+qualification.</p></li>
+<li><p><strong><code>_next</code> in the public message type is an odd
+public field.</strong> Callers must not set or inspect it, but it has to
+live on the message struct because the inbox uses the message itself as
+its list node (no per-message allocation). Documented it as
+framework-owned and left a comment at the declaration. An alternative —
+allocating a queue-node wrapper per message — adds an alloc per send and
+a potential failure mode on enqueue. For the kernel side (slice 3.9),
+the MPSC queue will also use an intrusive next pointer; keeping the
+field here means the kernel doesn’t need a different message
+type.</p></li>
+</ul>
+<h2 id="decisions">Decisions</h2>
+<ul>
+<li><p><code>struct nx_component_ops</code> ships with the full
+lifecycle callback set even though only <code>handle_msg</code> is
+exercised in 3.6. Adding them now keeps the descriptor type stable for
+slice 3.9’s boot path; delaying would force a second update of every
+registered component.</p></li>
+<li><p><code>nx_ipc_send</code> refuses to send without a registered
+connection edge. An “open” send that implicitly creates an edge would
+defeat the R1–R3 audit invariants the registry was built to
+support.</p></li>
+<li><p>Retain registers an ASYNC + non-stateful + queue edge by default.
+The cap type doesn’t carry richer metadata yet; when slice 3.8 (hooks)
+needs mode-per-retain, the cap grows a small metadata block rather than
+reshaping the router API.</p></li>
+<li><p>Dispatch stops on first handler error. An alternative — log and
+continue — would hide mis-behaving components. Stopping surfaces the
+problem and lets the caller decide.</p></li>
+<li><p><code>nx_ipc_reset()</code> is test-only. Production code never
+resets the router; the kernel uses lifecycle teardown instead. The
+<code>nx_graph_reset</code> / <code>nx_ipc_reset</code> pair at the top
+of every test is part of the host-side convention, not the production
+API.</p></li>
+</ul>
+<h2 id="open-deferred">Open / Deferred</h2>
+<ul>
+<li><p><strong>MPSC lock-free queue.</strong> Slice 3.9 swaps the
+singly-linked FIFO for a Vyukov-style per-CPU queue so ISRs can enqueue
+from any context. The dequeue contract (single consumer per queue)
+already matches; only the enqueue path needs atomicity.</p></li>
+<li><p><strong>Pause-protocol interaction.</strong> Slice 3.8 teaches
+the router to check each connection’s pause flag on dispatch and route
+per the pause policy (queue / reject / redirect). Today every message
+dispatches regardless of component state.</p></li>
+<li><p><strong>Lifecycle → ops plumbing.</strong>
+<code>nx_component_init</code> etc. still only update the state field;
+they don’t call <code>ops-&gt;init</code> yet. Slice 3.9 threads the ops
+table through the lifecycle verbs so a real component’s init actually
+runs.</p></li>
+<li><p><strong>Hooks on send/recv.</strong> DESIGN.md places
+<code>HOOK_IPC_SEND</code> / <code>HOOK_IPC_RECV</code> on the router
+path. Slice 3.8 wires them up.</p></li>
+</ul>
+<h2 id="next">Next</h2>
+<ul>
+<li><strong>Slice 3.7 — <code>tools/verify-registry.py</code>.</strong>
+Static checker for rules R1–R8 from DESIGN.md §AI Verification. R7 is
+the regenerate-and-diff gate the deterministic generator from slice 3.5
+was designed to support; R1–R6 are per-component code checks; R8 is the
+ISR-to-slot-deref call-graph check. Wire as
+<code>make   verify-registry</code> and make it a prerequisite of
+<code>make</code> and <code>make   test</code>.</li>
+</ul>
+</body>
+</html>

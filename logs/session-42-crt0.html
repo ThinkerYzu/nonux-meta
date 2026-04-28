@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-42-crt0 – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-42-slice-7.6c.0-el0-c-runtime-bootstrap-musl-prereq"
+id="toc-session-42-slice-7.6c.0-el0-c-runtime-bootstrap-musl-prereq">Session
+42: slice 7.6c.0 — EL0 C-runtime bootstrap (musl prereq)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#componentsposix_shimcrt0.s-new"
+id="toc-componentsposix_shimcrt0.s-new"><code>components/posix_shim/crt0.S</code>
+— new</a></li>
+<li><a href="#componentsposix_shimposix.h-libc-helpers"
+id="toc-componentsposix_shimposix.h-libc-helpers"><code>components/posix_shim/posix.h</code>
+— libc helpers</a></li>
+<li><a href="#testkernelposix_main_prog.c-new"
+id="toc-testkernelposix_main_prog.c-new"><code>test/kernel/posix_main_prog.c</code>
+— new</a></li>
+<li><a href="#testkernelposix_main_prog_blob.s-new"
+id="toc-testkernelposix_main_prog_blob.s-new"><code>test/kernel/posix_main_prog_blob.S</code>
+— new</a></li>
+<li><a href="#testkernelktest_posix_main.c-new"
+id="toc-testkernelktest_posix_main.c-new"><code>test/kernel/ktest_posix_main.c</code>
+— new</a></li>
+<li><a href="#makefile" id="toc-makefile">Makefile</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-42-slice-7.6c.0-el0-c-runtime-bootstrap-musl-prereq">Session
+42: slice 7.6c.0 — EL0 C-runtime bootstrap (musl prereq)</h1>
+<p><strong>Date:</strong> 2026-04-25 <strong>Phase:</strong> 7 slice
+7.6c.0 <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Open slice 7.6c (musl integration) by landing the C-runtime
+infrastructure musl will plug into — crt0, linker conventions, and a
+tiny libc surface. Splitting the work this way means slice 7.6c.1
+(actual musl pin + cross-build) is a clean drop-in: replace our crt0
+with musl’s, replace the static-inline libc helpers with musl’s real
+symbols, change linker flags. No structural surprises waiting once the
+musl tarball lands.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>crt0 in posix_shim, not in test/kernel/.</strong>
+posix_shim is the userspace-facing component; crt0 belongs there
+alongside the POSIX wrappers. When 7.6c.1 vendors musl, crt0.S becomes
+the fallback for “I don’t want to link against musl” — header-only
+builds still work, just lose <code>int main()</code> form.</p></li>
+<li><p><strong>Synthesise argv in <code>.rodata</code>, don’t expect
+sys_exec to push it.</strong> POSIX programs receive argv/envp from a
+kernel-prepared user stack; the loader-side push-argv-onto-sp_el0 dance
+is a proper sys_exec extension that lands in slice 7.6d when busybox
+needs real CLI args. For 7.6c.0, crt0 fakes a single-element
+<code>{ "nonux", NULL }</code> vector — programs that need real argv
+(none in v1) will work once 7.6d adds the kernel-side push. The
+sub-slice scope is tight: prove the C-runtime SHAPE works, defer real
+argv to when something needs it.</p></li>
+<li><p><strong>Don’t go through the C wrapper for the final
+exit.</strong> crt0 could <code>bl nx_posix_exit</code> after main
+returns; it’s only one static-inline call. But that requires routing
+through C semantics for what’s really a one-shot syscall right at
+program shutdown. Inline <code>mov x8, #11; svc #0</code> is shorter,
+matches what musl’s crt does, and means the assembler-only view of the
+program lifecycle is <code>_start → main → svc #11</code>.</p></li>
+<li><p><strong><code>static inline</code> libc helpers, not separate .c
+implementations.</strong> Same reasoning as posix_shim’s existing
+wrappers (slice 7.4d): EL0 C programs <code>#include</code> the header
+and the compiler inlines every call. No separate libc.a to link against.
+When 7.6c.1 pulls in musl, these <code>static inline</code> definitions
+become shadowed by musl’s <code>extern</code> declarations — the C
+standard says <code>static inline</code> doesn’t externally collide, so
+the swap is source-compatible. Programs that explicitly use
+<code>nx_*</code> names keep getting our inline; programs using
+POSIX-named <code>strlen/memcpy/etc.</code> get musl’s after
+7.6c.1.</p></li>
+<li><p><strong>Demo exercises EVERY helper.</strong> The libc helpers
+are tiny (3-5 lines each), but we want a CI-style regression catch if
+any of them generates a libgcc memcpy call or similar.
+<code>posix_main_prog.c</code> strlen + memcpy + strcmp the marker
+before emitting it — any compiler-introduced external dependency fails
+the link.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="componentsposix_shimcrt0.s-new"><code>components/posix_shim/crt0.S</code>
+— new</h3>
+<p>Tiny crt0:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">_start:</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="bu">mov</span>     x9<span class="op">,</span> <span class="kw">sp</span>                  <span class="op">#</span> defensive <span class="dv">16</span><span class="op">-</span><span class="dt">byte</span> align</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="bu">and</span>     x9<span class="op">,</span> x9<span class="op">,</span> <span class="op">#~</span><span class="dv">15</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="bu">mov</span>     <span class="kw">sp</span><span class="op">,</span> x9</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="bu">mov</span>     x0<span class="op">,</span> <span class="op">#</span><span class="dv">1</span>                  <span class="op">#</span> argc</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    adrp    x1<span class="op">,</span> _argv_storage       <span class="op">#</span> argv via PIC arithmetic</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="bu">add</span>     x1<span class="op">,</span> x1<span class="op">,</span> <span class="op">:</span>lo12<span class="op">:</span>_argv_storage</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="bu">mov</span>     x2<span class="op">,</span> <span class="op">#</span><span class="dv">0</span>                  <span class="op">#</span> envp <span class="op">=</span> NULL</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    bl      main</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="bu">mov</span>     x8<span class="op">,</span> <span class="op">#</span><span class="dv">11</span>                 <span class="op">#</span> NX_SYS_EXIT</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    svc     <span class="op">#</span><span class="dv">0</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    1: wfe<span class="co">; b 1b                    # unreachable</span></span></code></pre></div>
+<p><code>.rodata</code> holds the argv backing:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">_argv_progname:</span> .asciz <span class="st">&quot;nonux&quot;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">_argv_storage:</span>  .quad _argv_progname<span class="op">,</span> <span class="dv">0</span></span></code></pre></div>
+<h3
+id="componentsposix_shimposix.h-libc-helpers"><code>components/posix_shim/posix.h</code>
+— libc helpers</h3>
+<p>Four <code>static inline</code> additions:</p>
+<ul>
+<li><code>size_t nx_strlen(const char *)</code></li>
+<li><code>int    nx_strcmp(const char *, const char *)</code></li>
+<li><code>void  *nx_memcpy(void *, const void *, size_t)</code></li>
+<li><code>void  *nx_memset(void *, int, size_t)</code></li>
+</ul>
+<p>Each is 3-6 lines. Straight loops; no SIMD, no alignment tricks.
+Compiler inlines them at every call site.</p>
+<h3
+id="testkernelposix_main_prog.c-new"><code>test/kernel/posix_main_prog.c</code>
+— new</h3>
+<div class="sourceCode" id="cb3"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> main<span class="op">(</span><span class="dt">int</span> argc<span class="op">,</span> <span class="dt">char</span> <span class="op">**</span>argv<span class="op">,</span> <span class="dt">char</span> <span class="op">**</span>envp<span class="op">)</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="op">{</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="op">(</span><span class="dt">void</span><span class="op">)</span>envp<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">static</span> <span class="dt">const</span> <span class="dt">char</span> marker<span class="op">[]</span> <span class="op">=</span> <span class="st">&quot;[main-ok]&quot;</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">char</span> buf<span class="op">[</span><span class="dv">16</span><span class="op">];</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">size_t</span> n <span class="op">=</span> nx_strlen<span class="op">(</span>marker<span class="op">);</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    nx_memcpy<span class="op">(</span>buf<span class="op">,</span> marker<span class="op">,</span> n<span class="op">);</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    nx_posix_debug_write<span class="op">(</span>buf<span class="op">,</span> <span class="op">(</span><span class="dt">size_t</span><span class="op">)</span>n<span class="op">);</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>argc <span class="op">!=</span> <span class="dv">1</span><span class="op">)</span> <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(!</span>argv <span class="op">||</span> <span class="op">!</span>argv<span class="op">[</span><span class="dv">0</span><span class="op">])</span> <span class="cf">return</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>nx_strcmp<span class="op">(</span>argv<span class="op">[</span><span class="dv">0</span><span class="op">],</span> <span class="st">&quot;nonux&quot;</span><span class="op">)</span> <span class="op">!=</span> <span class="dv">0</span><span class="op">)</span> <span class="cf">return</span> <span class="dv">3</span><span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> argc <span class="op">+</span> <span class="dv">46</span><span class="op">;</span>   <span class="co">// → exit(47)</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Six distinct exit codes (1..3 for specific failures, 47 for success)
+so the ktest can pinpoint regressions.</p>
+<h3
+id="testkernelposix_main_prog_blob.s-new"><code>test/kernel/posix_main_prog_blob.S</code>
+— new</h3>
+<p><code>.incbin</code> wrapper, same shape as the other slice-7.x EL0
+demos.</p>
+<h3
+id="testkernelktest_posix_main.c-new"><code>test/kernel/ktest_posix_main.c</code>
+— new</h3>
+<p>KTEST
+<code>posix_main_entry_invokes_main_with_argv_and_returns_ exit_code</code>:</p>
+<ul>
+<li><p>Loads the embedded blob via the slice-7.3 ELF loader.</p></li>
+<li><p>Spawns kthread + drops to EL0.</p></li>
+<li><p>Yields until debug_write counter ≥ 1 (proves crt0 → main →
+debug_write reached).</p></li>
+<li><p>Walks the process table looking for the host process EXITED with
+<code>exit_code == 47</code> (proves crt0 → main return → nx_posix_exit
+reached).</p></li>
+</ul>
+<h3 id="makefile">Makefile</h3>
+<ul>
+<li><p><code>components/posix_shim/crt0.o</code> — its own translation
+unit.</p></li>
+<li><p><code>test/kernel/posix_main_prog.o</code> — same flag set as
+posix_prog.o (POSIX_PROG_CFLAGS).</p></li>
+<li><p><code>test/kernel/posix_main_prog.elf</code> — links
+<code>crt0.o</code> first, then <code>posix_main_prog.o</code>. Linker
+order matters: crt0 owns the ELF entry symbol so it must be at the start
+of <code>.text</code>.</p></li>
+<li><p><code>clean</code> drops
+<code>posix_main_prog.elf</code>.</p></li>
+</ul>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>ARM64 has no direct
+<code>bic sp, sp, #imm</code>.</strong> My first crt0 draft tried
+<code>bic sp, sp, #15</code> for the alignment. The assembler emits
+“expected an integer or zero register at operand 2” — <code>sp</code>
+isn’t a valid <code>bic</code> destination because <code>bic</code>
+requires a GPR register slot, and <code>sp</code> is encoded differently
+from <code>x0..x30</code> (it’s <code>xzr</code> aliased to context).
+Fix: round-trip via <code>x9</code> (caller-saved scratch, AAPCS lets us
+clobber freely at program entry):</p>
+<pre><code>mov  x9, sp
+and  x9, x9, #~15      # (or the bic variant — and-with-mask is fine)
+mov  sp, x9</code></pre>
+<p>Standard idiom; musl’s own crt0 uses the same trick.</p></li>
+<li><p><strong><code>adrp</code> + <code>:lo12:</code> is the canonical
+ARM64 PIC argv load.</strong> The argv_storage symbol is in
+<code>.rodata</code>; addressing it as</p>
+<pre><code>adrp x1, _argv_storage
+add  x1, x1, :lo12:_argv_storage</code></pre>
+<p>resolves at link time because <code>init_prog.ld</code> pins
+everything at <code>0x48000000</code>. No GOT, no dynamic relocations —
+we’re building a position-dependent statically-linked ELF.</p></li>
+<li><p><strong>Linker order is load-bearing for crt0.</strong>
+<code>init_prog.ld</code>’s <code>*(.text*)</code> glob picks up
+sections in command-line order. Putting <code>crt0.o</code> BEFORE
+<code>posix_main_prog.o</code> ensures <code>_start</code> lands at
+offset 0 of <code>.text</code>, which puts it at the user-window base
+after <code>init_prog.ld</code> pins <code>. = 0x48000000</code>.
+Reverse order works at link time but the entry symbol ends up after
+main’s code — <code>drop_to_el0</code> jumps to the wrong
+place.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>No real <code>int main()</code> argc/argv from sys_exec
+yet.</strong> Lands in slice 7.6d when busybox needs real CLI parsing.
+Until then, crt0 fakes argc=1 + argv={ “nonux”, NULL } so programs can
+<code>(void)argc; (void)argv;</code> and move on, while a forward-
+thinking program (<code>posix_main_prog.c</code>) can already test for
+expected values.</p></li>
+<li><p><strong>Helpers prefixed <code>nx_</code> not
+<code>posix_</code>.</strong> The slice 7.4d posix_shim convention is
+<code>nx_posix_*</code> for POSIX-named syscalls; the libc helpers are
+nx_-prefixed (no <code>posix_</code> middle word) because they’re not
+POSIX-specific (memcpy isn’t a POSIX call — it’s libc). When musl
+arrives, POSIX-named <code>memcpy</code> becomes available as a real
+symbol; <code>nx_memcpy</code> stays as an explicit nonux-namespaced
+helper for code that doesn’t want to link musl.</p></li>
+<li><p><strong>Don’t refactor existing programs.</strong> Every existing
+slice- 7.x EL0 program uses <code>_start</code> directly. Switching them
+to <code>int main()</code> form would force linking crt0.o into 7+ build
+rules for no real benefit — the existing programs work fine. New EL0
+programs (slice 7.6d’s busybox, primarily) use the main-form by default;
+we can migrate older programs opportunistically if their layout
+changes.</p></li>
+<li><p><strong><code>bic</code> vs <code>and</code> doesn’t matter for
+the alignment.</strong> <code>and x9, x9, #~15</code> and
+<code>bic x9, x9, #15</code> produce identical code. Picked
+<code>and</code> for explicit clarity — the mask is visible in the
+source, no mental “bic = AND NOT” inversion required.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>400/400 pass (51 python + 274
+host + 75 kernel), 0 leaks, 0 errors, exit 0</strong>. +1 kernel
+test.</p></li>
+<li><p><code>make run</code> boots cleanly.</p></li>
+<li><p>22 distinct EL0 markers across the test suite (now adds
+<code>[main-ok]</code>).</p></li>
+<li><p>The C-runtime story is good enough for slice 7.6d’s busybox to
+plug into; only sys_exec’s argv push is still missing, and that’s a
+kernel-side change rather than a userspace one.</p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p><strong>Slice 7.6c.1 — vendor + cross-build musl.</strong></p>
+<ul>
+<li><p>Vendor a musl snapshot (e.g., 1.2.5) under
+<code>third_party/musl/</code> rather than a git submodule — keeps the
+build offline-clean, lets us pin a specific version, and any future
+bumps go through a deliberate vendor refresh.</p></li>
+<li><p>Patch <code>arch/aarch64/syscall_arch.h</code> to map musl’s
+<code>__syscall*</code> family to our <code>NX_SYS_*</code> numbers via
+<code>svc #0</code>. Linux-AArch64-ABI compatibility means most of
+musl’s syscall helpers work unchanged; only the syscall-number table
+differs.</p></li>
+<li><p>Run musl’s configure + make to produce
+<code>third_party/musl/lib/libc.a</code> (built by an out-of-tree build
+directory so a <code>make clean</code> leaves musl’s checkout
+intact).</p></li>
+<li><p>Validate: relink <code>posix_main_prog</code> against
+<code>libc.a</code> instead of posix_shim’s headers; replace
+<code>nx_posix_debug_write</code> with
+<code>write(STDOUT_FILENO, ...)</code>. Same <code>[main-ok]</code>
+marker, this time through musl’s libc.</p></li>
+</ul>
+<p><strong>Slice 7.6d — busybox cross-compile + boot to shell</strong>
+(after 7.6c.1). Cross-compile busybox against the musl from 7.6c.1, drop
+into the initramfs, set <code>/init</code> to busybox’s
+<code>sh</code>.</p>
+<p><strong>Deferred:</strong></p>
+<ul>
+<li>sys_exec argv/envp push (needed for real busybox CLI args).</li>
+<li>HANDLE_FILE fork inheritance.</li>
+<li>Proper cross-test task reap.</li>
+</ul>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/components/posix_shim/crt0.S</code> — new
+(<code>_start</code> → main → exit)</li>
+<li><code>sources/nonux/components/posix_shim/posix.h</code> —
+<code>nx_strlen / strcmp / memcpy / memset</code> static inlines</li>
+<li><code>sources/nonux/test/kernel/posix_main_prog.c</code> — new
+(main-entry C demo)</li>
+<li><code>sources/nonux/test/kernel/posix_main_prog_blob.S</code> — new
+(.incbin wrapper)</li>
+<li><code>sources/nonux/test/kernel/ktest_posix_main.c</code> — new
+(kernel test)</li>
+<li><code>sources/nonux/Makefile</code> — crt0.o +
+posix_main_prog.{o,elf} + blob rules; KTEST_C/S updates; clean</li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 7.6c
+sub-sliced into 7.6c.0 (done) + 7.6c.1 (pending)</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 37 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

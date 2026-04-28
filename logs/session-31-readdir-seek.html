@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-31-readdir-seek – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-31-slice-6.4-readdir-seek-directory-iteration-closes-phase-6"
+id="toc-session-31-slice-6.4-readdir-seek-directory-iteration-closes-phase-6">Session
+31: slice 6.4 — readdir + seek + directory iteration (closes Phase
+6)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#interface-additions"
+id="toc-interface-additions">Interface additions</a></li>
+<li><a href="#conformance-suite-5-universal-cases"
+id="toc-conformance-suite-5-universal-cases">Conformance suite (+5
+universal cases)</a></li>
+<li><a href="#components" id="toc-components">Components</a></li>
+<li><a href="#syscalls" id="toc-syscalls">Syscalls</a></li>
+<li><a href="#host-tests-5-new-file_syscall_test.c-cases"
+id="toc-host-tests-5-new-file_syscall_test.c-cases">Host tests (+5 new
+file_syscall_test.c cases)</a></li>
+<li><a href="#el0-demo-testkerneluser_prog_readdir.s"
+id="toc-el0-demo-testkerneluser_prog_readdir.s">EL0 demo
+(<code>test/kernel/user_prog_readdir.S</code>)</a></li>
+<li><a href="#test-ordering-observation"
+id="toc-test-ordering-observation">Test ordering observation</a></li>
+</ul></li>
+<li><a href="#key-findings" id="toc-key-findings">Key Findings</a></li>
+<li><a href="#decisions-made" id="toc-decisions-made">Decisions
+Made</a></li>
+<li><a href="#status-at-end-of-session"
+id="toc-status-at-end-of-session">Status at End of Session</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-31-slice-6.4-readdir-seek-directory-iteration-closes-phase-6">Session
+31: slice 6.4 — readdir + seek + directory iteration (closes Phase
+6)</h1>
+<p><strong>Date:</strong> 2026-04-24 <strong>Phase:</strong> 6 slice 6.4
+(closes Phase 6) <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Close Phase 6 by rounding out the file API with the two ops that turn
+a bare “read/write bytes at a cursor” into the full basic-file contract:
+<code>seek</code> for positioning and <code>readdir</code> for
+enumeration. With these, userspace can now do all five core file
+operations — create/open/read/write/list/seek/close — across the
+vfs_simple → ramfs stack.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>Readdir is filesystem-level, not
+dir-handle-based.</strong> <code>nx_fs_ops.   readdir</code> takes a
+caller-owned <code>uint32_t *cookie</code> + a
+<code>struct   nx_fs_dirent *out</code>. No dir-handle concept in v1.
+Rationale: ramfs has a flat namespace (every file lives in one table
+with no subdirectories), so “iterate this directory” reduces to “iterate
+every file in the filesystem” — a dir-handle type would double the
+syscall surface (HANDLE_DIR) and double the close-destructor logic for
+zero v1 benefit. When a tree-FS driver lands, the interface will grow a
+second <code>readdir_at(dir,   cookie, out)</code> flavour; this flat
+form stays for flat drivers.</p></li>
+<li><p><strong>Seek is per-open (handle-based).</strong> Standard POSIX
+shape: SEEK_SET / SEEK_CUR / SEEK_END whence with a signed offset.
+Position clamped to <code>[0, size]</code> — past-EOF seeks return
+NX_EINVAL (no hole-filling in v1; callers write in sequence or
+SEEK_END).</p></li>
+<li><p><strong>SEEK right granted implicitly on any readable or writable
+open.</strong> Simpler than a separate <code>NX_FS_OPEN_SEEKABLE</code>
+flag — in practice every seekable stream supports seek, and a future
+non-seekable stream type can drop the right via
+<code>nx_handle_duplicate</code>.</p></li>
+<li><p><strong>Fixed-size dirent.</strong>
+<code>struct nx_fs_dirent</code> carries
+<code>{uint32_t name_len; char name[NX_FS_DIRENT_NAME_MAX = 64];}</code>
+inline — no per-entry malloc. Always NUL-terminated. Drivers with names
+&gt; 63 chars truncate and report the truncated length (ramfs’s NAME_MAX
+is 32, so truncation doesn’t happen in v1).</p></li>
+<li><p><strong>Cookie-based, not fd-based, iteration.</strong> The
+caller stashes the cookie wherever they like; no kernel-side state per
+iterator beyond the cookie value. Matches how many embedded readdir APIs
+work; simpler than maintaining a dir-handle + its cursor.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="interface-additions">Interface additions</h3>
+<ul>
+<li><code>interfaces/fs.h</code> grows:
+<ul>
+<li><code>NX_FS_SEEK_SET / _CUR / _END</code> whence values.</li>
+<li><code>NX_FS_DIRENT_NAME_MAX = 64</code> +
+<code>struct nx_fs_dirent</code>.</li>
+<li><code>nx_fs_ops.seek(self, file, int64_t offset, int whence) →   int64_t</code>
+— returns new absolute position ≥ 0 or negative <code>NX_E*</code>.</li>
+<li><code>nx_fs_ops.readdir(self, uint32_t *cookie, struct nx_fs_dirent   *out)</code>
+— returns NX_OK (entry populated, cookie advanced) / NX_ENOENT
+(iteration done) / NX_EINVAL.</li>
+</ul></li>
+<li><code>interfaces/vfs.h</code> mirrors: <code>NX_VFS_SEEK_*</code>,
+forward-declares <code>struct nx_fs_dirent</code> (full def in fs.h),
+adds <code>nx_vfs_ops.seek</code> and <code>.readdir</code> with
+identical semantics — vfs_simple forwards verbatim.</li>
+</ul>
+<h3 id="conformance-suite-5-universal-cases">Conformance suite (+5
+universal cases)</h3>
+<p><code>test/host/conformance/conformance_fs.{h,c}</code> gains:</p>
+<ol type="1">
+<li><p><code>readdir_on_empty_fs_returns_enoent</code>.</p></li>
+<li><p><code>readdir_yields_created_files_then_enoent</code> — creates
+three files, iterates; asserts each name seen exactly once in any order;
+asserts post-ENOENT cookie is sticky (repeated calls keep returning
+ENOENT).</p></li>
+<li><p><code>seek_set_to_zero_restarts_reads</code>.</p></li>
+<li><p><code>seek_end_returns_file_size</code>.</p></li>
+<li><p><code>seek_past_size_returns_einval</code> (also covers unknown
+whence → EINVAL).</p></li>
+</ol>
+<p><code>fs_stub</code> in <code>test/host/conformance_fs_test.c</code>
+grows matching impls — seek uses the same clamped-to-[0,size] semantics
+as ramfs; readdir iterates the in-use file table.</p>
+<h3 id="components">Components</h3>
+<ul>
+<li><strong>ramfs</strong> (<code>components/ramfs/ramfs.c</code>):
+<ul>
+<li><code>ramfs_op_seek</code> — switch on whence; compute
+<code>base + offset</code>; reject if out of
+<code>[0, size]</code>.</li>
+<li><code>ramfs_op_readdir</code> — loop from <code>*cookie</code>
+forward through the file-table array, skipping empty slots; on the first
+in-use slot found, copy the name + name_len into <code>*out</code>,
+advance <code>*cookie = i + 1</code>, return NX_OK. On exhaustion, set
+<code>*cookie   = RAMFS_MAX_FILES</code>, return NX_ENOENT.</li>
+</ul></li>
+<li><strong>vfs_simple</strong>
+(<code>components/vfs_simple/vfs_simple.c</code>):
+<ul>
+<li><code>vfs_simple_seek</code> / <code>_readdir</code> — resolve
+<code>filesystem.root</code> via <code>nx_slot_lookup</code>, dispatch
+to the driver’s op. Same late- binding discipline as slice 6.2’s other
+methods.</li>
+</ul></li>
+</ul>
+<h3 id="syscalls">Syscalls</h3>
+<ul>
+<li><p><code>framework/syscall.h</code> gains
+<code>NX_SYS_SEEK = 9</code> and <code>NX_SYS_READDIR   = 10</code>
+(numbers stable, channel/open/read/write renumbering avoided).</p></li>
+<li><p><code>framework/syscall.c</code>:</p>
+<ul>
+<li><code>sys_seek(h, offset, whence)</code> —
+<code>lookup_file_object</code> with <code>NX_RIGHT_SEEK</code>, resolve
+vfs, dispatch. Returns the driver’s int64 result (new position or
+negative NX_E*) as <code>nx_status_t</code>.</li>
+<li><code>sys_readdir(user_cookie, user_out)</code> —
+<code>copy_from_user</code> the cookie into a kernel-local, dispatch,
+<code>copy_to_user</code> both the updated cookie and the populated
+dirent. Returns NX_OK / NX_ENOENT / NX_EINVAL.</li>
+<li><code>sys_open</code> now grants <code>NX_RIGHT_SEEK</code>
+implicitly: if any of <code>NX_RIGHT_READ</code> or
+<code>NX_RIGHT_WRITE</code> is set on the handle, SEEK gets set
+too.</li>
+</ul></li>
+</ul>
+<h3 id="host-tests-5-new-file_syscall_test.c-cases">Host tests (+5 new
+file_syscall_test.c cases)</h3>
+<ul>
+<li><p><code>sys_seek_set_then_read_returns_original_bytes</code>.</p></li>
+<li><p><code>sys_seek_end_returns_file_size</code>.</p></li>
+<li><p><code>sys_seek_past_size_returns_einval</code>.</p></li>
+<li><p><code>sys_readdir_yields_created_files_then_enoent</code> — note:
+keeps handles open during readdir because <code>fake_fs</code> uses
+per-open slots as file storage; a close wipes the name. Real drivers
+like ramfs separate file-table entries from per-open state (and the
+kernel ktest exercises that path).</p></li>
+<li><p><code>sys_seek_no_seek_right_returns_eperm</code> — proves the
+rights check is distinct from the open-implicit-grant path: allocates a
+HANDLE_FILE directly with only <code>NX_RIGHT_READ</code>, sys_seek
+returns NX_EPERM.</p></li>
+</ul>
+<h3 id="el0-demo-testkerneluser_prog_readdir.s">EL0 demo
+(<code>test/kernel/user_prog_readdir.S</code>)</h3>
+<p>PC-relative AArch64 asm that:</p>
+<ol type="1">
+<li><p><code>sys_open("/rd", WRITE|CREATE)</code> →
+<code>sys_handle_close</code> — seeds a fresh file so readdir has
+something to find regardless of what prior ktests put in ramfs.</p></li>
+<li><p>Loop: <code>sys_readdir(&amp;_cookie, &amp;_ent)</code>. On
+NX_OK, <code>sys_debug_write(&amp;ent.name, ent.name_len)</code> +
+<code>sys_debug_write    ("\n", 1)</code>. On NX_ENOENT, exit the
+loop.</p></li>
+<li><p><code>sys_debug_write("[el0-rdr-ok]\n", 13)</code> — tail
+marker.</p></li>
+<li><p>wfe park.</p></li>
+</ol>
+<p><code>_cookie</code> and <code>_ent</code> are embedded in the
+program’s <code>.rodata</code> copy that gets memcopy’d into the user
+window; ADR gives user-window addresses (writable from EL0 thanks to the
+AP=EL0+EL1 RW mapping).</p>
+<p><code>test/kernel/ktest_vfs.c</code> gains
+<code>el0_readdir_walks_root_and_emits_ names_then_marker</code>: spawns
+a kthread that drops to EL0; yields until the debug_write counter ≥ 3
+(minimum: 1 name + 1 newline + 1 tail marker — on a fresh ramfs). Live
+ktest log shows <code>/rd</code> and <code>[el0-rdr-ok]</code>.</p>
+<h3 id="test-ordering-observation">Test ordering observation</h3>
+<p>The linker-section ordering of ktests puts
+<code>el0_readdir_walks_root_ and_emits_names_then_marker</code>
+<em>before</em> the other ramfs-modifying VFS ktests in the current
+build. That means at the time readdir runs, ramfs only contains
+<code>/rd</code> that the program just seeded — the other files
+(<code>/ktest_hello</code>, <code>/hello</code>) from slice-6.2/6.3
+tests haven’t been created yet. The <code>&gt;= 3</code> floor
+accommodates this. Future reshuffling would only increase the count
+(more files → more debug_writes); the test stays green.</p>
+<h2 id="key-findings">Key Findings</h2>
+<ul>
+<li><p><strong>Filesystem-level readdir is simpler than a dir-handle
+abstraction, and v1’s flat namespace makes it semantically
+correct.</strong> The implementation in ramfs is 15 lines; a dir- handle
+version would need a new HANDLE_DIR type, a new close destructor, a new
+<code>opendir</code> syscall, and rights-mask decisions for it — all for
+zero incremental functionality in v1.</p></li>
+<li><p><strong>Per-byte cookie copy-in/copy-out is overkill for
+readdir.</strong> Unlike paths (which the first draft of slice 6.3
+needed a per- byte copy loop for), a 4-byte cookie is safely handled
+with one <code>copy_from_user</code> call — bounds check applies once,
+overflow impossible. Kept the bulk-copy shape.</p></li>
+<li><p><strong>The “sticky NX_ENOENT after exhaustion” conformance case
+matters.</strong> Without it, a driver could legitimately cycle the
+cookie back to 0 on overflow and start yielding entries again — which
+would silently break any loop that relied on ENOENT as the termination
+condition. The assertion in
+<code>readdir_yields_created_files_then_enoent</code> pins this
+invariant.</p></li>
+</ul>
+<h2 id="decisions-made">Decisions Made</h2>
+<ul>
+<li><p><strong>SEEK right implicit on any file open.</strong>
+Alternative: new <code>NX_FS_OPEN_SEEKABLE</code> flag. Chose implicit
+because every file in every driver shipping in Phase 6 is seekable. Why:
+adding the flag introduces a category of user-visible mistakes (“forgot
+to add SEEKABLE, got EPERM”) with no real value — SEEK has no resource
+cost, no leak path. How to apply: a future non-seekable stream type can
+drop the implicit grant and require an explicit flag.</p></li>
+<li><p><strong>No hole-filling on seek past EOF.</strong> POSIX allows
+it; we don’t. Why: ramfs’s fixed per-file buffer can’t represent holes
+efficiently; implementing them requires branching on every read to check
+“is this byte actually valid or a hole?” None of Phase 7’s planned
+consumers (busybox, posix_shim) need it. How to apply: the follow-up
+that introduces dynamic file storage can also introduce holes;
+conformance case grows a
+<code>seek_past_size_then_write_extends_file</code> case at that
+time.</p></li>
+<li><p><strong>Readdir returns a snapshot, not a live cursor.</strong>
+Drivers must tolerate concurrent file creation/deletion during iteration
+— the cookie just keeps advancing monotonically, and if a file is
+deleted between iterations its name simply doesn’t appear. v1 is
+single-threaded so this is automatic; a future SMP-safe driver will need
+to think about this explicitly.</p></li>
+</ul>
+<h2 id="status-at-end-of-session">Status at End of Session</h2>
+<ul>
+<li><p><code>make test</code> → <strong>364/364 pass (51 python + 258
+host + 55 kernel), 0 leaks, 0 errors, exit 0</strong>. +16 from slice
+6.3.</p></li>
+<li><p><code>make run</code> boots the 5-slot composition cleanly;
+<code>make   test-kernel</code> ktest log shows four complete EL0
+round-trips (<code>[el0] hello</code>, <code>[el0-chan-ok]</code>,
+<code>[el0-file-ok]</code>, <code>[el0-rdr-ok]</code>) — one per new EL0
+capability added across the phase.</p></li>
+<li><p><code>verify-registry</code> clean; <code>validate-config</code>
+passes.</p></li>
+<li><p><strong>Phase 6 closes.</strong></p></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<p>Phase 7: Process model + POSIX shim.</p>
+<ul>
+<li><p><code>nx_process_create / _start / _wait</code> — real processes
+(not just kthreads) with their own address spaces. Per-task TTBR0 (a
+Phase 5 follow-up that 6.3’s handle table could also exploit) lands
+here.</p></li>
+<li><p><code>components/posix_shim/</code> — maps POSIX syscalls
+(open/read/write/fork/exec/pipe/signal) onto the nonux handle
+operations. Slice 6.3’s NX_SYS_OPEN already matches POSIX shape, so the
+shim’s <code>open(path, flags, mode)</code> is a thin
+translation.</p></li>
+<li><p>Cross-compile busybox for aarch64 (static, minimal
+config).</p></li>
+<li><p>Package busybox + rootfs files into an initramfs that ramfs loads
+at boot.</p></li>
+<li><p>Boot → init process → exec busybox shell. <code>ls /</code>,
+<code>echo hello   | cat</code>, <code>ps</code> all work.</p></li>
+</ul>
+<p>Slicing plan for Phase 7 lands when Phase 7 starts.</p>
+<hr />
+<p><strong>Files Changed:</strong></p>
+<ul>
+<li><code>sources/nonux/interfaces/fs.h</code> — <code>seek</code> /
+<code>readdir</code> ops; <code>struct nx_fs_dirent</code>; SEEK whence
+values</li>
+<li><code>sources/nonux/interfaces/vfs.h</code> — matching additions;
+forward-declares dirent</li>
+<li><code>sources/nonux/test/host/conformance/conformance_fs.h</code> +
+<code>.c</code> — 5 new universal cases</li>
+<li><code>sources/nonux/test/host/conformance_fs_test.c</code> —
+<code>fs_stub</code> gains seek + readdir; +5 TEST() wrappers</li>
+<li><code>sources/nonux/components/ramfs/ramfs.c</code> —
+<code>ramfs_op_seek</code>, <code>ramfs_op_readdir</code></li>
+<li><code>sources/nonux/test/host/component_ramfs_test.c</code> — +5
+conformance TEST() wrappers</li>
+<li><code>sources/nonux/components/vfs_simple/vfs_simple.c</code> —
+<code>vfs_simple_seek</code>, <code>vfs_simple_readdir</code></li>
+<li><code>sources/nonux/framework/syscall.h</code> — NX_SYS_SEEK /
+_READDIR</li>
+<li><code>sources/nonux/framework/syscall.c</code> —
+<code>sys_seek</code>, <code>sys_readdir</code>; SEEK right granted
+implicitly on open</li>
+<li><code>sources/nonux/test/host/file_syscall_test.c</code> —
+<code>fake_fs</code> gains seek + readdir; +5 syscall-level TESTs</li>
+<li><code>sources/nonux/test/kernel/user_prog_readdir.S</code> — new
+(EL0 readdir demo)</li>
+<li><code>sources/nonux/test/kernel/ktest_vfs.c</code> —
+<code>el0_readdir_walks_root_and_emits_names_then_marker</code></li>
+<li><code>sources/nonux/Makefile</code> — add
+<code>user_prog_readdir.S</code> to <code>KTEST_S</code></li>
+<li><code>proj_docs/nonux/IMPLEMENTATION-GUIDE.md</code> — §Slice 6.4
+rewritten; Phase 6 marked complete</li>
+<li><code>proj_docs/nonux/HANDOFF.md</code> — status / checklist /
+next-actions / session-log</li>
+<li><code>proj_docs/nonux/HANDOFF-ARCHIVE.md</code> — Session 26 rolled
+in</li>
+<li><code>proj_docs/nonux/README.md</code> — status + last-updated</li>
+</ul>
+</body>
+</html>

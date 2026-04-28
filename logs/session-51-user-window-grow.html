@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-51-user-window-grow – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-51-slice-7.6d.2b-grow-user-window-2-mib-8-mib-relocate-brk"
+id="toc-session-51-slice-7.6d.2b-grow-user-window-2-mib-8-mib-relocate-brk">Session
+51: slice 7.6d.2b — grow user window 2 MiB → 8 MiB + relocate brk</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#scope-choices" id="toc-scope-choices">Scope
+choices</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#coremmummu.c"
+id="toc-coremmummu.c"><code>core/mmu/mmu.c</code></a></li>
+<li><a href="#frameworkprocess.h"
+id="toc-frameworkprocess.h"><code>framework/process.h</code></a></li>
+<li><a href="#coreschedsched.hc-23-call-sites"
+id="toc-coreschedsched.hc-23-call-sites"><code>core/sched/sched.{h,c}</code>
++ 23 call sites</a></li>
+<li><a href="#corepmmpmm.hc"
+id="toc-corepmmpmm.hc"><code>core/pmm/pmm.{h,c}</code></a></li>
+<li><a href="#testkernelktest_el0.c"
+id="toc-testkernelktest_el0.c"><code>test/kernel/ktest_el0.c</code></a></li>
+<li><a href="#comment-refreshes-no-semantic-change"
+id="toc-comment-refreshes-no-semantic-change">Comment refreshes (no
+semantic change)</a></li>
+</ul></li>
+<li><a href="#drive-by-gotchas" id="toc-drive-by-gotchas">Drive-by
+gotchas</a></li>
+<li><a href="#verification" id="toc-verification">Verification</a></li>
+<li><a href="#what-was-not-done" id="toc-what-was-not-done">What Was Not
+Done</a></li>
+<li><a href="#test-counts" id="toc-test-counts">Test Counts</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-51-slice-7.6d.2b-grow-user-window-2-mib-8-mib-relocate-brk">Session
+51: slice 7.6d.2b — grow user window 2 MiB → 8 MiB + relocate brk</h1>
+<p><strong>Date:</strong> 2026-04-26 <strong>Phase:</strong> 7 slice
+7.6d.2b (busybox integration, sub-sub-slice 2 of 3)
+<strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<p>Slice 7.6d.2b is the second of three sub-sub-slices that together
+(7.6d.2a / 7.6d.2b / 7.6d.2c) make
+<code>posix_busybox_help_prog</code>’s fork+exec attempt possible.
+7.6d.2a re-linked busybox at the user-window VA; this slice grows the
+window itself and relocates the brk region so busybox’s ~1.91 MiB
+text+data span has room for stack + heap.</p>
+<p>The minimum-viable change list (per the IMPLEMENTATION-GUIDE):</p>
+<ul>
+<li><p>Bump <code>USER_WINDOW_SIZE</code> from 2 MiB to 8 MiB (1 → 4
+contiguous L2-block slots).</p></li>
+<li><p>Move <code>NX_PROCESS_HEAP_OFFSET</code> and
+<code>NX_PROCESS_HEAP_LIMIT</code> past busybox’s data+bss span
+(<code>+1 MiB / +1.5 MiB → +6 MiB / +7.5 MiB</code>).</p></li>
+<li><p>Trim alignment slack in <code>mmu_create_address_space</code>’s
+malloc (<code>USER_WINDOW_SIZE * 2</code> →
+<code>USER_WINDOW_SIZE + USER_BLOCK_SIZE</code>) so per-process backing
+footprint stays bounded.</p></li>
+<li><p>Update the only hard size assertion (<code>ktest_el0.c</code>)
+and the comments that mention “2 MiB user window”.</p></li>
+</ul>
+<p>That’s the headline change. The slice ended up uncovering and fixing
+two latent bugs that the size bump exposed but didn’t itself create:</p>
+<ol type="1">
+<li><p>A spawn-side race in <code>sched_spawn_kthread</code> callers
+(the process-binding assignment after spawn could lose to the scheduler
+picking the kthread).</p></li>
+<li><p>A <strong>self-aliasing memcpy</strong> in
+<code>mmu_copy_user_backing</code> whose write VAs landed on the
+user-window slot of the <em>current</em> process’s TTBR0 (overriding the
+kernel-identity PA).</p></li>
+<li><p>A second-order alias: kernel allocations (kstacks, page tables,
+slab pages) at PA inside the user-window VA range silently aliased
+through per-process user_block overrides when accessed under any process
+TTBR0.</p></li>
+</ol>
+<p>All three needed fixing for <code>make test</code> to stay green at
+407/407.</p>
+<h2 id="scope-choices">Scope choices</h2>
+<ul>
+<li><p><strong>8 MiB, not 4 MiB or 16 MiB.</strong> 4 MiB barely fits
+busybox (1.91 MiB text+data + ~2 MiB for stack+heap is tight). 16 MiB
+pre-allocates more than we need today and doubles the per- process
+malloc footprint. 8 MiB is the smallest power-of-two that comfortably
+fits everything our test programs do, with 6 MiB left for stack+heap
+after busybox’s image.</p></li>
+<li><p><strong><code>USER_WINDOW_BLOCKS = 4</code> macro instead of
+inlining <code>4</code> everywhere.</strong> Two places need the count:
+<code>mmu_init</code>’s loop to mark slots
+<code>USER_WINDOW_INDEX..+BLOCKS-1</code> as user_block in the kernel
+L2_ram, and <code>mmu_create_address_space</code>’s loop that populates
+the same slots in the per-process L2. A single named constant means the
+two stay in sync if the size ever changes again.</p></li>
+<li><p><strong>Trim malloc alignment slack from
+<code>USER_WINDOW_SIZE</code> to <code>USER_BLOCK_SIZE</code>.</strong>
+Each L2 block is 2 MiB-granular, so the four contiguous slots just need
+the START address to be 2 MiB- aligned; subsequent slots follow by
+stride. The previous formula (<code>malloc(USER_WINDOW_SIZE * 2)</code>)
+wasted up to one full window per allocation — wasteful at 2 MiB,
+unaffordable at 8 MiB. New formula:
+<code>malloc(USER_WINDOW_SIZE + USER_BLOCK_SIZE)</code> with
+alignment-up by <code>USER_BLOCK_SIZE</code>. Worst-case per-process
+footprint: <code>8 + 2 = 10 MiB</code> raw.</p></li>
+<li><p><strong>Keep kernel L2_ram[USER_WINDOW_INDEX] alone, leave
+65/66/67 as <code>normal_block</code> (kernel-only).</strong> Originally
+I thought the kernel’s identity slots 64..67 should all be
+<code>user_block</code> for symmetry with the per-process L2. That made
+the second-order alias bug worse: kernel-internal allocations at PA in
+the user-window range would be EL0-accessible via the kernel’s own
+identity (a security smell as well as the trap-frame issue described
+below). Reverting to
+<code>user_block(slot 64) +   normal_block(slots 65..67)</code> keeps
+the slice-5.5-era drop_to_el0- with-kernel-TTBR0 working (the
+drop_to_el0 case in <code>ktest_el0</code>) while not extending EL0
+access to additional kernel-identity ranges. Per-process L2 still
+overrides all four slots as user_block — that’s the EL0 path for
+processes.</p></li>
+<li><p><strong>Spawn-process-binding API change, not preempt-disable
+bandaids.</strong> <code>sched_spawn_kthread</code> grew a 4th parameter
+<code>struct nx_process *process</code>. NULL means “inherit from
+caller’s task” (production default — dispatcher kthread, ktest_el0,
+ktest_channel, ktest_sched all pass NULL). Non- NULL is set on the task
+BEFORE enqueue, eliminating the race between spawn-return and the test
+code’s <code>t-&gt;process =   X</code> assignment. Updated all 23 call
+sites in one pass: 18 ktests pass an explicit process; 5 pass NULL. The
+race had been latent for many slices but never reliably triggered until
+the 8 MiB user-window made the kernel’s identity-map slot 64 garbage
+routinely point at fresh user-backing contents (uninitialized = mostly
+zeros = <code>udf #0</code>).</p></li>
+<li><p><strong>Switch to kernel TTBR0 around the <code>memcpy</code> in
+<code>mmu_copy_user_backing</code>, not page-by-page rewriting.</strong>
+The memcpy’s destination kernel pointer (= the dst’s PA, since the
+kernel runs identity-mapped) can span the user-window VA range when dst
+PA is in <code>[user_window_base, +size)</code>. Under the caller’s
+TTBR0, writes to those VAs go through the caller’s user_block override →
+the <em>caller’s</em> user_pa, not dst’s. With kernel TTBR0, slot
+<code>USER_WINDOW_INDEX</code> is the kernel’s identity
+(<code>user_block(PA RAM_BASE+slot*2MiB)</code>), so writes land at the
+intended PA. Used raw <code>msr ttbr0_el1</code> + <code>isb</code>
+rather than the full <code>mmu_switch_address_space</code> helper — the
+latter does a <code>tlbi vmalle1</code> which is overkill in a hot path;
+non-user-window TLB entries stay valid because they’re identical across
+all roots.</p></li>
+<li><p><strong>Reserve <code>[user_window_base, +size)</code> from PMM
+at boot, not “after first leak”.</strong> This stops kernel-internal
+allocations (kstacks, page tables, slab pages) from EVER landing at PA
+in the user-window range, which would silently alias through per-process
+user_block overrides when the kernel runs under any TTBR0 and accesses
+its own state via identity-VA in that range. Cost: 8 MiB of physical RAM
+permanently off-limits — small compared to the 1 GiB we have, and
+absolutely correct rather than “mostly works”. Implementation: new
+<code>pmm_reserve_range(pa, bytes)</code> API, called once from
+<code>boot.c</code> after <code>pmm_init</code>.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="coremmummu.c"><code>core/mmu/mmu.c</code></h3>
+<ul>
+<li><p><strong><code>USER_WINDOW_BLOCKS = 4</code></strong> macro (count
+of 2 MiB blocks). <code>USER_WINDOW_SIZE</code> redefined as
+<code>USER_WINDOW_BLOCKS * BLOCK2_SHIFT</code> → 8 MiB.
+<code>USER_BLOCK_SIZE</code> macro (a single 2 MiB block) for alignment
+math.</p></li>
+<li><p><strong><code>mmu_init</code></strong> unchanged from the
+slice-5.5 era for slots <code>USER_WINDOW_INDEX+1..</code> — they stay
+as <code>normal_block</code> (kernel- only). Only slot
+<code>USER_WINDOW_INDEX</code> (64) is <code>user_block</code> in the
+kernel L2_ram, preserving the slice-5.5 drop_to_el0-with- kernel-TTBR0
+path used by <code>ktest_el0</code> and
+<code>ktest_channel</code>.</p></li>
+<li><p><strong><code>mmu_create_address_space</code></strong> populates
+per-process L2 slots <code>USER_WINDOW_INDEX..+BLOCKS-1</code> as
+<code>user_block(user_pa + i*2MiB)</code> (loop instead of single
+assignment). Malloc footprint trimmed to
+<code>USER_WINDOW_SIZE + USER_BLOCK_SIZE = 10 MiB</code>; alignment
+rounded up to <code>USER_BLOCK_SIZE = 2 MiB</code>.</p></li>
+<li><p><strong><code>mmu_copy_user_backing</code></strong> wraps the
+memcpy in <code>msr ttbr0_el1, kernel_root</code> /
+<code>msr ttbr0_el1, saved_root</code> (with <code>isb</code> between).
+Justification documented in a 14-line comment that names the slice and
+the failure shape.</p></li>
+</ul>
+<h3 id="frameworkprocess.h"><code>framework/process.h</code></h3>
+<ul>
+<li><strong><code>NX_PROCESS_HEAP_OFFSET</code> 1 MiB → 6 MiB</strong>,
+<code>NX_PROCESS_HEAP_LIMIT</code> 1.5 MiB → 7.5 MiB. Heap region:
+<code>[base+6 MiB .. base+7.5 MiB)</code>, 1.5 MiB total (was 512 KiB).
+Comment block updated to describe the new layout: code/data 0..6 MiB,
+heap 6..7.5 MiB, stack 7.5..8 MiB.</li>
+</ul>
+<h3
+id="coreschedsched.hc-23-call-sites"><code>core/sched/sched.{h,c}</code>
++ 23 call sites</h3>
+<ul>
+<li><p><strong><code>sched_spawn_kthread</code> gains a 4th parameter
+<code>struct nx_process *process</code>.</strong> NULL = inherit
+(default); non-NULL = set <code>t-&gt;process = process</code> before
+enqueue. Header comment cross-references this slice’s session log for
+the failure-mode rationale.</p></li>
+<li><p><strong>All 23 call sites updated</strong> in one pass (1 grep,
+23 targeted Edits):</p>
+<ul>
+<li>5 pass NULL: <code>dispatcher.c</code>,
+<code>ktest_channel.c</code>, <code>ktest_el0.c</code>,
+<code>ktest_sched.c</code> (×3 calls), <code>ktest_vfs.c</code> (×2
+calls).</li>
+<li>18 pass an explicit process: every fork/exec/posix/musl EL0 ktest,
+plus <code>ktest_process.c</code>’s exiter / cs-a / cs-b kthreads.</li>
+</ul></li>
+</ul>
+<h3 id="corepmmpmm.hc"><code>core/pmm/pmm.{h,c}</code></h3>
+<ul>
+<li><p><strong>New <code>pmm_reserve_range(pa, bytes)</code>
+API.</strong> Atomically claims every page in
+<code>[pa, pa+bytes)</code> from the bitmap, decrements
+<code>g_free</code>. Idempotent for already-allocated pages; clamps to
+the PMM pool’s bounds. Documented as the user-window PA reservation use
+case in the header.</p></li>
+<li><p><strong><code>boot.c</code> calls it</strong> right after
+<code>pmm_init</code>, with <code>mmu_user_window_base()</code> +
+<code>mmu_user_window_size()</code>. Boot log gains
+<code>[user-window reserved]</code> suffix. At 8 MiB reserved, that’s
+2048 pages off-limits to the kernel.</p></li>
+</ul>
+<h3 id="testkernelktest_el0.c"><code>test/kernel/ktest_el0.c</code></h3>
+<ul>
+<li>Hard size assertion bumped:
+<code>KASSERT(size == (8UL * 1024 * 1024))</code> (was
+<code>2 MiB</code>). Comment notes the slice that changed it.</li>
+</ul>
+<h3 id="comment-refreshes-no-semantic-change">Comment refreshes (no
+semantic change)</h3>
+<ul>
+<li><code>framework/elf.h</code>, <code>framework/elf.c</code>,
+<code>framework/syscall.c</code>, <code>framework/syscall.h</code>,
+<code>framework/process.h</code>, <code>core/mmu/mmu.c</code> — every
+comment that said “2 MiB user window” or “2 MiB user backing” updated to
+reflect the new size or generalized to
+<code>mmu_user_window_size()</code> where appropriate.</li>
+</ul>
+<h2 id="drive-by-gotchas">Drive-by gotchas</h2>
+<p>This slice took multiple debugging rounds to land. Three distinct
+bugs surfaced in sequence; each had to be fixed in turn to make
+<code>make test</code> green again.</p>
+<ul>
+<li><p><strong>Bug 1: spawn race.</strong> Symptom:
+<code>posix_signal</code> test (and potentially others under racy
+timing) saw EXC at <code>ELR=0x48000008</code> with
+<code>ESR=0x02000000</code> (EC=0 “Unknown reason”) right after the test
+name printed. Cause: <code>sched_spawn_kthread</code> enqueues the task,
+then the test code does <code>t-&gt;process = X</code> <em>after</em>.
+If the scheduler picks the task between enqueue and assignment, the task
+runs with its inherited (kernel-process) TTBR0, drops to EL0 at the
+user-window VA, and reads from
+<code>kernel_identity_PA(0x48000000)</code> — uninitialized memory that
+often decoded as <code>udf #0</code>. Latent for many slices; reliably
+triggered post-8-MiB-bump because user-backings now routinely span PA
+<code>0x48000000+</code>, leaving uninitialized heap data at the
+kernel’s identity-map slot 64. Fix: the <code>sched_spawn_kthread</code>
+API extension above.</p></li>
+<li><p><strong>Bug 2: self-aliasing memcpy in
+<code>mmu_copy_user_backing</code>.</strong> Symptom: after fix-1, EXC
+moved to <code>ELR=0x48000008</code> again but with parent’s program
+code reading as zero (verified by printing <code>parent[0]</code>
+before/after each step of fork). Cause: kernel runs
+<code>mmu_copy_user_backing</code> with the <em>caller’s</em> TTBR0
+still active. memcpy iterates byte-by-byte; for the last 2 MiB of an 8
+MiB copy, dst+i lands in the user-window VA range (e.g.,
+<code>0x48000000-0x481FFFFF</code>) when dst PA is
+<code>0x47A00000</code> (= dst+6 MiB = <code>0x48000000</code>).
+Caller’s L2[64] is <code>user_block(caller's_user_pa)</code>, so the
+write to VA <code>0x48000000</code> translates back to <em>caller’s</em>
+user_pa, not dst’s PA — silently zeroing the caller’s program code with
+the bytes from dst+6 MiB (heap area, uninitialized). Fix: switch to
+kernel TTBR0 around the memcpy.</p></li>
+<li><p><strong>Bug 3: kernel kstacks at PA in user-window VA
+range.</strong> Symptom: after fix-2, EXC moved AGAIN, this time at
+<code>ELR=0</code> with <code>ESR=0x8200000e</code> (EC=0x20 instruction
+abort, IFSC=0x0e permission fault L2). Cause: forked child’s kstack PA
+happened to land at <code>0x483CF000</code> (in user-window PA range
+slot 65). <code>RESTORE_TRAPFRAME</code> in
+<code>nx_task_fork_child_entry</code> runs with child’s TTBR0 active, so
+kstack VA <code>0x483CFEF0</code> goes through child’s L2[65] =
+<code>user_block(child_user_pa +   2 MiB)</code> = a totally different
+PA. RESTORE_TRAPFRAME reads zeros for ELR/SPSR/registers, then
+<code>eret</code> jumps to PC=0 (MMIO range, UXN, instruction abort).
+Fix: reserve <code>[user_window_base, +size)</code> from PMM at boot so
+no kernel allocation can land there. Generalizes beyond kstacks — page
+tables, slab pages, anything — all get pushed to PAs outside the
+dangerous range.</p></li>
+<li><p>The debugging path used <code>kprintf</code> instrumentation at
+four points (in <code>mmu_create_address_space</code>,
+<code>mmu_switch_address_space</code>,
+<code>mmu_copy_user_backing</code> pre/post-memcpy,
+<code>nx_process_fork</code> pre/mid/end,
+<code>nx_task_create_forked</code> after byte-copy). Each iteration
+narrowed the bug location by ~2x. All instrumentation removed before
+commit.</p></li>
+</ul>
+<h2 id="verification">Verification</h2>
+<ul>
+<li><p><code>make test</code> → 407/407 (51 python + 275 host + 81
+kernel), 0 leaks, 0 errors, exit 0. Identical pass count to slice
+7.6d.2a — the size bump is invisible to existing tests.</p></li>
+<li><p><code>[pmm]</code> boot log now reads:</p>
+<pre><code>[pmm]  total=NNN free=NNN pages (NN KiB) [user-window reserved]</code></pre>
+<p>Exact numbers shift by 2048 pages (8 MiB / 4 KiB) from prior
+builds.</p></li>
+<li><p>Spot-check:
+<code>posix_signal_sigterm_kills_forked_child_with_status_143</code> now
+prints <code>[signal-parent][signal-child][signal-ok]</code> in order in
+the live ktest log (was crashing with <code>[signal-parent]</code> then
+EXC mid-slice).</p></li>
+</ul>
+<h2 id="what-was-not-done">What Was Not Done</h2>
+<ul>
+<li><p><strong>No busybox-exec attempt yet.</strong> That’s
+7.6d.2c.</p></li>
+<li><p><strong>No <code>RAMFS_FILE_CAP</code> or
+<code>SYS_EXEC_MAX_FILE</code> bump yet.</strong> These need to grow to
+≥ 4 MiB for busybox (2.29 MB binary). 7.6d.2c.</p></li>
+<li><p><strong>No initramfs busybox seeding yet.</strong>
+7.6d.2c.</p></li>
+<li><p>**No mmap, no clone.s/vfork.s/__unmapself.s/restore.s patches.**
+Whichever 7.6d.2c surfaces, becomes 7.6d.3.x.</p></li>
+<li><p><strong>TTBR1 high-half kernel mapping</strong> (the “real” fix
+for the kernel-data-vs-user-window aliasing). PMM reservation works for
+v1 but it’s a workaround. Long-term, kernel data should live in TTBR1
+high half so per-process TTBR0 overrides can’t alias it under any
+circumstance. Tracked as a Phase 8+ follow-up.</p></li>
+</ul>
+<h2 id="test-counts">Test Counts</h2>
+<ul>
+<li>Python: 51 (unchanged)</li>
+<li>Host: 275 (unchanged)</li>
+<li>Kernel: 81 (unchanged)</li>
+<li><strong>Total: 407/407 PASS</strong></li>
+</ul>
+<h2 id="next-steps">Next Steps</h2>
+<ul>
+<li><strong>7.6d.2c</strong> — Bump <code>RAMFS_FILE_CAP</code> (8 KiB →
+≥ 4 MiB) + bump <code>SYS_EXEC_MAX_FILE</code> (8 KiB → ≥ 4 MiB) + add
+busybox to <code>tools/pack-initramfs.py</code>’s entry list as
+<code>/bin/busybox</code> + write <code>posix_busybox_help_prog.c</code>
+(libnxlibc parent that forks +
+<code>nxlibc_execve("/bin/busybox", { "/bin/busybox", "--help",   NULL }, NULL)</code>)
++ write a kernel test that captures whatever failure mode surfaces. This
+is the actual discovery sub-slice that was originally 7.6d.2’s whole
+job.</li>
+</ul>
+<hr />
+<p><strong>Last Updated:</strong> 2026-04-26</p>
+</body>
+</html>

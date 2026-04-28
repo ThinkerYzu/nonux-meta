@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-18-sched-rr – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a
+href="#session-18-slice-4.3-sched_rr-component-nx_hook_context_switch"
+id="toc-session-18-slice-4.3-sched_rr-component-nx_hook_context_switch">Session
+18: slice 4.3 — sched_rr component +
+<code>NX_HOOK_CONTEXT_SWITCH</code></a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#componentssched_rr-new-component"
+id="toc-componentssched_rr-new-component"><code>components/sched_rr/</code>
+— new component</a></li>
+<li><a href="#frameworkhook.h-nx_hook_context_switch-csw-arm"
+id="toc-frameworkhook.h-nx_hook_context_switch-csw-arm"><code>framework/hook.h</code>
+— <code>NX_HOOK_CONTEXT_SWITCH</code> + <code>csw</code> arm</a></li>
+<li><a href="#kernel.json-scheduler-slot-binding"
+id="toc-kernel.json-scheduler-slot-binding"><code>kernel.json</code> —
+scheduler slot binding</a></li>
+<li><a href="#bug-fix-frameworkbootstrap.c-silent-slot-drop"
+id="toc-bug-fix-frameworkbootstrap.c-silent-slot-drop">Bug fix —
+<code>framework/bootstrap.c</code> silent slot drop</a></li>
+<li><a href="#tests" id="toc-tests">Tests</a></li>
+<li><a href="#test-counts" id="toc-test-counts">Test counts</a></li>
+</ul></li>
+<li><a href="#decisions" id="toc-decisions">Decisions</a></li>
+<li><a href="#whats-next" id="toc-whats-next">What’s Next</a></li>
+<li><a href="#files-touched" id="toc-files-touched">Files
+Touched</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1
+id="session-18-slice-4.3-sched_rr-component-nx_hook_context_switch">Session
+18: slice 4.3 — sched_rr component +
+<code>NX_HOOK_CONTEXT_SWITCH</code></h1>
+<p><strong>Date:</strong> 2026-04-22 <strong>Phase:</strong> 4 — Context
+Switch and Scheduler <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li><p>Ship <code>components/sched_rr/</code> as the first real policy
+component under the split-scheduler architecture. Manifest + impl +
+README.</p></li>
+<li><p>Pass every case from the slice-4.2 conformance suite
+(<code>struct   nx_scheduler_ops</code> contract).</p></li>
+<li><p>Add <code>NX_HOOK_CONTEXT_SWITCH</code> to
+<code>enum nx_hook_point</code> and the <code>csw</code> arm to
+<code>struct nx_hook_context.u</code>. Dispatch stays stubbed until
+slice 4.4.</p></li>
+<li><p>Bind the <code>scheduler</code> slot in <code>kernel.json</code>
+to <code>sched_rr</code> and have <code>nx_framework_bootstrap()</code>
+bring it up to <code>NX_LC_ACTIVE</code> under QEMU.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3
+id="componentssched_rr-new-component"><code>components/sched_rr/</code>
+— new component</h3>
+<ul>
+<li><p><strong><code>manifest.json</code></strong> —
+<code>name: sched_rr</code>, <code>version: 0.1.0</code>,
+<code>iface:   scheduler</code>. No <code>requires</code>, no
+<code>spawns_threads</code>, no <code>pause_hook</code> — round-robin
+has no worker threads, and its runqueue is pure internal state, so
+<code>ops-&gt;pause</code> (when 4.4 wires it) just stops accepting new
+enqueues.</p></li>
+<li><p><strong><code>sched_rr.c</code></strong> (~180 LOC).</p>
+<ul>
+<li><code>struct sched_rr_state</code>:
+<code>nx_list_head runqueue</code>, <code>current</code>,
+<code>quantum_ticks</code>, <code>remaining</code>, plus four observable
+counters (<code>init/enable/disable/destroy_called</code>).</li>
+<li><code>const struct nx_scheduler_ops sched_rr_scheduler_ops</code> —
+the interface surface the core driver’s <code>sched_init</code> will
+consume in 4.4. Enqueue → tail, pick_next → head (idempotent), dequeue
+scan, yield rotates head-to-tail and resets the quantum, tick decrements
+<code>remaining</code> and flips <code>need_resched</code> at zero,
+set_priority returns <code>NX_EINVAL</code> (round-robin doesn’t honour
+priorities). Enqueue detects double-enqueue via a linear scan and
+returns <code>NX_EEXIST</code>.</li>
+<li><code>const struct nx_component_ops sched_rr_component_ops</code> —
+lifecycle verbs only. <code>handle_msg</code> intentionally NULL (the
+scheduler is called directly, not IPC-driven).</li>
+<li><code>NX_COMPONENT_REGISTER_NO_DEPS</code> emits the descriptor into
+the <code>nx_components</code> linker section; bootstrap walks it at
+boot.</li>
+</ul></li>
+<li><p><strong><code>README.md</code></strong> — state-struct shape,
+symbol table, rationale for the component (interface → conformance →
+component path), forward pointers at 4.4 + 3.9b + Phase 8.</p></li>
+</ul>
+<h3
+id="frameworkhook.h-nx_hook_context_switch-csw-arm"><code>framework/hook.h</code>
+— <code>NX_HOOK_CONTEXT_SWITCH</code> + <code>csw</code> arm</h3>
+<ul>
+<li><p>Added <code>NX_HOOK_CONTEXT_SWITCH</code> right before the
+<code>NX_HOOK_POINT_COUNT</code> sentinel. Bounds-check code in
+<code>hook.c</code> uses the sentinel for array sizing, so no switch
+statements needed updating.</p></li>
+<li><p>Added <code>struct { struct nx_task *prev, *next; } csw;</code>
+to <code>struct nx_hook_context.u</code> with forward decl of
+<code>struct nx_task</code>.</p></li>
+<li><p>No dispatch site yet — that’s slice 4.4’s reschedule shim. The
+enum + union arm land here so slice 4.3’s component can declare the
+intent without also needing to wire the call site.</p></li>
+</ul>
+<h3 id="kernel.json-scheduler-slot-binding"><code>kernel.json</code> —
+scheduler slot binding</h3>
+<ul>
+<li><p>Added
+<code>"scheduler": { "impl": "sched_rr", "config": {} }</code> alongside
+the existing <code>char_device.serial</code> binding.</p></li>
+<li><p><code>tools/gen-config.py</code> picks it up automatically: the
+regenerated <code>gen/slot_table.c</code> has two
+<code>nx_boot_slots[]</code> entries, and <code>gen/sources.mk</code>
+adds <code>components/sched_rr/sched_rr.c</code> to
+<code>COMPONENT_SRCS</code>.</p></li>
+</ul>
+<h3 id="bug-fix-frameworkbootstrap.c-silent-slot-drop">Bug fix —
+<code>framework/bootstrap.c</code> silent slot drop</h3>
+<p>Caught while debugging the first failing kernel test: only the first
+slot in <code>nx_boot_slots[]</code> was being registered at boot, even
+though both entries were present in the linked binary and
+<code>nx_boot_slots_count</code> at runtime was 2.</p>
+<p>Root cause: the slice-3.9a weak fallback in <code>bootstrap.c</code>
+was
+<code>__attribute__((weak)) const unsigned nx_boot_slots_count;</code> —
+a weak tentative definition with <code>const</code>. Under
+<code>-O2</code>, GCC treats this as a compile-time <code>0</code>
+inside the TU and constant-folds the bound out of the slot-register
+loop, turning it into <code>for (i = 0; i &lt; 0; i++)</code> — dead
+code. The strong definition in <code>gen/slot_table.c</code>
+<em>did</em> win the link (so
+<code>printf("%u", nx_boot_slots_count)</code> printed 2), but every use
+of the symbol inside <code>bootstrap.c</code>’s control flow was folded
+before the link happened.</p>
+<p>Fix: dropped the weak fallbacks entirely.
+<code>gen/slot_table.c</code> is always generated by the Makefile’s
+cascade rules now (slice 3.9a), so the fallbacks were only a theoretical
+safety net for unit-test builds that don’t compile
+<code>bootstrap.c</code> — and those don’t exist.
+<code>framework/bootstrap.h</code>’s <code>extern</code> declarations
+are now the sole decl, forcing the compiler to emit a real runtime load
+on every read.</p>
+<h3 id="tests">Tests</h3>
+<ul>
+<li><strong><code>test/host/component_sched_rr_test.c</code></strong>
+(+10 host tests):
+<ul>
+<li>7 conformance wrappers — one per
+<code>nx_conformance_scheduler_*</code> helper from slice 4.2, each
+delegating against a <code>sched_rr_   fixture</code> that creates a
+state buffer via <code>sched_rr_descriptor.state_size</code>, runs the
+component’s own <code>ops-&gt;init</code>, and cleans up via
+<code>ops-&gt;destroy</code>.</li>
+<li><code>sched_rr_lifecycle_100_cycles_leave_no_residue</code> — 100×
+init→enable→disable→destroy, all returning <code>NX_OK</code>, zero
+leaks via <code>mem_track</code>.</li>
+<li><code>sched_rr_init_yields_pickable_empty_queue</code> — smoke test
+that <code>init</code> actually does <code>nx_list_init</code> on the
+runqueue (without poking at the private state struct).</li>
+<li><code>sched_rr_hook_context_switch_point_is_empty_initially</code> —
+verifies the new enum is within bounds, the chain starts empty, and
+registration/unregistration work for the point.</li>
+</ul></li>
+<li><strong><code>test/kernel/ktest_sched_bootstrap.c</code></strong>
+(+4 kernel tests):
+<ul>
+<li><code>bootstrap_registers_scheduler_slot</code></li>
+<li><code>bootstrap_binds_sched_rr_to_scheduler_slot</code>
+(NX_LC_ACTIVE)</li>
+<li><code>bootstrap_invoked_sched_rr_init_and_enable</code> (peeks at
+the counter mirror on <code>s-&gt;active-&gt;impl</code>)</li>
+<li><code>bootstrap_context_switch_hook_point_ready_but_unused</code></li>
+</ul></li>
+</ul>
+<h3 id="test-counts">Test counts</h3>
+<ul>
+<li><p>Python: <strong>51</strong> (unchanged).</p></li>
+<li><p>Host: <strong>153</strong> (143 → +10).</p></li>
+<li><p>Kernel: <strong>17</strong> (13 → +4).</p></li>
+<li><p>Total: <strong>221 / 221 pass</strong>, 0 leaks, 0
+errors.</p></li>
+<li><p><code>make verify-registry</code>: 0 findings (R2 passes
+vacuously for sched_rr — no <code>struct nx_slot *</code> fields in
+state; R4 passes — no retain/release).</p></li>
+<li><p>QEMU boot log now includes the scheduler slot with its bound impl
+in the snapshot JSON.</p></li>
+</ul>
+<h2 id="decisions">Decisions</h2>
+<p><strong>Two separate ops tables (component ops + scheduler
+ops).</strong> The manifest-facing <code>nx_component_ops</code> handles
+lifecycle and IPC dispatch; <code>nx_scheduler_ops</code> is the
+interface-specific surface the core driver calls directly. Exporting
+both as public <code>const</code> symbols is the simplest possible
+shape. Slice 4.4 will teach <code>framework/ bootstrap.c</code> to find
+<code>&lt;manifest&gt;_scheduler_ops</code> by name convention (or via
+an added <code>iface_ops</code> field on the descriptor) — for now the
+symbol just needs to exist.</p>
+<p><strong>No inline state struct in a header.</strong> Followed the
+uart_pl011 precedent: state is private to <code>sched_rr.c</code>.
+Kernel tests mirror the struct layout locally (same trick as
+<code>ktest_bootstrap.c</code> for uart_pl011_state). Fragile if fields
+reorder, but fails loudly when it does. Host tests deliberately don’t
+peek at the counters — lifecycle health is observable via return codes +
+mem_track; the counter mirror is a kernel-test convenience.</p>
+<p><strong><code>handle_msg</code> stays NULL.</strong> The scheduler is
+driven through <code>scheduler_ops</code>, not IPC. If a future “send a
+message to the scheduler” use case appears (slice 3.9b runtime
+introspection? ), handle_msg can be added with a msg_type dispatch table
+then.</p>
+<p><strong><code>yield</code> resets the quantum.</strong> When the
+current task voluntarily yields, it’s fair to give the next task a full
+quantum — otherwise the residue of the yielding task’s slice bleeds into
+its successor. Matches Linux’s <code>sched_yield</code> behaviour.</p>
+<p><strong><code>NX_HOOK_CONTEXT_SWITCH</code> enum + arm
+together.</strong> Adding the enum without the matching union arm would
+mean any hook handler that switched on <code>point</code> would face an
+incomplete context. Enum + arm are a single atomic addition.</p>
+<p><strong>Dropped the weak fallback in
+<code>bootstrap.c</code>.</strong> Debugging the silent-slot-drop bug
+revealed the fallback was (a) almost never actually used (no host test
+compiles <code>bootstrap.c</code>), and (b) the source of the subtle
+<code>const</code>+weak constant-folding that broke slice 4.3’s
+multi-slot bring-up. Simpler to make the extern decls authoritative.</p>
+<h2 id="whats-next">What’s Next</h2>
+<p><strong>Slice 4.4 — preemption + idle + kthread primitive.</strong>
+The big one. <code>core/sched/{idle,kthread}.c</code>,
+<code>sched_init</code>/<code>sched_start</code>/<code>sched_tick</code>/
+<code>sched_check_resched</code>, IRQ-return reschedule shim in
+<code>core/cpu/vectors.S</code>, <code>core/timer/timer.c</code> gains
+<code>timer_pause()</code> / <code>timer_resume()</code>,
+<code>framework/bootstrap.c</code> learns to stash the scheduler
+policy’s ops/self pair via <code>sched_init</code>. Replaces
+<code>boot_main</code>’s <code>wfi</code> with
+<code>sched_start()</code>. Two kernel tasks visibly interleave under
+QEMU. Unblocks slice 3.9b.</p>
+<h2 id="files-touched">Files Touched</h2>
+<ul>
+<li><p><code>components/sched_rr/{manifest.json,sched_rr.c,README.md}</code>
+— new.</p></li>
+<li><p><code>framework/hook.h</code> —
+<code>NX_HOOK_CONTEXT_SWITCH</code> + <code>csw</code> arm.</p></li>
+<li><p><code>framework/bootstrap.c</code> — dropped weak fallback (fixes
+silent slot drop under <code>-O2</code>).</p></li>
+<li><p><code>kernel.json</code> — scheduler slot binding.</p></li>
+<li><p><code>Makefile</code> — <code>KTEST_C</code> gains
+<code>ktest_sched_bootstrap.c</code>.</p></li>
+<li><p><code>test/host/Makefile</code> — host test +
+<code>sched_rr.c</code> + new vpath entry.</p></li>
+<li><p><code>test/host/component_sched_rr_test.c</code> — new.</p></li>
+<li><p><code>test/kernel/ktest_sched_bootstrap.c</code> — new.</p></li>
+<li><p><code>proj_docs/nonux/HANDOFF.md</code> / <code>README.md</code>
+— slice 4.3 checkbox + status + Next Actions.</p></li>
+<li><p><code>proj_docs/nonux/logs/session-18-sched-rr.md</code> — this
+log.</p></li>
+</ul>
+</body>
+</html>

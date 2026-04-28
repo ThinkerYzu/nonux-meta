@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-15-bootstrap – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-15-boot-time-composition-bring-up-slice-3.9a"
+id="toc-session-15-boot-time-composition-bring-up-slice-3.9a">Session
+15: boot-time composition bring-up (slice 3.9a)</a>
+<ul>
+<li><a href="#goals" id="toc-goals">Goals</a></li>
+<li><a href="#what-was-done" id="toc-what-was-done">What Was Done</a>
+<ul>
+<li><a href="#linker-section-corebootlinker.ld"
+id="toc-linker-section-corebootlinker.ld">Linker section —
+<code>core/boot/linker.ld</code></a></li>
+<li><a href="#kernel-heap-shim-corelibkheap.hc"
+id="toc-kernel-heap-shim-corelibkheap.hc">Kernel heap shim —
+<code>core/lib/kheap.{h,c}</code></a></li>
+<li><a href="#framework-freestanding-readiness"
+id="toc-framework-freestanding-readiness">Framework
+freestanding-readiness</a></li>
+<li><a href="#compiler-flags-makefile"
+id="toc-compiler-flags-makefile">Compiler flags —
+<code>Makefile</code></a></li>
+<li><a href="#framework-bootstrap-frameworkbootstrap.hc"
+id="toc-framework-bootstrap-frameworkbootstrap.hc">Framework bootstrap —
+<code>framework/bootstrap.{h,c}</code></a></li>
+<li><a href="#lifecycle-verbs-frameworkcomponent.c"
+id="toc-lifecycle-verbs-frameworkcomponent.c">Lifecycle verbs —
+<code>framework/component.c</code></a></li>
+<li><a href="#gen-config-toolsgen-config.py"
+id="toc-gen-config-toolsgen-config.py">gen-config —
+<code>tools/gen-config.py</code></a></li>
+<li><a href="#makefile-source-list-generated-target-rules"
+id="toc-makefile-source-list-generated-target-rules">Makefile — source
+list + generated-target rules</a></li>
+<li><a href="#first-real-component-componentsuart_pl011"
+id="toc-first-real-component-componentsuart_pl011">First real component
+— <code>components/uart_pl011/</code></a></li>
+<li><a href="#nx_component_register_no_deps-dropped-deps_field"
+id="toc-nx_component_register_no_deps-dropped-deps_field"><code>NX_COMPONENT_REGISTER_NO_DEPS</code>
+— dropped <code>DEPS_FIELD</code></a></li>
+<li><a href="#bootstrap-wired-into-boot_main"
+id="toc-bootstrap-wired-into-boot_main">Bootstrap wired into
+<code>boot_main</code></a></li>
+<li><a href="#kernel-test-testkernelktest_bootstrap.c"
+id="toc-kernel-test-testkernelktest_bootstrap.c">Kernel test —
+<code>test/kernel/ktest_bootstrap.c</code></a></li>
+<li><a href="#kernel.json-trimmed"
+id="toc-kernel.json-trimmed">kernel.json — trimmed</a></li>
+<li><a href="#test-counts" id="toc-test-counts">Test counts</a></li>
+</ul></li>
+<li><a href="#decisions" id="toc-decisions">Decisions</a></li>
+<li><a href="#whats-next" id="toc-whats-next">What’s Next</a></li>
+<li><a href="#files-touched" id="toc-files-touched">Files
+Touched</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-15-boot-time-composition-bring-up-slice-3.9a">Session
+15: boot-time composition bring-up (slice 3.9a)</h1>
+<p><strong>Date:</strong> 2026-04-21 <strong>Phase:</strong> 3 —
+Component framework <strong>Branch:</strong> master</p>
+<hr />
+<h2 id="goals">Goals</h2>
+<ul>
+<li><p>Wire the registry + lifecycle + IPC framework (landed host-side
+in slices 3.1–3.8) into the real kernel boot path so a
+<code>kernel.json</code> composition actually runs under QEMU.</p></li>
+<li><p>Walk the <code>nx_components</code> linker section, register each
+descriptor’s component, bind it to its slot, resolve deps, and run
+<code>nx_component_init</code> → <code>nx_component_enable</code> in
+topo order.</p></li>
+<li><p>Dump the initial composition via
+<code>nx_graph_snapshot_to_json</code> to serial.</p></li>
+<li><p>Land the first real nonux component (<code>uart_pl011</code>) as
+the proof that the boot walker actually drives something.</p></li>
+</ul>
+<h2 id="what-was-done">What Was Done</h2>
+<h3 id="linker-section-corebootlinker.ld">Linker section —
+<code>core/boot/linker.ld</code></h3>
+<p>Added <code>__start_nx_components</code> /
+<code>__stop_nx_components</code> inside <code>.rodata</code>, mirroring
+the existing <code>kernel_test_registry</code> convention:</p>
+<pre><code>. = ALIGN(8);
+__start_nx_components = .;
+KEEP(*(nx_components))
+__stop_nx_components = .;</code></pre>
+<p><code>KEEP(*(...))</code> prevents <code>--gc-sections</code> from
+dropping descriptors that nothing references by symbol (which is every
+descriptor until the bootstrap walks them).</p>
+<h3 id="kernel-heap-shim-corelibkheap.hc">Kernel heap shim —
+<code>core/lib/kheap.{h,c}</code></h3>
+<p>Kernel-side <code>malloc</code> / <code>calloc</code> /
+<code>free</code> — needed because the framework (registry + IPC) uses
+them unconditionally. Implementation:</p>
+<ul>
+<li><p>Small allocations (≤ 256 B) bump out of a shared slab page carved
+from the PMM. When the page fills, grab another.</p></li>
+<li><p>Large allocations take contiguous runs via
+<code>pmm_alloc_pages</code>; size is tracked in a side list keyed by
+the returned pointer (using a header inline with the allocation would
+alias with slab offsets within the same page, so the side list is the
+cleanest distinguisher).</p></li>
+<li><p><code>free(p)</code> releases large allocs back to the PMM; small
+allocs are a no-op (boot-time composition doesn’t churn the
+heap).</p></li>
+</ul>
+<p>Slice 3.9b will replace this with a real bucket allocator once
+kthreads and runtime component swap exist. All framework allocation call
+sites go through standard <code>malloc</code> / <code>calloc</code> /
+<code>free</code>, so the swap is a single source file.</p>
+<h3 id="framework-freestanding-readiness">Framework
+freestanding-readiness</h3>
+<p><code>framework/registry.c</code> and <code>framework/ipc.c</code>
+used <code>&lt;stdio.h&gt;</code> + <code>&lt;time.h&gt;</code> (for
+<code>snprintf</code> + <code>clock_gettime</code>) and
+<code>&lt;stdlib.h&gt;</code> (for <code>malloc</code> /
+<code>calloc</code> / <code>free</code>). Wrapped every libc include in
+a <code>#if __STDC_HOSTED__</code> guard; the freestanding branch pulls
+in <code>core/lib/kheap.h</code> + <code>core/lib/lib.h</code>.</p>
+<p>Replaced the two <code>snprintf</code> call sites in registry.c with
+freestanding-friendly helpers (<code>fmt_hex4</code> for
+<code>\u00xx</code> JSON escapes, <code>fmt_u64</code> for decimal).
+Replaced <code>clock_gettime</code> with a host-only
+<code>CLOCK_MONOTONIC</code> read; kernel build returns 0 for now
+(timestamps on events are informational — slice 3.9b will wire
+<code>cntpct_el0</code>).</p>
+<p>Added <code>strncmp</code> to <code>core/lib/string.{c,h}</code> —
+the bootstrap test needed it and it was missing from the kernel’s string
+set.</p>
+<h3 id="compiler-flags-makefile">Compiler flags —
+<code>Makefile</code></h3>
+<p>Two additions needed to make the freestanding build actually run on
+QEMU virt with MMU off:</p>
+<ul>
+<li><p><code>-mgeneral-regs-only</code> — prevent GCC from
+auto-generating NEON code for struct copies; EL1 defaults have FPEN
+disabled, so any SIMD access traps.</p></li>
+<li><p><code>-mstrict-align</code> — prohibit unaligned loads / stores.
+With MMU off, QEMU treats memory as Device-typed, which rejects
+unaligned <code>stp</code>/<code>ldp</code>. Without this flag, GCC
+emitted <code>stp</code> pairs at <code>sp + 44</code> (valid for normal
+memory, fatal for Device).</p></li>
+</ul>
+<h3 id="framework-bootstrap-frameworkbootstrap.hc">Framework bootstrap —
+<code>framework/bootstrap.{h,c}</code></h3>
+<p>New module, ~180 LOC. Single entry point
+<code>nx_framework_bootstrap()</code>:</p>
+<ol type="1">
+<li><p>Register every slot in <code>nx_boot_slots[]</code> (from
+<code>gen/slot_table.c</code>).</p></li>
+<li><p>Walk <code>__start_nx_components … __stop_nx_components</code>,
+allocate one <code>struct nx_component</code> + state buffer per
+descriptor, register, and bind to its slot via
+<code>descriptor-&gt;name ==    nx_boot_slots[i].impl_name</code>.</p></li>
+<li><p>Repeated scan-and-emit topo sort: for each un-visited descriptor
+whose required deps are all visited, run <code>nx_resolve_deps</code> →
+<code>nx_component_init</code> → <code>nx_component_enable</code> and
+mark it visited. <code>NX_ELOOP</code> when a full scan makes no
+progress (cycle or missing required dep).</p></li>
+</ol>
+<p>Declares weak fallbacks for <code>nx_boot_slots[]</code> /
+<code>nx_boot_slots_count</code> so unit tests that don’t generate a
+slot table see an empty table and the walker degenerates cleanly.</p>
+<h3 id="lifecycle-verbs-frameworkcomponent.c">Lifecycle verbs —
+<code>framework/component.c</code></h3>
+<p>Slice 3.8’s table already documented this as 3.9a’s job: wire
+<code>nx_component_init</code> / <code>_enable</code> /
+<code>_disable</code> / <code>_destroy</code> to invoke
+<code>ops-&gt;init</code> / <code>ops-&gt;enable</code> /
+<code>ops-&gt;disable</code> / <code>ops-&gt;destroy</code>
+respectively. <code>init</code> / <code>enable</code> /
+<code>disable</code> bail early on non-zero return so a failing op
+leaves the state machine untouched. <code>destroy</code> is
+fire-and-forget (no return value on <code>ops-&gt;destroy</code>). Slice
+3.8 had already wired <code>pause</code> / <code>resume</code>; all four
+lifecycle callbacks now fire.</p>
+<h3 id="gen-config-toolsgen-config.py">gen-config —
+<code>tools/gen-config.py</code></h3>
+<p><code>kernel</code> subcommand now also emits
+<code>gen/slot_table.c</code> with:</p>
+<ul>
+<li><p>One static <code>struct nx_slot</code> per binding — name, iface
+(derived from the part before the first <code>.</code>), mutability
+(HOT), concurrency (SHARED).</p></li>
+<li><p>A <code>nx_boot_slots[]</code> array pairing each slot with its
+<code>impl</code> name.</p></li>
+<li><p><code>const unsigned nx_boot_slots_count</code> from
+<code>sizeof nx_boot_slots / sizeof nx_boot_slots[0]</code>.</p></li>
+</ul>
+<p><code>slot_name_to_ident()</code> helper derives the C variable name
+from the slot name (<code>char_device.serial</code> →
+<code>char_device_serial</code>). Output is deterministic — bindings
+sorted by slot name, matching the existing sources.mk / config.h
+invariant.</p>
+<p>Two new tests in <code>test_gen_config.py</code>:</p>
+<ul>
+<li><p><code>test_slot_table_c_shape</code> — checks name/iface
+derivation and the <code>nx_boot_slots[]</code> layout.</p></li>
+<li><p><code>test_slot_table_deterministic</code> — byte-identical
+output on repeat invocations.</p></li>
+</ul>
+<h3 id="makefile-source-list-generated-target-rules">Makefile — source
+list + generated-target rules</h3>
+<ul>
+<li><p><code>CORE_C</code> gains <code>core/lib/kheap.c</code>.</p></li>
+<li><p><code>FW_C</code> flips from empty to
+<code>registry.c component.c hook.c ipc.c bootstrap.c</code> — the full
+framework lands in every kernel build.</p></li>
+<li><p><code>ALL_C</code> picks up <code>gen/slot_table.c</code> through
+a new <code>GEN_C</code> var (sources.mk is still
+<code>-include</code>d).</p></li>
+<li><p><code>gen/sources.mk</code> / <code>gen/config.h</code> /
+<code>gen/slot_table.c</code> are now real targets cascading off
+<code>gen/sources.mk</code>’s rule so <code>make</code> auto-runs
+gen-config the first time any of them is needed.
+<code>make kernel-config</code> stays as a convenience alias.</p></li>
+<li><p><code>KTEST_C</code> gains
+<code>test/kernel/ktest_bootstrap.c</code>.</p></li>
+</ul>
+<h3 id="first-real-component-componentsuart_pl011">First real component
+— <code>components/uart_pl011/</code></h3>
+<p>Thinnest possible component that proves the boot walker actually runs
+something:</p>
+<ul>
+<li><p><code>manifest.json</code> — name, version 0.1.0, iface
+<code>char_device</code>, no deps.</p></li>
+<li><p><code>uart_pl011.c</code> — three counters
+(<code>init_called</code>, <code>enable_called</code>,
+<code>messages_handled</code>) in state, <code>ops-&gt;init</code> +
+<code>ops-&gt;enable</code> bump counters,
+<code>ops-&gt;handle_msg</code> writes
+<code>msg_type = UART_MSG_WRITE</code> payload bytes through the
+existing <code>uart_putc</code>.</p></li>
+<li><p><code>NX_COMPONENT_REGISTER_NO_DEPS</code> macro simplified (see
+below).</p></li>
+<li><p><code>README.md</code> documents behaviour, rationale, and the
+slice 3.9b evolution path.</p></li>
+</ul>
+<h3
+id="nx_component_register_no_deps-dropped-deps_field"><code>NX_COMPONENT_REGISTER_NO_DEPS</code>
+— dropped <code>DEPS_FIELD</code></h3>
+<p>The macro previously required a <code>DEPS_FIELD</code> name so
+<code>offsetof(CONTAINER, FIELD)</code> could resolve — but the
+<code>deps_offset</code> is only read when <code>n_deps &gt; 0</code>,
+so no-deps components had to invent a placeholder field they never used.
+New signature:
+<code>NX_COMPONENT_REGISTER_NO_DEPS(NAME, CONTAINER, OPS)</code>;
+<code>deps_offset</code> is always 0 (and dead) for no-deps descriptors.
+One existing caller
+(<code>test/host/component_deps_test.c::trivial_ops</code>) updated.</p>
+<h3 id="bootstrap-wired-into-boot_main">Bootstrap wired into
+<code>boot_main</code></h3>
+<p>New final phase in <code>core/boot/boot.c</code> (after PMM / GIC /
+timer):</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> fw_rc <span class="op">=</span> nx_framework_bootstrap<span class="op">();</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>fw_rc <span class="op">==</span> NX_OK<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">static</span> <span class="dt">char</span> snap_buf<span class="op">[</span><span class="dv">4096</span><span class="op">];</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">struct</span> nx_graph_snapshot <span class="op">*</span>snap <span class="op">=</span> nx_graph_snapshot_take<span class="op">();</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>snap<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        <span class="dt">int</span> n <span class="op">=</span> nx_graph_snapshot_to_json<span class="op">(</span>snap<span class="op">,</span> snap_buf<span class="op">,</span> <span class="kw">sizeof</span> snap_buf<span class="op">);</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        kprintf<span class="op">(</span><span class="st">&quot;[fw]   composition (gen=</span><span class="sc">%lu</span><span class="st">, </span><span class="sc">%lu</span><span class="st"> slots, </span><span class="sc">%lu</span><span class="st"> components):</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>                <span class="op">...);</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="op">(</span>n <span class="op">&gt;</span> <span class="dv">0</span><span class="op">)</span> uart_puts<span class="op">(</span>snap_buf<span class="op">);</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        nx_graph_snapshot_put<span class="op">(</span>snap<span class="op">);</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="op">}</span> <span class="cf">else</span> <span class="op">{</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    kprintf<span class="op">(</span><span class="st">&quot;[fw]   bootstrap failed (rc=</span><span class="sc">%d</span><span class="st">)</span><span class="sc">\n</span><span class="st">&quot;</span><span class="op">,</span> fw_rc<span class="op">);</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>On a successful bring-up the kernel now logs:</p>
+<pre><code>[fw]   composition (gen=5, 1 slots, 1 components):
+{&quot;generation&quot;:5,...,&quot;slots&quot;:[{&quot;name&quot;:&quot;char_device.serial&quot;,&quot;iface&quot;:&quot;char_device&quot;,
+&quot;mutability&quot;:&quot;hot&quot;,&quot;concurrency&quot;:&quot;shared&quot;,&quot;active&quot;:{&quot;manifest&quot;:&quot;uart_pl011&quot;,
+&quot;instance&quot;:&quot;0&quot;}}],&quot;components&quot;:[{&quot;manifest&quot;:&quot;uart_pl011&quot;,&quot;instance&quot;:&quot;0&quot;,
+&quot;state&quot;:&quot;active&quot;}],&quot;connections&quot;:[]}</code></pre>
+<h3 id="kernel-test-testkernelktest_bootstrap.c">Kernel test —
+<code>test/kernel/ktest_bootstrap.c</code></h3>
+<p>Five new KTEST cases run after <code>boot_main</code>:</p>
+<ul>
+<li><p><code>bootstrap_registers_expected_slot</code> —
+<code>char_device.serial</code> is looked up, iface
+<code>char_device</code>.</p></li>
+<li><p><code>bootstrap_binds_uart_to_its_slot</code> — slot’s
+<code>active</code> points at a component whose
+<code>manifest_id == "uart_pl011"</code> and state is
+<code>NX_LC_ACTIVE</code>.</p></li>
+<li><p><code>bootstrap_invoked_component_init_and_enable</code> — peeks
+at the bound <code>impl</code>’s counters to confirm
+<code>ops-&gt;init</code> and <code>ops-&gt;enable</code> actually fired
+(1 each).</p></li>
+<li><p><code>bootstrap_component_count_matches_descriptor_section</code>
+— <code>nx_graph_component_count() &gt;= 1</code>.</p></li>
+<li><p><code>bootstrap_snapshot_json_contains_bound_impl</code> —
+snapshot JSON contains <code>"name":"char_device.serial"</code> and
+<code>"manifest":"uart_pl011"</code>.</p></li>
+</ul>
+<h3 id="kernel.json-trimmed">kernel.json — trimmed</h3>
+<p><code>kernel.json</code> previously declared four slots
+(<code>scheduler</code> / <code>mem_manager</code> / <code>vfs</code> /
+<code>char_device.serial</code>) but only one had a real component on
+disk. Generated <code>sources.mk</code> would reference
+<code>components/mm_buddy/mm_buddy.c</code> etc. and the kernel build
+would fail. Trimmed to just
+<code>char_device.serial ← uart_pl011</code>; the other slots will be
+re-added as their components land (sched_rr in Phase 4, mm_buddy in
+Phase 5, etc.).</p>
+<h3 id="test-counts">Test counts</h3>
+<ul>
+<li><p>Python: <strong>51</strong> (49 → +2 for slot_table shape +
+determinism).</p></li>
+<li><p>Host: <strong>128</strong> (unchanged — host tests don’t exercise
+bootstrap).</p></li>
+<li><p>Kernel: <strong>11</strong> (6 → +5 bootstrap tests).</p></li>
+<li><p>Total: <strong>190 / 190 pass</strong>, 0 leaks, 0 errors, exit
+0.</p></li>
+<li><p><code>make verify-registry</code> runs against the
+<code>components/uart_pl011/</code> tree and reports 0 findings (R2 + R4
+machine-checked).</p></li>
+<li><p><code>make</code> under QEMU prints the composition JSON and
+drops into the tick loop; <code>make test</code> also boots and runs all
+11 ktests.</p></li>
+</ul>
+<h2 id="decisions">Decisions</h2>
+<p><strong>Split 3.9 → 3.9a + 3.9b.</strong> The original slice 3.9 plan
+bundled the boot walker with a runtime dispatcher upgrade (MPSC queue +
+per-CPU kthread). The dispatcher upgrade has a hard dependency on Phase
+4 — no kthreads exist yet. Session 15 kept only what works on the
+current synchronous kernel; the async / pause-hook-deadline / rollback
+story moves to 3.9b. See proj_docs/nonux/IMPLEMENTATION-GUIDE.md §Slice
+3.9a / 3.9b.</p>
+<p><strong>Heap is a dumb slab-on-PMM.</strong> Real allocator work
+belongs in Phase 5+; this slice just needs “you can call
+<code>malloc</code> / <code>free</code> and not crash.” 256-byte slab
+limit keeps component node structs packed; large allocs (snapshot
+arrays) go whole-page. <code>free</code> is precise for large allocs and
+a no-op for small ones — boot-time composition doesn’t churn, so the
+leak is bounded and observable.</p>
+<p><strong>MMU stays off.</strong> Turning the MMU on to relax
+Device-memory alignment would be a much bigger slice (page tables,
+TTBR0/1, MAIR, SCTLR tweaks, identity mapping).
+<code>-mstrict-align</code> plus <code>-mgeneral-regs-only</code> is the
+two-flag workaround that keeps us on a freestanding bare-metal build
+until a future phase owns the MMU story.</p>
+<p><strong><code>NX_COMPONENT_REGISTER_NO_DEPS</code> signature
+simplification.</strong> Dropping <code>DEPS_FIELD</code> removes the
+need for placeholder fields in no-deps component state structs. Only one
+in-tree caller had to change; the migration is a plain edit.</p>
+<p><strong>Descriptor-to-slot binding by name.</strong> The walker binds
+<code>descriptor-&gt;name == nx_boot_slots[i].impl_name</code>. An
+alternative — binding by iface match — would allow multiple slots to
+share one implementation without kernel.json knowing about it, but slice
+3.9a keeps things simple: one slot, one impl, explicit in kernel.json.
+Multi-binding lands with multi-instance (Phase 6+).</p>
+<p><strong>Weak <code>nx_boot_slots[]</code> fallback.</strong> A weak
+fallback in <code>bootstrap.c</code> lets unit tests that don’t generate
+a slot table see an empty table (not a linker error), which makes the
+bootstrap code testable in isolation and keeps CI paths simple.
+Production kernels always have the strong definition from
+<code>gen/slot_table.c</code>.</p>
+<p><strong>Freestanding timestamps return 0 for now.</strong> Event
+<code>timestamp_ns</code> on the host build is
+<code>CLOCK_MONOTONIC</code>; the kernel build returns 0 and the JSON
+prints <code>"timestamp_ns":0</code>. Timestamps are informational —
+neither correctness nor any assertion depends on them. Slice 3.9b will
+read <code>cntpct_el0</code> once we have the dispatcher thread to own
+monotonic-time conventions.</p>
+<h2 id="whats-next">What’s Next</h2>
+<p><strong>Slice 3.9b (blocked on Phase 4).</strong> MPSC lock-free
+inbox replacing the host FIFO; per-CPU dispatcher kthread that owns
+<code>nx_ipc_dispatch</code>; <code>pause_hook</code> 1 ms wall-clock
+deadline; pause-failure rollback (slot state reverts, hold queue
+replays); runtime <code>NX_HOOK_SLOT_SWAPPED</code> dispatch from the
+registry’s swap path; <code>nx_ipc_enqueue_from_irq</code>.</p>
+<p><strong>Phase 4 — scheduler.</strong> <code>sched_rr</code> becomes
+the second real component under the framework. Context switch,
+preemptive multitasking, and a kthread-spawning API that 3.9b builds
+on.</p>
+<p><strong>Opportunistic polish (anytime):</strong></p>
+<ul>
+<li><p><code>-ffreestanding</code> Device-memory workaround is a
+compiler flag hack; Phase 5+ should set up the MMU with Normal memory
+attributes and drop <code>-mstrict-align</code>.</p></li>
+<li><p>Linker script should explicitly place <code>.rodata</code> ahead
+of <code>.data</code> / <code>.bss</code> and mark the LOAD segment
+non-RWX (the current <code>RWX LOAD segment</code> linker warning is
+real — we just tolerate it until the MMU arrives).</p></li>
+<li><p>Real AArch64 Linux Image header so <code>-kernel</code>
+self-describes the load offset.</p></li>
+</ul>
+<h2 id="files-touched">Files Touched</h2>
+<ul>
+<li><p><code>core/boot/linker.ld</code> — <code>nx_components</code>
+section markers.</p></li>
+<li><p><code>core/boot/boot.c</code> — calls
+<code>nx_framework_bootstrap()</code> + snapshot dump.</p></li>
+<li><p><code>core/lib/kheap.{h,c}</code> — new, slab-on-PMM
+allocator.</p></li>
+<li><p><code>core/lib/string.{h,c}</code> — <code>strncmp</code>
+added.</p></li>
+<li><p><code>framework/bootstrap.{h,c}</code> — new.</p></li>
+<li><p><code>framework/component.{h,c}</code> —
+<code>ops-&gt;init/enable/disable/destroy</code> wired;
+<code>NX_COMPONENT_REGISTER_NO_DEPS</code> signature
+simplified.</p></li>
+<li><p><code>framework/registry.c</code>, <code>framework/ipc.c</code> —
+freestanding guards (<code>#if __STDC_HOSTED__</code>) + replace
+<code>snprintf</code> / <code>clock_gettime</code> on the freestanding
+branch.</p></li>
+<li><p><code>components/uart_pl011/{uart_pl011.c,manifest.json,README.md}</code>
+— new first component.</p></li>
+<li><p><code>test/kernel/ktest_bootstrap.c</code> — new (5
+tests).</p></li>
+<li><p><code>test/host/component_deps_test.c</code> —
+<code>NO_DEPS</code> macro migration.</p></li>
+<li><p><code>kernel.json</code> — trimmed to the one buildable
+slot.</p></li>
+<li><p><code>Makefile</code> —
+<code>-mgeneral-regs-only -mstrict-align</code>; <code>FW_C</code> /
+<code>CORE_C</code> / <code>GEN_C</code> wiring; generated-target
+rules.</p></li>
+<li><p><code>tools/gen-config.py</code> —
+<code>render_slot_table_c</code>, <code>slot_name_to_ident</code>,
+<code>slot_iface</code>; <code>cmd_kernel</code> writes the third
+output.</p></li>
+<li><p><code>tools/tests/test_gen_config.py</code> — two new
+tests.</p></li>
+<li><p><code>tools/README.md</code> — documents the new slot_table.c
+emit and the generated-targets rules.</p></li>
+<li><p><code>docs/README.md</code> — bootstrap row added; thread-model
+line updated.</p></li>
+<li><p><code>docs/framework-bootstrap.md</code> — new reference
+doc.</p></li>
+<li><p><code>docs/framework-components.md</code> — ops call-site table
+updated (all four lifecycle ops now fire).</p></li>
+<li><p><code>proj_docs/nonux/{HANDOFF,README}.md</code> — status +
+session-logs.</p></li>
+<li><p><code>proj_docs/nonux/logs/session-15-bootstrap.md</code> — this
+log.</p></li>
+</ul>
+</body>
+</html>

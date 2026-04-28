@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>session-71-N.final.b-c-d – -</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="../../kb-html/codehilite.css" />
+</head>
+<body>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#session-71-slices-7.6d.n.final.b-.c-minimal-.d"
+id="toc-session-71-slices-7.6d.n.final.b-.c-minimal-.d">Session 71 —
+slices 7.6d.N.final.b + .c (minimal) + .d</a>
+<ul>
+<li><a href="#outcome" id="toc-outcome">Outcome</a></li>
+<li><a href="#slice-7.6d.n.final.b-init-swap-policy"
+id="toc-slice-7.6d.n.final.b-init-swap-policy">Slice 7.6d.N.final.b —
+<code>/init</code> swap policy</a></li>
+<li><a href="#slice-7.6d.n.final.c-ctrl-c-ctrl-d-minimal"
+id="toc-slice-7.6d.n.final.c-ctrl-c-ctrl-d-minimal">Slice 7.6d.N.final.c
+— Ctrl-C / Ctrl-D (MINIMAL)</a></li>
+<li><a href="#slice-7.6d.n.final.d-scriptable-qemu-stdin-injection"
+id="toc-slice-7.6d.n.final.d-scriptable-qemu-stdin-injection">Slice
+7.6d.N.final.d — Scriptable QEMU stdin injection</a></li>
+<li><a href="#notes-observations" id="toc-notes-observations">Notes /
+observations</a></li>
+<li><a href="#test-totals-delta" id="toc-test-totals-delta">Test totals
+delta</a></li>
+<li><a href="#next-actions" id="toc-next-actions">Next actions</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="session-71-slices-7.6d.n.final.b-.c-minimal-.d">Session 71 —
+slices 7.6d.N.final.b + .c (minimal) + .d</h1>
+<p><strong>Date:</strong> 2026-04-28 <strong>Branch:</strong> master
+<strong>Goal:</strong> Push through the remaining sub-slices in the
+7.6d.N.final arc — <code>/init</code> swap policy (b), Ctrl-C/Ctrl-D
+semantics (c), and scriptable QEMU stdin injection (d). Slice c was
+scoped down to a minimal v1 (polled SIGTERM on Ctrl-C, EOF flag on
+Ctrl-D); the full signal-handler trampoline is deferred.</p>
+<hr />
+<h2 id="outcome">Outcome</h2>
+<p><code>make test</code> → <strong>432/432 pass (51 python + 277 host +
+104 kernel), 0 leaks, 0 errors, exit 0</strong>. +2 ktests vs. session
+70’s 430/430: both new tests live in
+<code>test/kernel/ktest_console_rx.c</code>.</p>
+<p><code>make test-interactive</code> (new) drives kernel-busybox.bin
+under QEMU with two canned scripts and confirms expected output.</p>
+<p><code>make run-busybox</code> boots an interactive busybox sh. Tested
+manually: <code>echo HELLO</code> runs end-to-end; busybox writes the
+result to UART; bytes typed at QEMU’s stdin (<code>-serial stdio</code>)
+reach <code>read(0, ...)</code> from EL0 via the slice 7.6d.N.final.a RX
+ring.</p>
+<hr />
+<h2 id="slice-7.6d.n.final.b-init-swap-policy">Slice 7.6d.N.final.b —
+<code>/init</code> swap policy</h2>
+<p><strong>Goal:</strong> New build target <code>make run-busybox</code>
+produces a kernel binary that auto-execs busybox sh as init, with the
+QEMU UART wired to the host TTY. Default <code>/init</code>
+(init_prog.elf, used by ktests) stays unchanged.</p>
+<p><strong>Deliverables:</strong></p>
+<ul>
+<li><p><code>tools/pack-initramfs.py</code>: gains
+<code>--busybox-init=PATH</code> flag. When set, any entry whose
+archive-name is <code>/init</code> gets its on-disk path rewritten to
+PATH. Lets the same <code>INITRAMFS_ENTRIES</code> Makefile variable
+feed both the test build (<code>/init = init_prog.elf</code>) and the
+busybox-init build (<code>/init = busybox</code>) without restructuring.
+~12 lines including arg parser.</p></li>
+<li><p><code>test/kernel/init_busybox_prog.S</code>: hand-rolled EL0
+stub (~70 bytes, layout-identical to <code>user_prog_exec.S</code>).
+Builds <code>argv = {"sh", NULL}</code> on the user stack via
+<code>adr</code> (PC-relative — the link-time absolute would be wrong
+since the blob is copied verbatim to user-window base 0x48000000).
+<code>svc #0</code> with x8 = 14 invokes
+<code>NX_SYS_EXEC("/init", argv, NULL)</code>; busybox sees
+<code>basename(argv[0]) == "sh"</code> and dispatches to the ash applet
+(same trick slice 7.6d.N.0 established). Falls back to
+<code>exit(1)</code> on exec failure.</p></li>
+<li><p><code>core/boot/boot.c</code>: gains
+<code>#ifdef NX_INIT_BUSYBOX</code> block (~50 lines).
+<code>nx_init_busybox_main()</code> creates an “init” process, spawns a
+kthread bound to it, then idles in <code>wfi</code>. The kthread copies
+the EL0 stub into the process’s user backing,
+<code>dsb/ic/dsb/isb</code> for cache coherency, computes
+<code>sp_el0 = (top - 16) &amp; ~0xf</code>, and
+<code>drop_to_el0</code>s.</p></li>
+<li><p><code>Makefile</code>: new <code>INITRAMFS_ENTRIES</code>
+variable (lazy <code>=</code> because <code>BUSYBOX_BIN</code> is
+defined further down); <code>initramfs-busybox.cpio</code> rule running
+pack-initramfs with <code>--busybox-init</code>; new
+<code>initramfs_busybox_blob.S</code> (parallel to
+<code>initramfs_blob.S</code> but <code>.incbin</code>s the busybox-init
+cpio); <code>core/boot/boot-busybox.o</code> rule with
+<code>-DNX_INIT_BUSYBOX</code>; <code>kernel-busybox.{elf,bin}</code>
+link rules; <code>make run-busybox</code> target invoking QEMU with
+<code>-nographic -kernel kernel-busybox.bin</code>. ~30 lines tooling +
+blob.S.</p></li>
+<li><p><code>proj_docs/nonux/TESTING-GUIDE.md</code>: gains an
+“Interactive busybox shell” recipe under Running Tests, plus a
+known-limitations callout listing v1’s caveats.</p></li>
+</ul>
+<p><strong>Bring-up trace.</strong> First build of kernel-busybox.bin
+booted past the framework composition dump but emitted no busybox
+output. Added diagnostic kprintfs in
+<code>nx_init_busybox_kthread</code> (entry print) and in
+<code>sys_exec</code> (path read, byte count, ELF parse, entry handoff);
+confirmed:</p>
+<ul>
+<li><p><code>[init] entering busybox sh at EL0</code> → kthread reaches
+drop_to_el0</p></li>
+<li><p><code>[sys_exec] entered path="/init"</code> → SVC dispatched
+correctly</p></li>
+<li><p><code>[sys_exec] read 1224584 bytes</code> → ramfs slurp + read
+worked (full busybox binary; no truncation)</p></li>
+<li><p><code>[sys_exec] elf parsed, entry=0x480043b4</code> → ELF parse
+succeeded</p></li>
+<li><p><code>[sys_exec] handing off to entry=0x480043b4 sp=0x487fff60</code>
+→ trap-frame setup landed</p></li>
+</ul>
+<p>After exec succeeded, busybox was running but silent. Adding a
+ring-byte trace (<code>[isr] got 0x..</code>) confirmed bytes were
+arriving when piped via <code>-serial stdio</code> and busybox was
+processing them correctly — the prompt-not-flushing was a
+stdio-buffering quirk, not a kernel bug. All diagnostic kprintfs
+reverted before commit.</p>
+<p><strong>Caveat captured in TESTING-GUIDE.md.</strong> Without a real
+signal- handler trampoline (deferred to a future slice c-full),
+<code>isatty(1) → 1</code> causes musl to line-buffer ash’s prompt, but
+ash’s prompt has no trailing newline. The shell IS reading input — typed
+bytes are processed even though the prompt is invisible until the first
+command output produces a newline.</p>
+<hr />
+<h2 id="slice-7.6d.n.final.c-ctrl-c-ctrl-d-minimal">Slice 7.6d.N.final.c
+— Ctrl-C / Ctrl-D (MINIMAL)</h2>
+<p><strong>Goal:</strong> Recognise Ctrl-C (0x03) and Ctrl-D (0x04) as
+control bytes in the RX path; provide tractable v1 semantics for
+both.</p>
+<p><strong>Spec deviation: minimal version.</strong> The original spec
+called for promoting N.12’s sigaction stubs from no-op to
+actually-installs- handler, plus a full kernel-side signal trampoline
+(handler frame on the EL0 stack, <code>NX_SYS_RT_SIGRETURN</code> to
+restore). That’s real kernel-mode work — careful trap-frame
+manipulation, AAPCS-conformant handler invocation, sigreturn semantics,
+re-entrancy concerns — and was higher-risk than slice b/d. Punted to a
+future <strong><code>7.6d.N.final.c-full</code></strong> sub-slice. The
+minimal version landed here gives users a tractable Ctrl-C / Ctrl-D
+experience without the trampoline:</p>
+<ul>
+<li><p><strong>Ctrl-C (0x03)</strong> → posts SIGTERM to every ACTIVE
+non-kernel process via the existing polled
+<code>sched_check_resched</code> delivery path. In v1 with no process
+groups, this brings the whole shell session down (busybox dies; the init
+kthread is left in <code>wfe</code>). Acceptable as a
+“force-quit-out-of-the-shell” gesture.</p></li>
+<li><p><strong>Ctrl-D (0x04)</strong> → arms an EOF flag.
+<code>nx_console_read</code> consumes it once the ring is drained:
+returns 0 (POSIX read EOF) on the next call, then the flag clears.
+busybox sees end-of-input on its main loop and exits cleanly.</p></li>
+</ul>
+<p><strong>Deliverables:</strong></p>
+<ul>
+<li><p><code>framework/console.{h,c}</code>: two new
+<code>_Atomic int</code> flags (<code>g_eof_pending</code>,
+<code>g_intr_pending</code>); RX ISR + <code>_test_inject_bytes</code>
+<em>no longer</em> push 0x03/0x04 into the ring (live-RX-ISR path
+intercepts them as control events; the test inject keeps pushing raw
+bytes verbatim so existing 0..0x7F-byte-range ktests don’t trip control
+events accidentally — separate <code>_test_inject_intr</code> /
+<code>_test_inject_eof</code> APIs let tests drive the control-byte
+paths explicitly); <code>nx_console_read</code> checks
+<code>g_eof_pending</code> via <code>__atomic_exchange_n</code>
+once-shot and returns 0 if armed; new
+<code>nx_console_drain_intr()</code> posts SIGTERM to every ACTIVE
+non-kernel process when <code>g_intr_pending</code> is set, returns 1 if
+drained. ~75 lines net.</p></li>
+<li><p><code>framework/syscall.c</code>: <code>sys_read</code> calls
+<code>nx_console_drain_intr()</code> at entry — any read syscall is the
+ack point for the input-side control byte. Without this, the CONSOLE arm
+yields, never noticing the pending interrupt. ~5 lines.</p></li>
+<li><p><code>test/kernel/ktest_console_rx.c</code>: +2 ktests
+(<code>console_eof_returns_zero</code>,
+<code>console_intr_posts_sigterm</code>); both assert the one-shot
+semantics (rearm + observe a second time). ~80 lines.</p></li>
+</ul>
+<p><strong>Sub-slices remaining as <code>7.6d.N.final.c-full</code>
+(deferred):</strong></p>
+<ul>
+<li><p>Per-process <code>sigaction[NSIG]</code> table; promote
+<code>sys_rt_sigaction</code> from no-op stub to
+actually-installs-handler.</p></li>
+<li><p>Kernel-side signal frame setup on the EL0-return path: when a
+signal is pending and a handler is installed, push the saved trap_frame
+onto the user stack, set PC to handler, set x0 = signo, set LR to a
+small EL0 trampoline.</p></li>
+<li><p><code>NX_SYS_RT_SIGRETURN</code> restores trap_frame from the
+user stack.</p></li>
+<li><p>ash’s installed SIGINT handler then runs (resets line-edit state,
+re-prompts) instead of v1’s kernel-kills-everyone.</p></li>
+</ul>
+<hr />
+<h2 id="slice-7.6d.n.final.d-scriptable-qemu-stdin-injection">Slice
+7.6d.N.final.d — Scriptable QEMU stdin injection</h2>
+<p><strong>Deliverables:</strong></p>
+<ul>
+<li><p><code>tools/qemu-stdin-feed.sh</code>: thin wrapper that pipes a
+script file into
+<code>qemu -serial stdio -kernel kernel-busybox.bin</code>. Captures
+combined output to <code>test/kernel-output-busybox.log</code>. ~30
+lines shell + heredoc help.</p></li>
+<li><p><code>test/interactive/run.sh</code>: drives every
+<code>*.script</code> in the directory through QEMU; verifies
+<code>*.expected</code> lines appear in the captured log via
+<code>grep -F</code> (substring match — kernel’s boot dump</p>
+<ul>
+<li>ash’s prompts share the UART stream and would tank a strict diff).
+~40 lines.</li>
+</ul></li>
+<li><p><code>test/interactive/{echo_hello,echo_pipe}.{script,expected}</code>:
+two seed canned scripts. echo_hello tests the simple <code>echo X</code>
+→ builtin path; echo_pipe tests the cross-process pipe path
+(<code>echo PIPE_INPUT | tr a-z A-Z</code> — first 2-stage interactive
+pipeline since slice 7.6d.N.6b’s bbsh-pipe).</p></li>
+<li><p><code>Makefile</code>: new <code>make test-interactive</code>
+target.</p></li>
+</ul>
+<p><strong>Bring-up.</strong> First run failed:
+<code>cat script | qemu</code> blasted bytes into PL011 faster than the
+16-byte hardware FIFO could drain. Fix: trickle the script in
+line-by-line with <code>sleep 1</code> between lines and a
+<code>sleep 3</code> initial gap so the kernel finishes booting before
+the first byte. <code>sleep 2</code> post-script keeps QEMU’s chardev
+pipe open long enough to flush the last command’s output.</p>
+<p><strong><code>make test-interactive</code> is opt-in.</strong> Each
+canned-script run takes ~10 s of wall-clock time (mostly the
+trickle-pace sleeps); it would roughly double <code>make test</code>’s
+runtime. Lives as a separate target; CI can decide whether to invoke
+it.</p>
+<hr />
+<h2 id="notes-observations">Notes / observations</h2>
+<ul>
+<li><p><strong>PL011 RX flakiness when bytes arrive too early.</strong>
+Initial test runs occasionally lost the first command’s output even when
+the kernel was clearly past
+<code>[init] entering busybox sh at EL0</code>. Adding the
+<code>sleep 3</code> initial delay in
+<code>test/interactive/run.sh</code> resolved it. Suspected cause:
+QEMU’s chardev pipe internally buffers + delivers in chunks, and bytes
+that arrive during ELF loading get queued in the chardev rather than the
+PL011 — by the time the PL011 IRQ fires, the chardev’s queue is
+half-drained but some characters were dropped by the FIFO depth limit
+during a burst handover. Real-time typing has no problem because each
+keystroke triggers an immediate IRQ.</p></li>
+<li><p><strong>Substring-match <code>.expected</code> rather than strict
+diff.</strong> The alternative — strip the kernel boot dump from the log
+before diffing — would have been cleaner but brittle (every boot-time
+log change would break every interactive test). Substring match is
+robust to log-format changes and only false-positives if a later test’s
+log stream coincidentally contains the searched string, which is
+unlikely with our distinctive uppercase markers.</p></li>
+<li><p><strong>Slice c-full is genuinely deferred, not just out of scope
+here.</strong> The trampoline work is non-trivial: aarch64 calling
+convention preservation across the handler invocation, sigreturn from
+user-stack-corrupted state, re-entrancy of nested signals, etc. Best
+done in a dedicated session. The minimal slice here gives most of the
+user-visible Ctrl-C/Ctrl-D experience until then.</p></li>
+</ul>
+<hr />
+<h2 id="test-totals-delta">Test totals delta</h2>
+<table>
+<thead>
+<tr class="header">
+<th></th>
+<th>Session 70</th>
+<th>Session 71</th>
+<th>Δ</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>python</td>
+<td>51</td>
+<td>51</td>
+<td>0</td>
+</tr>
+<tr class="even">
+<td>host</td>
+<td>277</td>
+<td>277</td>
+<td>0</td>
+</tr>
+<tr class="odd">
+<td>kernel</td>
+<td>102</td>
+<td>104</td>
+<td>+2</td>
+</tr>
+<tr class="even">
+<td><strong>total</strong></td>
+<td><strong>430</strong></td>
+<td><strong>432</strong></td>
+<td>+2</td>
+</tr>
+</tbody>
+</table>
+<p>Plus a new <code>make test-interactive</code> target (2 canned
+scripts; opt-in, not part of <code>make test</code>).</p>
+<hr />
+<h2 id="next-actions">Next actions</h2>
+<ol type="1">
+<li><p><strong><code>7.6d.N.final.c-full</code></strong> — full
+signal-handler dispatch trampoline. Promote
+<code>sys_rt_sigaction</code> from no-op to handler- storing; build EL0
+signal frame on return path; add <code>NX_SYS_RT_SIGRETURN</code>;
+switch Ctrl-C from “kill everyone” to “post SIGINT, deliver via
+handler”. Estimated ~200-300 lines kernel + ktest using mock-RX 0x03
+injection that confirms an EL0 handler ran.</p></li>
+<li><p><strong>Slice 7.7</strong> — interactive smoke tests. Now blocked
+only on c-full; could partially proceed against the minimal slice c.
+Scripted harness drives <code>ls /</code>,
+<code>echo hello | cat</code>, <code>ps</code>, <code>mkdir /tmp</code>
+against the busybox shell over the serial console; captured output is
+compared against expected. Closes Phase 7.</p></li>
+<li><p><strong>Reap-on-wait (slice-7.7 follow-up).</strong> Have
+<code>sys_wait</code> call <code>nx_process_destroy(child)</code> after
+collecting exit status. Would let us drop
+<code>NX_PROCESS_TABLE_CAPACITY</code> +
+<code>MMU_MAX_ADDRESS_SPACES</code> from 128 back to 32. Not blocking
+N.final-c-full.</p></li>
+</ol>
+</body>
+</html>
