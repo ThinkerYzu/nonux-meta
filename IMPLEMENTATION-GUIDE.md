@@ -3380,23 +3380,57 @@ semantics, and unblocks `c-full` (signal trampoline can wake
 blocked syscalls cleanly via `EINTR`) and Phase 8 drain points.
 
 **7.8a — Wait-queue primitive + `NX_TASK_BLOCKED` state**
-(~150 lines, 1 session).
+**(closed — Session 76, 2026-04-29).**  Real cost: ~190 lines
+kernel + ~210 lines ktest.  See [logs/session-76-7.8a-waitq-primitive.md](logs/session-76-7.8a-waitq-primitive.md)
+for the full bring-up notes.
 
 - New `core/sched/waitq.{h,c}`: `struct nx_waitq` (intrusive
   list of `struct nx_task *`); `nx_waitq_init`,
   `nx_waitq_wait_with_deadline`, `nx_waitq_wake_one`,
-  `nx_waitq_wake_all`.  Deadline plumbed through
-  `core/cpu/monotonic.h` (same primitive slice 3.9b.2's
-  `pause_hook` 1 ms deadline uses).
-- New task state `NX_TASK_BLOCKED` in `enum nx_task_state`.
-  `sched_rr_pick_next` skips `BLOCKED` tasks.  Wake transitions
-  `BLOCKED → READY` and re-inserts on the runqueue.
-- Conformance suite gains 4-5 universal cases
-  (`waitq_wake_one_releases_one`, `wake_all_releases_all`,
-  `wait_returns_on_deadline`, `wake_after_wait_no_lost_wakeup`,
-  `multi-waiter-fifo-order`).
-- No callers yet — pure framework addition.  `make test`
-  expectation: 432 + new conformance cases.
+  `nx_waitq_wake_all`, `nx_waitq_tick_deadlines`.  Deadline
+  plumbed through `core/cpu/monotonic.h` (same `nx_deadline`
+  primitive slice 3.9b.2's `pause_hook` uses).
+- `struct nx_task` grew 5 wait-state fields (`wait_q`,
+  `wait_deadline`, `wait_has_deadline`, `wait_woken`,
+  `deadline_node`); `sched_node` is reused for the waitq
+  linkage so a task is on either the runqueue or
+  `wq->waiters`, never both.  Indefinite waiters
+  (`budget_ns == 0`) skip the global `g_deadline_list` so the
+  per-tick deadline walk is O(N_deadline_waiters), not
+  O(N_blocked).
+- `NX_TASK_BLOCKED` was already in `enum nx_task_state` from an
+  earlier slice as a placeholder; this slice activates it.
+  `sched_rr_pick_next` defensively walks past `NX_TASK_BLOCKED`
+  tasks — in normal flow they're already off the runqueue, but
+  the guard prevents a future caller's missed-dequeue bug from
+  livelocking the system.
+- `wake_one`/`wake_all` are ISR-context-safe via DAIF.I
+  save/restore (kernel-only `mrs/msr daif` asm; host stubs).
+  `nx_waitq_tick_deadlines` is called from `sched_tick` (after
+  `g_sched_ops->tick`) and re-enqueues any waiter whose deadline
+  has elapsed, leaving `wait_woken = 0` so the wait function
+  returns `NX_EDEADLINE`.
+- Reused `NX_EDEADLINE = -9` from `framework/registry.h` for the
+  timeout return rather than introducing `NX_ETIMEDOUT`; the
+  existing comment "`pause_hook` (or similar) exceeded its
+  wall-clock budget" is generic enough to cover waitq-style
+  timeouts.
+- 5 universal ktests in `test/kernel/ktest_waitq.c`:
+  `waitq_wake_one_releases_one`,
+  `waitq_wake_all_releases_all`,
+  `waitq_wait_returns_on_deadline` (50 ms budget without wake),
+  `waitq_wake_after_wait_no_lost_wakeup`,
+  `waitq_multi_waiter_fifo_order`.  Test harness pattern:
+  spawn-yield-spawn waiters, `WAIT_FOR(cond, budget)` macro
+  yields in a bounded loop until each waiter parks, then issue
+  wake(s) and yield until completion is observed.  Reap path
+  mirrors slice 4.4's pattern (`ops->dequeue` +
+  `nx_task_destroy`).
+- No production callers yet — the existing yield-loop call
+  sites (`sys_read` CHANNEL arm slice 7.6d.N.6b, `sys_wait`
+  slice 7.4b, `nx_console_read` slice 7.6d.N.final.a) are
+  migrated in slice 7.8c.  `make test` 447 → **452/452 pass**;
+  `make test-interactive` unchanged at **7/7**.
 
 **7.8b — `NX_SYS_PPOLL` built on waitqs** (~150 lines, 1 session).
 
