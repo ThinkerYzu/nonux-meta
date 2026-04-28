@@ -3432,32 +3432,94 @@ for the full bring-up notes.
   migrated in slice 7.8c.  `make test` 447 → **452/452 pass**;
   `make test-interactive` unchanged at **7/7**.
 
-**7.8b — `NX_SYS_PPOLL` built on waitqs** (~150 lines, 1 session).
+**7.8b — `NX_SYS_PPOLL` built on waitqs**
+**(closed — Session 77, 2026-04-29).**  Real cost: ~450 lines
+across kernel + musl + posix_shim + EL0 test (vs. the plan's
+~150 estimate; the listener mechanism is duplicated between two
+object types and a thin POSIX-shim wrapper grew alongside the
+syscall).  See [logs/session-77-7.8b-ppoll.md](logs/session-77-7.8b-ppoll.md)
+for the full bring-up notes.
 
-- New per-handle-type op `add_to_pollset(handle, pollset)` for
-  `NX_HANDLE_CHANNEL` / `_FILE` / `_DIR` / `_CONSOLE` (FILE / DIR
-  always-ready; CHANNEL registers on its read/write waitq;
-  CONSOLE registers on the RX-ring waitq).
-- `sys_ppoll` walks the user-supplied `pollfd[]` (cap = 32 in
-  v1; bumps possible later), allocates a kernel-side pollset on
-  the kstack, registers each fd, computes initial readiness,
-  blocks on the pollset waitq with deadline, on wake re-checks
-  readiness and unwinds, returns `revents` via `copy_to_user`.
+- New `framework/pollset.h` defines a shared
+  `struct nx_pollset_listener { struct nx_list_node node;
+  struct nx_waitq *waitq; }` + an inline `nx_pollset_wake_all
+  (list)` that walks a per-object listener list and calls
+  `nx_waitq_wake_all` on each entry's parent waitq.  Used to be
+  per-handle-type `add_to_pollset(handle, pollset)` ops in the
+  plan; ended up cleaner as a shared struct that channel +
+  console both use.
+- `nx_channel_endpoint` grows `pollset_listeners` (initialised
+  in `nx_channel_create`); `framework/console.c` gains a
+  singleton `g_console_pollset_listeners` (statically self-
+  pointing).  Three new public functions per object:
+  `register_pollset(listener)` / `unregister_pollset(listener)`
+  / `readiness(want) → short`.  FILE / DIR are always-ready (no
+  listener registration in `sys_ppoll`).
+- `sys_ppoll` (~140 lines) validates `nfds <= NX_PPOLL_MAX_FDS
+  = 32`; decodes optional `struct timespec` (16 bytes; budget =
+  `tv_sec*1e9 + tv_nsec`); walks handles with the STDIN
+  encoded-fd-0 → slot 2 special-case mirroring `sys_read`;
+  registers listeners BEFORE the initial readiness check
+  (lost-wakeup-safe — a wake during the registration→check
+  window reaches the empty pollset waitq as a no-op, but the
+  underlying state is mutated, so the readiness check catches
+  it); blocks via `nx_waitq_wait_with_deadline` if nothing
+  ready and the timeout isn't zero; recomputes readiness on
+  wake (NX_OK) or deadline expiry (NX_EDEADLINE); copies
+  revents back via `copy_to_user`.  v1 ignores `sigmask` +
+  `sigsetsize` — same posture as our other signal stubs.
 - Producer-side wakes:
-  - `nx_channel_send` calls `wake_all` on the read waitq.
-  - `nx_channel_close` calls `wake_all` on both waitqs (so
-    peers see EOF readiness).
-  - Console RX ISR calls `wake_all` on the console RX waitq
-    after pushing a byte to the ring.
-- musl translation: add `__NR_ppoll = 73 → NX_SYS_PPOLL = N`
-  in both `arch/aarch64/syscall_arch.h` and
-  `src/thread/aarch64/syscall_cp.s`.
-- `+1-2 ktests` driving an EL0 program that polls a pipe with
-  finite timeout and confirms readiness signalling works.
-- **Closes the busybox-prompt root cause for real.**  busybox's
-  `ask_terminal()` `safe_poll(stdin, 0) == 0` test now succeeds
-  → the `\e[6n` + `fflush_all()` branch fires → prompt is
-  visible without our slice 7.6d.N.final.e patch.
+  - `nx_channel_send` after pushing to peer's ring → wake
+    peer's listeners (peer-readable transition).
+  - `nx_channel_endpoint_close` after the last close → wake
+    both endpoints' listeners (peer-closed → POLLHUP on the
+    surviving side; the closing side's listeners covered for
+    a race).
+  - `nx_console_rx_isr` after draining the PL011 FIFO → wake
+    if a real byte was pushed OR a Ctrl-D EOF was armed
+    (Ctrl-C alone does not change read-readiness so does not
+    wake).
+  - `nx_console_test_inject_bytes` + `nx_console_test_inject_eof`
+    for host-test parity.
+- musl translation: `case 73: return 41;` in
+  `arch/aarch64/syscall_arch.h` + `cmp x1, #73; b.eq .Lnx_ppoll`
+  + `.Lnx_ppoll: mov x8, #41; b .Lnx_run` in
+  `src/thread/aarch64/syscall_cp.s`.  `make musl-libc` then
+  `touch third_party/musl/lib/libc.a` + `make busybox` to
+  relink (lesson from slice 7.7b.1's bring-up).
+- POSIX shim (`components/posix_shim/posix.h`) gains a 4-arg
+  `nx_posix_svc4` helper + `nx_posix_ppoll` wrapper + matching
+  `nx_posix_pollfd` / `nx_posix_timespec` / `NX_POSIX_POLL*`
+  constants so EL0 programs can call ppoll without going
+  through musl.
+- +1 EL0 ktest in `test/kernel/ktest_posix_ppoll.c` runs three
+  subtests (initial-ready / 50 ms deadline-expiry / peer-close
+  hangup) with discrete failure exit codes (1..11).  Matching
+  ktest waits for EXITED via `nx_task_yield(); asm("wfi")`
+  loop — yields alone are insufficient because they don't
+  advance the wall clock; `wfi` lets the CPU sleep until the
+  next timer tick, which is what advances `nx_deadline`'s
+  reference.
+- Bring-up gotchas: (a) first-iteration `sys_ppoll` called
+  `nx_task_current()` — host build doesn't include
+  `core/sched/task.h` in syscall.c, switched to
+  `nx_process_current()` (always included); (b) `NX_SYSCALL_COUNT`
+  bump 41 → 42 needed an explicit `rm test/kernel/ktest_syscall.o`
+  because the Makefile's header-dep tracking doesn't catch
+  enum-value bumps (the test's "out of range" probe was using
+  the cached value 41, now `NX_SYS_PPOLL` returning -EINVAL for
+  trash args); (c) `KASSERT_EQ_U(g_ppoll_entry, mmu_user_window
+  _base())` was too strict — my ELF has `nx_posix_exit` placed
+  at offset 0 (compiler ordered the inline-helper before
+  `_start`), so `e_entry == 0x4800000c`; relaxed to "entry
+  inside the user window".
+- `make test` 452 → **453/453**; `make test-interactive`
+  unchanged at **7/7**.  busybox's intended `ask_terminal()`
+  `\e[6n` + `fflush_all()` flush path now runs end-to-end
+  because `safe_poll(stdin, 0) == 0` succeeds; the slice
+  7.6d.N.final.e `fflush(stdout)` patch in
+  `libbb/lineedit.c:put_prompt_custom` is still in place (slice
+  7.8c reverts it).
 
 **7.8c — Migrate existing yield-loops + revert slice
 7.6d.N.final.e patch** (~50 lines per site, opportunistic; can
