@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-04-28 (Phases 3 + 4 + 5 + 6 complete; Phase 7: 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0 + 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a + 7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4 + 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 + 7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 + 7.6d.N.final.a/b/c-minimal/d/e done; 7.6d.N.final.c-full + 7.6d.N.16 deferred; 7.7 pending; 7.8 (waitqs + poll/ppoll) planned after 7.7)
+**Last Updated:** 2026-04-28 (Phases 3 + 4 + 5 + 6 complete; Phase 7: 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0 + 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a + 7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4 + 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 + 7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 + 7.6d.N.final.a/b/c-minimal/d/e done; 7.6d.N.final.c-full + 7.6d.N.16 deferred; 7.7a + 7.7b.1 + 7.7b.2 done — closes Phase 7's slice-7.7 exit criteria; 7.8 (waitqs + poll/ppoll) planned next inside Phase 7)
 **Status:** Phase 3 — Component framework (Phases 1–2 done)
 
 ---
@@ -3287,33 +3287,81 @@ Landed:
 Test totals after 7.7b.1: `make test` 439/439 (was 432);
 `make test-interactive` 6/6 (was 5/5).
 
-###### Slice 7.7b.2 — `ps` via procfs (NEXT)
+###### Slice 7.7b.2 — `ps` via procfs (CLOSED, Session 75)
 
-Now that hierarchical paths are real, procfs is the cheap path in
-both directions: smaller kernel diff than a syscall + busybox patch,
-*and* no vendored-busybox debt (busybox's stock ps applet reads
-`/proc/<pid>/stat` unmodified).
+Closes Phase 7's slice-7.7 exit criteria — busybox's stock `ps`
+applet runs end-to-end with no vendored patch and prints rows for
+the kernel + init + the forked-ps process.
 
-1. New `components/procfs/procfs.c` implementing `nx_fs_ops` with
-   synthesised content: `/proc` lists current PIDs as directory
-   entries; `/proc/<pid>/stat` produces a Linux-shape stat line on
-   demand from the process table.  Same `kind` / `stat` / `readdir`
-   shape as ramfs; no on-disk storage.
-2. New public process iterator API in `framework/process.c` —
-   today the table walks are private to `process_table_add` /
-   `_remove`.  Minimal: `int nx_process_for_each(int (*cb)(struct
-   nx_process *, void *), void *ctx)`.
-3. `vfs_simple` extended with a tiny mount table: `/proc/...` →
-   `filesystem.proc`, default → `filesystem.root`.  Mount-point
-   routing in `resolve_root_fs` (or a new `resolve_for_path`
-   helper).  `kernel.json` gains `filesystem.proc ← procfs`.
-4. `INITRAMFS_ENTRIES` adds `$(BUSYBOX_BIN):/bin/ps` so busybox's
-   ps applet dispatches via argv[0] basename matching.
+Landed:
 
-Test deliverable:
-- `test/interactive/ps_smoke.{script,expected}` — `ps` should
-  print at least one row containing `init` or `sh`; takes
-  `make test-interactive` 6/6 → 7/7.
+1. `components/procfs/procfs.c` (~370 lines + manifest) implements
+   `nx_fs_ops` against the live process table:
+   - `/proc` (DIR) — readdir lists pid basenames via the new
+     `nx_process_for_each` iterator wrapped in a `find_nth(idx)`
+     callback pattern.
+   - `/proc/<pid>` (DIR) — contains the single child `stat`.
+     Trailing-slash variant `/proc/<pid>/` resolves identically;
+     critical because busybox's `procps_scan` calls `stat("/proc/
+     %u/", &sb)` for the UIDGID column.
+   - `/proc/<pid>/stat` (FILE) — Linux-shape 24-field stat line
+     synthesised on `open` (per-open buffer, refcounted).  Format:
+     `<pid> (<comm>) <state> <ppid> 0 0 ...` covering the slow-path
+     fields busybox parses (state `R` for ACTIVE, `Z` for EXITED;
+     comm wrapped in parens).
+   - Read-only: `mkdir` / `write` / `O_WRITE`-on-open all return
+     `NX_EPERM`.
+2. New public iterator `nx_process_for_each(cb, ctx)` in
+   `framework/process.{h,c}`: visits `g_kernel_process` first, then
+   `g_process_table[]` in slot order; cb returns non-zero to stop
+   early, return value mirrors the stop code.
+3. `vfs_simple` extended with two changes pulled in by serving
+   multiple mounts:
+   - **Mount table** (`mount_for_path` + `resolve_for_path`):
+     `/proc` and `/proc/...` route to `filesystem.proc`;
+     everything else stays on `filesystem.root`.  Hard-coded
+     rather than table-driven (one non-root mount in v1; promotion
+     to a real config-driven table waits for the second mount).
+   - **Per-open wrapper** (`struct vfs_simple_open`, pool of 108):
+     records the mount slot *name* (string-literal pointer)
+     alongside the driver per-open.  Every op re-resolves the
+     slot via `nx_slot_lookup` so the late-binding semantics from
+     DESIGN §Slot-Based Indirection survive (an `nx_slot_swap
+     (slot, NULL)` mid-run causes subsequent reads to fail
+     cleanly with `NX_ENOENT`).  Refcount discipline:
+     wrapper.refs and driver per-open refs move in lockstep so
+     the wrapper is freed exactly when its driver per-open is.
+     `procfs` grew a `procfs_op_retain` to keep the lockstep
+     invariant clean alongside ramfs's existing one.
+4. `kernel.json` gains `filesystem.proc ← procfs`; gen-config
+   auto-derives slot iface = `filesystem` from the dotted name.
+5. `INITRAMFS_ENTRIES` adds `$(BUSYBOX_BIN):/bin/ps` (16 entries
+   in `initramfs-busybox.cpio` total).
+6. `test/host/Makefile` picks up `components/procfs/procfs.c` so
+   the host build stays clean (no host conformance test for procfs
+   in this slice — synthesised + read-only doesn't fit the standard
+   write-then-read fixture).
+
+Tests:
+- New `test/kernel/ktest_procfs.c` (8 ktests): slot binding, stat
+  shape including the trailing-slash variant, readdir of `/proc`
+  yields pid 0 first, end-to-end open+read of `/proc/0/stat` with
+  the rendered prefix `"0 (kernel) R 0 "`, mount boundary
+  (`/banner` still routes to ramfs).
+- New `test/interactive/ps_smoke.{script,expected}`: feeds
+  `ps\nexit\n`; expected matches `PID   USER     TIME  COMMAND`,
+  `[kernel]`, `[init]`.  Tightened from the original `init` only
+  draft because the kernel boot message `[init] entering busybox
+  sh at EL0` would false-positive on the bare substring (same
+  lesson as Session 73).
+
+Result: `make test` → **447/447** (was 439; +8 procfs ktests);
+`make test-interactive` → **7/7** (was 6/6).  busybox falls back
+to bracketed-comm rendering when cmdline is empty (we don't
+implement `/proc/<pid>/cmdline` in v1; `read_cmdline` tolerates
+`sz <= 0`); ps prints `[kernel]`, `[init]`, `[init]` (the third
+is the forked-ps process — fork inherits parent's name in v1,
+exec doesn't update it).
 
 #### Slice 7.8 — Wait queues + `poll`/`ppoll`
 
@@ -3543,4 +3591,4 @@ make validate-config && make verify-registry && make && make test
 
 ---
 
-**Last Updated:** 2026-04-28 (Phases 3 + 4 + 5 + 6 complete; Phase 7: 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0 + 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a + 7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4 + 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 + 7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 + 7.6d.N.final.a/b/c-minimal/d/e done; 7.6d.N.final.c-full + 7.6d.N.16 deferred; 7.7 pending; 7.8 (waitqs + poll/ppoll) planned after 7.7)
+**Last Updated:** 2026-04-28 (Phases 3 + 4 + 5 + 6 complete; Phase 7: 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0 + 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a + 7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4 + 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 + 7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 + 7.6d.N.final.a/b/c-minimal/d/e done; 7.6d.N.final.c-full + 7.6d.N.16 deferred; 7.7a + 7.7b.1 + 7.7b.2 done — closes Phase 7's slice-7.7 exit criteria; 7.8 (waitqs + poll/ppoll) planned next inside Phase 7)
