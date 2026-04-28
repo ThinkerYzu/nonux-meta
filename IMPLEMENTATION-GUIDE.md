@@ -3249,34 +3249,71 @@ No kernel changes.  Exit: `make test-interactive` 5/5 pass (was
 
 ##### Slice 7.7b — `mkdir /tmp` + `ls /tmp` + `ps`
 
-Real kernel work — adds two new pieces:
+Real kernel work — split into 7.7b.1 (mkdir + paths, **closed in
+Session 74**) and 7.7b.2 (ps, **next**).
 
-1. **`mkdir`**: new `nx_vfs_ops.mkdir` op + ramfs implementation;
-   new `NX_SYS_MKDIRAT = N` syscall (musl `__NR_mkdirat = 34`);
-   either real hierarchical paths in ramfs (cracks open the
-   slice-6.2 flat-namespace assumption per
-   `components/ramfs/ramfs.c:405-409`) OR a v1 hack adding a
-   directory marker to the file table.  `sys_open`,
-   `sys_fstatat`, `sys_getdents64` need to recognise non-`/`
-   directory paths — currently each special-cases just `/`.  This
-   is also the right time to clean up the `sys_getdents64`
-   leading-`/` strip hack in `framework/syscall.c:1925-1926` —
-   real ramfs directories with real readdir scoping would emit
-   proper basenames without the strip.
-2. **`ps`**: either a procfs component (preferred — busybox's stock
-   ps applet just works against a `/proc/<pid>/stat` ramfs view;
-   benefits from the same hierarchical-path rework as mkdir) OR a
-   new `NX_SYS_GETPROCS` syscall + a vendored busybox patch
-   teaching ps to use it.
+###### Slice 7.7b.1 — `mkdir` + hierarchical paths in ramfs (CLOSED, Session 74)
 
-Test deliverables:
-- `test/interactive/mkdir_tmp.{script,expected}` — `mkdir /tmp;
-  touch /tmp/x; ls /tmp` should print `x`.
+Landed:
+- New `nx_vfs_ops.mkdir` + `nx_vfs_ops.stat` ops; `nx_vfs_ops.readdir`
+  signature gains a `dir_path` argument.  `struct nx_fs_stat = {kind,
+  size}` with `NX_FS_KIND_FILE` / `NX_FS_KIND_DIR`.
+- New `NX_SYS_MKDIRAT = 40` syscall; musl `__NR_mkdirat = 34 → 40` in
+  both `arch/aarch64/syscall_arch.h` and `src/thread/aarch64/syscall_cp.s`.
+- ramfs gains a `kind` field per entry; new `ramfs_op_mkdir` +
+  `ramfs_op_stat`; rewritten `ramfs_op_readdir` for hierarchical
+  projection with O(cookie²) dedup against earlier in-use entries;
+  `ramfs_op_open` rejects DIR entries with `NX_EPERM`
+  (defence-in-depth).
+- Synthesise-on-prefix in `ramfs_op_stat` so any entry with `/bin/X`
+  makes `/bin` report as DIR without an explicit entry — saves the
+  cpio loader from having to emit per-prefix dir entries; preserves
+  `RAMFS_MAX_FILES` budget.
+- `sys_open` swaps the slice-7.6d.N.5 `"/"`-only HANDLE_DIR shortcut
+  for a generic `vops->stat` probe — any DIR path now allocates
+  HANDLE_DIR with `cur->path` set.  `sys_fstatat` collapses its
+  open-and-seek dance into one stat call.
+- `sys_getdents64` passes `cur->path` to `vops->readdir` and **drops
+  the leading-`/` strip hack at `framework/syscall.c:1925-1926`**
+  (slice 7.6d.N.5 cleanup target retired).
+- `sys_readdir` (legacy) hard-codes `dir_path = "/"`.
+- busybox `mkdir` applet wired in via `$(BUSYBOX_BIN):/bin/mkdir`.
+- New kernel ktest `posix_busybox_sh_mkdir`: `mkdir /m && > /m/x &&
+  ls /m`; asserts `/m` is DIR and `/m/x` is FILE via vfs.
+- New interactive script `mkdir_tmp.{script,expected}` (`mkdir /tmp;
+  > /tmp/MKDIR_TMP_MARKER; ls /tmp`).
+- 6 new conformance / ramfs-specific host TEST cases.
+
+Test totals after 7.7b.1: `make test` 439/439 (was 432);
+`make test-interactive` 6/6 (was 5/5).
+
+###### Slice 7.7b.2 — `ps` via procfs (NEXT)
+
+Now that hierarchical paths are real, procfs is the cheap path in
+both directions: smaller kernel diff than a syscall + busybox patch,
+*and* no vendored-busybox debt (busybox's stock ps applet reads
+`/proc/<pid>/stat` unmodified).
+
+1. New `components/procfs/procfs.c` implementing `nx_fs_ops` with
+   synthesised content: `/proc` lists current PIDs as directory
+   entries; `/proc/<pid>/stat` produces a Linux-shape stat line on
+   demand from the process table.  Same `kind` / `stat` / `readdir`
+   shape as ramfs; no on-disk storage.
+2. New public process iterator API in `framework/process.c` —
+   today the table walks are private to `process_table_add` /
+   `_remove`.  Minimal: `int nx_process_for_each(int (*cb)(struct
+   nx_process *, void *), void *ctx)`.
+3. `vfs_simple` extended with a tiny mount table: `/proc/...` →
+   `filesystem.proc`, default → `filesystem.root`.  Mount-point
+   routing in `resolve_root_fs` (or a new `resolve_for_path`
+   helper).  `kernel.json` gains `filesystem.proc ← procfs`.
+4. `INITRAMFS_ENTRIES` adds `$(BUSYBOX_BIN):/bin/ps` so busybox's
+   ps applet dispatches via argv[0] basename matching.
+
+Test deliverable:
 - `test/interactive/ps_smoke.{script,expected}` — `ps` should
-  print at least one row containing `init` or `sh`.
-
-Estimated 1–2 sessions depending on whether path-rework lands
-in 7.7b or splits into a 7.7b.1 (mkdir) / 7.7b.2 (ps) pair.
+  print at least one row containing `init` or `sh`; takes
+  `make test-interactive` 6/6 → 7/7.
 
 #### Slice 7.8 — Wait queues + `poll`/`ppoll`
 
