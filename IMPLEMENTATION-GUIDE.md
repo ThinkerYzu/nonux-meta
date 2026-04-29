@@ -3522,28 +3522,75 @@ for the full bring-up notes.
   7.8c reverts it).
 
 **7.8c — Migrate existing yield-loops + revert slice
-7.6d.N.final.e patch** (~50 lines per site, opportunistic; can
-land in one session or three).
+7.6d.N.final.e patch**
+**(closed — Session 78, 2026-04-29).**  Real cost: ~140 lines
+added (kernel + new `wait_unless` variant), ~70 lines deleted
+(busybox patch + the three yield-loop bodies).  See
+[logs/session-78-7.8c-yield-loop-migration.md](logs/session-78-7.8c-yield-loop-migration.md)
+for the full bring-up notes.
 
-- `sys_read` CHANNEL arm: replace `NX_EAGAIN` yield-loop with
-  a wait on the channel's read waitq.
-- `sys_wait`: replace yield-loop on child EXITED with a wait on
-  a per-process exit waitq (which `nx_process_exit` calls
-  `wake_all` on for the parent).
-- `nx_console_read`: replace yield-loop with a wait on the
-  console RX waitq.
-- **Revert the slice 7.6d.N.final.e busybox patch** in
-  `third_party/busybox/libbb/lineedit.c`.  Restore the original
-  upstream `put_prompt_custom` (drop the `fflush(stdout)` +
-  comment block) — the prompt visibility now comes from
-  busybox's intended `ask_terminal` flush path, which works
-  again once `ppoll` is wired.  Keep the
+- New `nx_waitq_wait_unless(wq, budget_ns, pred, ctx)` extends
+  the slice 7.8a primitive: re-evaluates `pred(ctx)` *inside*
+  the IRQ-disabled + preempt-disabled critical section that
+  registers the caller on `wq`.  If it already returns
+  non-zero, the caller is NOT enqueued and the function
+  returns `NX_OK` immediately (treats the predicate as an
+  already-fired wake).  Lost-wakeup-safe: a wake that fires
+  between the caller's outer `cond` check and the inner
+  predicate check is caught by the predicate.  Internal
+  restructuring extracts the shared body into
+  `waitq_register_and_wait_locked` — both
+  `wait_with_deadline` + `wait_unless` call it.
+- `struct nx_process` grows `struct nx_waitq exit_waitq`
+  (initialised in `nx_process_create`; statically self-
+  pointing for `g_kernel_process`).  `nx_process_exit` walks
+  up to `parent_pid` and calls `nx_waitq_wake_all` on the
+  parent's `exit_waitq` after handle-table cleanup but before
+  the terminal `wfe` loop.  Processes spawned outside fork
+  (`parent_pid == 0`) skip the wake.
+- `sys_read` CHANNEL arm: replaced `nx_task_yield()` with
+  `nx_waitq_wait_unless(&read_wq, 0, sys_read_channel_ready_pred,
+  obj)` against a kstack `nx_waitq` + listener pair registered
+  on the endpoint's `pollset_listeners` list (slice 7.8b
+  infrastructure reused).  No producer-side wake additions
+  needed — `nx_channel_send` and `nx_channel_endpoint_close`
+  already fan out via `nx_pollset_wake_all`.  Predicate covers
+  the "would not return EAGAIN" condition exactly.
+- `sys_wait`: replaced both yield-loops (`pid != -1` + `pid ==
+  -1` POSIX waitpid-any) with `nx_waitq_wait_unless(&caller->
+  exit_waitq, 0, pred, ctx)` against the caller's per-process
+  exit_waitq.  Two static-inline predicates above sys_wait
+  (target-specific + any-child); both `#if !__STDC_HOSTED__`
+  guarded.
+- `nx_console_read`: same kstack waitq + listener pattern as
+  `sys_read` CHANNEL, registered on `g_console_pollset_listeners`.
+  Predicate covers ring-non-empty OR Ctrl-D EOF armed.  The
+  Ctrl-D early-return path explicitly unregisters the listener
+  before returning 0 (otherwise the per-object list would be
+  left pointing at a kstack address about to be invalidated).
+- **Reverted the slice 7.6d.N.final.e busybox patch** in
+  `third_party/busybox/libbb/lineedit.c:put_prompt_custom`
+  (~25 lines including comment block deleted).  Function
+  reverts to upstream form.  Prompt visibility now comes from
+  busybox's intended `ask_terminal()` `\e[6n` + `fflush_all()`
+  path, which works once `safe_poll(stdin, 0) == 0` returns
+  success via the slice 7.8b `NX_SYS_PPOLL`.  The
   `test/interactive/visible_prompt.{script,expected}`
-  regression so we catch any new breakage.
-- After all three migrations: `make run-busybox` still works,
-  `make test` still 432/432, `make test-interactive` still
-  3/3.  Yield-loop CPU waste under load is gone, ready for
-  Phase 9 benchmarks.
+  regression script stays as a guard.
+- Each yield-loop site uses its own private kstack waitq +
+  listener rather than a per-endpoint shared waitq —
+  intentionally avoids the thundering-herd issue (a shared
+  per-endpoint waitq would wake N concurrent readers for one
+  byte; the per-listener fan-out wakes only the active
+  waiters).
+- `make test` 453/453 (51 python + 283 host + 119 kernel —
+  same totals as Session 77; the migration adds no new tests
+  but verifies every existing case still passes); `make
+  test-interactive` 7/7 — visible_prompt PASSES with stock
+  upstream busybox, proving busybox's intended ask_terminal
+  flush path runs end-to-end via NX_SYS_PPOLL.
+- **Closes Phase 7.**  No more yield-loops in the kernel; no
+  more vendored-busybox local diffs.
 
 ### Phase 8: Runtime Recomposition and Config Manager
 
