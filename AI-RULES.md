@@ -87,42 +87,58 @@ For any of these, walk the state struct's full type tree and cross-check the man
 
 ## R3 — Cap-only slot transfer
 
-**Rule.** Slot references travel between components exclusively through `ipc_message.caps[]`. No interface message schema declares a slot ref (or a raw `slot_id`, slot pointer, or any aliased form) as a payload field.
+**Rule.** Slot references travel between components exclusively through `ipc_message.caps[]`. No interface message schema declares a slot ref (or a raw `slot_id`, slot pointer, or any aliased form) as a payload field. No C code smuggles a slot reference through payload bytes.
 
 **Why.** The router scans `caps[]` generically to validate ownership and apply borrow/transfer semantics. A slot ref buried in payload bytes is invisible to the router — the receiver can stash it without the retain discipline the `caps[]` path enforces.
 
-**Machine check.** None today. When interface schemas land (slice 3.8+), a JSON-schema validator on `manifest.json`'s `interfaces[].messages[].payload` will reject `slot_ref`-shaped fields. Until then this rule is AI-only.
+**Two-layer enforcement.** The rule splits into a *declarative* layer (what each interface allows) and a *behavioral* layer (what each component's C code actually does). The C compiler enforces neither, so each layer needs its own check.
 
-**AI verification procedure.**
-1. For every interface the component declares or consumes, inspect every message's payload struct.
-2. **Fail** if any payload field has a type that is, resolves to, or aliases `struct nx_slot *`, `nx_slot_ref_t`, `nx_cap_t`, a `uint32_t` named `slot_id`/`slot_handle`/equivalent, or a `void *` documented to carry a slot.
-3. **Fail** if handler code reads a slot-typed value out of `msg->payload` rather than `msg->caps[]`.
-4. Check send sites symmetrically: a `nx_ipc_send()` whose `msg->payload` contains a slot reference fails.
+**Machine check (declarative; lands with Phase 8 Group A).** A meta-schema validator over every `interfaces/*.iface.json` IDL file rejects any payload field whose type is or aliases `slot_ref`. Slot refs may appear only in a per-op `caps` array. Build fails on any IDL-level violation. *This catches IDL-level smuggling but does not see C code.*
 
-**Compliant example (manifest).**
+**AI verification (behavioral; always required, never retired).** The IDL constrains what an interface *may declare*; it cannot constrain what a component's C code actually writes into `msg->payload`. A pointer can always be memcpy'd into a byte buffer regardless of any schema. For each component reviewed:
+
+1. For every `nx_ipc_send()` call: confirm the outbound message was built via the generated typed struct (e.g., `struct nx_vfs_msg_open`), not by hand-assembling bytes into `msg->payload`.
+2. For every handler that reads from `msg->payload`: confirm no field is treated as a slot pointer / slot id / opaque-handle-to-slot.
+3. **Fail** if any code casts a slot pointer into `uintptr_t` / integer / `void *` and routes it through `msg->payload`.
+4. **Fail** if a component extends a generated message struct with trailing fields that are slot-typed or slot-aliased.
+5. Cross-check the IDL: review every `interfaces/*.iface.json` the component declares or consumes; flag any payload field whose type aliases a slot. (The IDL meta-schema catches obvious cases; AI catches alias chains the schema can't see — e.g., a typedef on a `uint64_t` documented as "slot opaque id".)
+
+**Compliant example (IDL).**
 ```json
 {
-  "interfaces": [{
-    "name": "vfs_ops",
-    "messages": [{
-      "name": "open",
-      "payload": {"path": "string", "flags": "u32"},
-      "caps": [{"name": "vfs", "type": "slot_ref", "mode": "borrow"}]
-    }]
+  "name": "vfs",
+  "ops": [{
+    "name": "open",
+    "args": {"path": "string", "flags": "u32"},
+    "caps": [{"name": "vfs", "type": "slot_ref", "mode": "borrow"}],
+    "returns": "i32"
   }]
 }
 ```
 
 **Violation shapes.**
+
+*Declarative — caught by IDL machine check:*
+```json
+{"name": "open", "args": {"path": "string", "vfs": "slot_ref"}}   /* slot_ref in args — fail */
+```
+
+*Behavioral — caught only by AI review of C code (compiler does not stop these):*
 ```c
-/* Payload smuggling */
-struct open_msg { const char *path; struct nx_slot *vfs; };
+/* Bypassing the generated struct, packing a slot pointer into payload bytes */
+uint8_t buf[16];
+memcpy(buf, &slot_ptr, sizeof slot_ptr);
+struct nx_ipc_message m = { .payload = buf, .payload_len = sizeof buf };
+nx_ipc_send(peer, &m);
 
-/* ID smuggling */
-struct open_msg { const char *path; uint32_t vfs_slot_id; };
+/* Hand-extending a generated message struct with a trailing slot field */
+struct vfs_msg_open_ext {
+    struct nx_vfs_msg_open base;
+    struct nx_slot        *secret_slot;
+};
 
-/* Cast-through-void */
-struct open_msg { const char *path; void *target; };  /* docs say "VFS slot" */
+/* Cast smuggling — payload field documented as "slot pointer cast to integer" */
+struct payload { uintptr_t target_id; };
 ```
 
 ---
@@ -350,4 +366,6 @@ A component with any `fail` line is not complete. The authoring agent addresses 
 
 When the framework grows a new registry rule, add a section here with the same shape: Rule / Why / Machine check / AI verification procedure / Compliant example / Violation shapes. Update the R1–R8 table in [DESIGN.md §AI Verification](DESIGN.md#ai-verification) to keep the one-line summaries in sync with the rubric.
 
-When a machine check becomes feasible (pycparser dataflow for R1, interface schemas for R3, committed `gen/` for R7, ISR/kthread tagging for R8), promote that rule's "Machine check" section in place and shrink the AI procedure to the fallback cases the tool can't see. Never remove a rule's AI procedure entirely — the rubric serves both as enforcement and as design documentation for human readers catching up on the framework.
+When a machine check becomes feasible (pycparser dataflow for R1, IDL meta-schema for R3, committed `gen/` for R7, ISR/kthread tagging for R8), promote that rule's "Machine check" section in place and shrink the AI procedure to the fallback cases the tool can't see. Never remove a rule's AI procedure entirely — the rubric serves both as enforcement and as design documentation for human readers catching up on the framework.
+
+Some rules are **two-layer**: a machine check covers part of the rule's surface and AI verification covers the remainder, with no path to full machine enforcement. R3 is the canonical example — an IDL meta-schema rejects payload fields *declared* as `slot_ref`, but the C language structurally permits a component to `memcpy` a slot pointer into a payload byte buffer regardless of any schema, so the behavioral check is irreducibly AI-verified. Promoting a two-layer rule means landing the machine check *alongside* the (continuing) AI procedure, not replacing it.

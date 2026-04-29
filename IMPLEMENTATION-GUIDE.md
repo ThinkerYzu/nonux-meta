@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-04-28 (Phases 3 + 4 + 5 + 6 complete; Phase 7: 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0 + 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a + 7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4 + 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 + 7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 + 7.6d.N.final.a/b/c-minimal/d/e done; 7.6d.N.final.c-full + 7.6d.N.16 deferred; 7.7a + 7.7b.1 + 7.7b.2 done — closes Phase 7's slice-7.7 exit criteria; 7.8 (waitqs + poll/ppoll) planned next inside Phase 7)
+**Last Updated:** 2026-04-29 (Phases 1–7 complete.  Phase 8 plan landed Session 79: 15 slices in 3 groups — Group A generator (8.0pre.1–4), Group B IPC migration (8.0a–e), Group C runtime recomposition (8.1–8.6).  ~270 new ktests across the migration, end-state target ~700/700.  Slice 8.0pre.1 is the next forward step.)
 **Status:** Phase 3 — Component framework (Phases 1–2 done)
 
 ---
@@ -3595,16 +3595,82 @@ for the full bring-up notes.
 ### Phase 8: Runtime Recomposition and Config Manager
 
 **Goal:** Swap components at runtime. Change IPC modes on the fly.
-**Status:** NOT STARTED
+**Status:** NOT STARTED — plan landed Session 79.
 
-Steps:
-1. Write `framework/config.c` — runtime config manager with handle API
-2. Implement runtime hot-swap (disable old → enable new, message draining)
-3. Implement runtime connection mode switching (async↔sync)
-4. Write a userspace tool or test that triggers a scheduler swap at runtime
-5. Demonstrate: swap scheduler while tasks are running, observe behavior change
+Phase 8 splits into three groups (15 slices total).  The original Phase 8 deliverables (live hot-swap, per-edge mode switching) are **Group C**; Groups A and B exist because today's production paths don't actually flow through the slice-3.8 IPC router — they reach into `slot->active->descriptor->iface_ops` directly (~184 sites across 19 files, all five production components have `handle_msg = NULL`).  A live recompose against that surface is a use-after-free.  Group A builds the generator that makes the migration tractable; Group B routes every cross-component call through `nx_slot_call_sync`; Group C then ships the original Phase 8 deliverables on top.
 
-**Validation:** Scheduler swapped at runtime without crash. Tasks continue running under new scheduling policy.
+#### Architectural decisions (locked in at Session 79)
+
+- **Option A (full IPC routing) over pause-aware borrow.**  Long-term DESIGN.md alignment.  Cost absorbed by the generator.
+- **JSON IDL per interface, parsed by `tools/gen-iface.py`.**  Per-op metadata (pause-policy override, sync/async preference, trace tags) has no natural home in a C `struct ops`.
+- **Sync-mode v1.**  Caller blocks on its own stack; async-mode-per-edge is forward-compatible via DESIGN's existing `mode = IPC_SYNC|IPC_ASYNC` parameter and lands later.
+- **Sync-during-pause = block on `slot->resume_waitq`** (slice 7.8a primitive), not literal message buffering.  Async edges keep DESIGN's buffer semantics.  DESIGN.md gets a one-section update with slice 8.0a.
+- **Per-op tagged message structs** over generic argv.  Easier to debug, easier for hooks to introspect.
+
+#### Group A — Generator infrastructure (4 slices)
+
+| Slice | Deliverable |
+|---|---|
+| **8.0pre.1** | IDL schema + `tools/gen-iface.py` + first interface (`vfs`).  Generator emits message structs, ops typedef, sender wrappers, dispatch template.  Makefile wires `make gen-iface` + `verify-iface-fresh`.  Existing direct-call code unchanged because emitted `interfaces/vfs.h` matches today's hand-written form. |
+| **8.0pre.2** | Cover `fs` interface — de-risks generator on cap-bearing ops (slot_ref args). |
+| **8.0pre.3** | Cover `sched`, `mm`, `char_device` interfaces.  Surfaces no-message-context ops (mm_alloc-style) and IRQ-entry shape (uart RX). |
+| **8.0pre.4** | Cut over: hand-written `interfaces/*.h` deleted, generator output is canonical.  `gen-iface` runs as a Make prerequisite; `verify-iface-fresh` enforced. |
+
+**Checkpoint A:** All interfaces declared via IDL; generator is project infrastructure.
+
+#### Group B — IPC migration (5 slices)
+
+| Slice | Deliverable |
+|---|---|
+| **8.0a** | `framework/slot_call.{h,c}` — sync-call infrastructure.  API: `nx_slot_call_sync(slot, op_id, msg)`.  Body: pause-flag acquire (block on resume_waitq if PAUSING/PAUSED+queue, reject if =reject, redirect to fallback), in-flight counter, hook-chain walk, invoke ops, release.  Updates DESIGN.md with sync vs. async pause semantics.  Lands the cross-cutting test infrastructure (mock component, hook-chain inspector, recompose event logger, pause-injector fixture, cap-forgery harness, equivalence-runner macro) that every later slice depends on. |
+| **8.0b** | Activate generated `handle_msg` shims on all 5 production components (`vfs_simple`, `ramfs`, `procfs`, `mm_buddy`, `sched_rr`) + replace `uart_pl011`'s smoke-test handler with the real generated shim.  Components remain dual-callable (direct ops + handle_msg) so 8.0c equivalence tests can exercise both. |
+| **8.0c** | Migrate framework production paths to wrappers — `syscall.c` (~30 sites in vfs paths), `dispatcher.c`, `bootstrap.c`, `component.c`, `process.c`.  **Per-callsite equivalence tests land *before* the migration**, pinning down behavior; then wrappers swap in; then equivalence is asserted again.  Hot-path perf checkpoint: `read`/`write`/`open` round-trip cycles measured before and after; gated to ≤10% regression.  `make test` 453/453 + interactive 7/7 stay green. |
+| **8.0d** | Migrate component-to-component calls — `vfs_simple` → ramfs/procfs (mount-table dispatch).  Same green-test bar. |
+| **8.0e** | Lock down with `verify-registry.py` rule that forbids `slot->active->descriptor->iface_ops` access outside `framework/slot_call.c`.  Existing call sites already migrated, so it lights up green.  Future violations fail build. |
+
+**Checkpoint B:** Hot-swap is structurally safe.  No production code reaches into ops tables.  The `pause_flag → block-on-resume → drain → swap → flush` protocol is the only path between components.
+
+#### Group C — Runtime recomposition (6 slices)
+
+| Slice | Deliverable |
+|---|---|
+| **8.1** | Lift pause/drain/resume from host build into kernel build.  Slice-3.8's host-only protocol gets QEMU-side coverage.  Adds slice-3.9's deferred kernel rollback path.  End-to-end ktest: pause an existing slot, drain hold queue, resume, verify no message loss. |
+| **8.2** | `framework/recompose.c` orchestrator — `struct recomp_plan`, `nx_recompose()`, topological pause order from registry edges, rollback on pause-hook failure, connection rewiring (`conn_change`).  `timer_pause()` / `timer_resume()` bookends.  Demo: recompose a leaf slot. |
+| **8.3** | `framework/config.c` runtime config manager + handle API + EL0 syscall surface (`NX_SYS_CONFIG_*`).  EL0 program opens config handle, queries the live composition, fires `nx_recompose`. |
+| **8.4** | Second scheduler impl — `components/sched_priority/`.  Conformance suite reused from Phase 4.  Kernel boots with `sched_priority` from `kernel.json` start-to-finish.  Standalone validation (no swap yet). |
+| **8.5** | **Headline:** EL0 program runs N background tasks; mid-run swaps `sched_rr → sched_priority` via the config handle; tasks survive, leak-free, behavior change observable.  Phase 8's IMPLEMENTATION-GUIDE step-5 exit criterion. |
+| **8.6** | Runtime async↔sync mode switching — `conn_change` with `.action = CONN_REWIRE, .mode = IPC_*`.  Ktest: flip a CHANNEL connection async↔sync mid-flight; observe message routing changes without restart.  Closes Phase 8. |
+
+**Checkpoint C:** Phase 8 closed.  Live recomposition shipping; per-edge mode switching shipping; second scheduler shipping.
+
+#### Test plan
+
+Migration of 184 callsites and 5 components is high-risk surgery.  Coarse `make test` green is necessary but not sufficient.  ~270 new ktests across the 15 slices; end-state target ~700 (today: 453).
+
+| Group | New ktests | Notes |
+|---|---|---|
+| Group A — generator | ~50 | Schema validation, round-trip pack/unpack, snapshot diffing, cap-bearing ops, no-context ops, IRQ-entry shape. |
+| Slice 8.0a (sync-call infra) | ~70 | Pause-state transitions; queue/reject/redirect policies; in-flight counter; hook chain incl. abort; cap-scan incl. forgery; identity property under `PAUSE_NONE`; re-entrancy; lost-wakeup race; ISR-context guards.  Foundation everything else stands on. |
+| Slice 8.0b (receiver shims) | ~50 | Dual-callable equivalence per op per component. |
+| Slices 8.0c, 8.0d (callsite migration) | ~30 | Per-callsite golden tests pinning behavior *before* migration; existing 453-test baseline stays green; perf gated to ≤10% regression on hot syscalls. |
+| Slices 8.1–8.6 (Phase 8 proper) | ~100 | Kernel-side pause/drain/resume; recompose orchestrator; config handle API; sched_priority conformance; live-swap demo; mode switching. |
+
+Cross-cutting test infrastructure lands in slice 8.0a: configurable mock component, hook-chain inspector, recompose event logger, pause-injector ktest fixture, cap-forgery harness, per-callsite equivalence-runner macro.
+
+**Test-first migration philosophy.**  Per-callsite equivalence tests land *before* the migration in slice 8.0c.  Dual-callable window in slice 8.0b is what makes side-by-side assertion possible.  Each slice ends with `make test` count strictly higher than it started — no slice regresses.
+
+#### Risk concentration
+
+- **Slice 8.0a.**  Sync-call API shape must accommodate hooks + pause-flag + fallback redirect + in-flight tracking + cap-scan.  Worth getting right before generator output (Group A) depends on it; in practice, 8.0a's API contract is a prerequisite for 8.0pre.1's wrapper-emission template.
+- **Slice 8.0c.**  Hot-path perf checkpoint.  If syscall paths slow significantly, may need wrapper inlining work or a fast-path before continuing to 8.0d.
+- **Slice 8.1.**  Kernel-side pause may surface races invisible in host build (preempt/IRQ semantics around the atomic pause flag).  Worth doing first as a de-risking probe before 8.2+.
+- **Slices 8.4 → 8.5.**  `sched_priority` must be stable standalone before live-swap can validate correctness.  Rushing 8.4 makes 8.5 hard to debug.
+
+#### Estimated effort
+
+15 slices × ~1–2 sessions each = **~15–25 sessions**.  Front-loaded: Groups A and B together are ~9 slices and roughly the same scope as Group C alone, but they pay off for every future component and every future hot-swap demo.
+
+**Validation (Phase 8 exit):** Scheduler swapped at runtime without crash; tasks continue running under new scheduling policy; per-edge async↔sync mode flips at runtime without restart; `make test` ~700/700; `make test-interactive` 7/7; no production code reaches into `slot->active->descriptor->iface_ops`.
 
 ### Phase 9: Per-Process Memory Management Rework
 
@@ -3758,4 +3824,4 @@ make validate-config && make verify-registry && make && make test
 
 ---
 
-**Last Updated:** 2026-04-28 (Phases 3 + 4 + 5 + 6 complete; Phase 7: 7.1 + 7.2 + 7.3 + 7.4 + 7.5 + 7.6a + 7.6b + 7.6c.0 + 7.6c.1 + 7.6c.2 + 7.6c.3 + 7.6c.4 + 7.6d.1 + 7.6d.2 + 7.6d.3a + 7.6d.3b + 7.6d.3c + 7.6d.N.0 + 7.6d.N.1 + 7.6d.N.2 + 7.6d.N.3 + 7.6d.N.4 + 7.6d.N.5 + 7.6d.N.6a + 7.6d.N.6b + 7.6d.N.7 + 7.6d.N.8 + 7.6d.N.9 + 7.6d.N.10 + 7.6d.N.11 + 7.6d.N.12 + 7.6d.N.13 + 7.6d.N.14 + 7.6d.N.15 + 7.6d.N.final.a/b/c-minimal/d/e done; 7.6d.N.final.c-full + 7.6d.N.16 deferred; 7.7a + 7.7b.1 + 7.7b.2 done — closes Phase 7's slice-7.7 exit criteria; 7.8 (waitqs + poll/ppoll) planned next inside Phase 7)
+**Last Updated:** 2026-04-29 (Phases 1–7 complete.  Phase 8 plan landed Session 79: 15 slices in 3 groups — Group A generator (8.0pre.1–4), Group B IPC migration (8.0a–e), Group C runtime recomposition (8.1–8.6).  ~270 new ktests across the migration, end-state target ~700/700.  Slice 8.0pre.1 is the next forward step.)
