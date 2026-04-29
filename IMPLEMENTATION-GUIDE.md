@@ -9,7 +9,7 @@
 
 ## Navigation
 
-**Project Docs:** [README](README.md) | [SPEC](SPEC.md) | [DESIGN](DESIGN.md) | [IMPLEMENTATION-GUIDE](IMPLEMENTATION-GUIDE.md) *(you are here)* | [HANDOFF](HANDOFF.md)
+**Project Docs:** [README](README.md) | [SPEC](SPEC.md) | [DESIGN](DESIGN.md) | [IMPLEMENTATION-GUIDE](IMPLEMENTATION-GUIDE.md) *(you are here)* | [HANDOFF](HANDOFF.md) | [IDL-SCHEMA](IDL-SCHEMA.md)
 
 **This Document:**
 - [Overview](#overview)
@@ -3611,7 +3611,7 @@ Phase 8 splits into three groups (15 slices total).  The original Phase 8 delive
 
 | Slice | Deliverable |
 |---|---|
-| **8.0pre.1** | IDL schema + `tools/gen-iface.py` + first interface (`vfs`).  Generator emits message structs, ops typedef, sender wrappers, dispatch template.  Makefile wires `make gen-iface` + `verify-iface-fresh`.  Existing direct-call code unchanged because emitted `interfaces/vfs.h` matches today's hand-written form. |
+| **8.0pre.1** | IDL schema + `tools/gen-iface.py` + first interface (`vfs`).  Generator emits message structs, ops typedef, sender wrappers, dispatch template.  Makefile wires `make gen-iface` + `verify-iface-fresh`.  Existing direct-call code unchanged because emitted `interfaces/vfs.h` matches today's hand-written form.  Schema spec locked Session 80 in [IDL-SCHEMA.md](IDL-SCHEMA.md). |
 | **8.0pre.2** | Cover `fs` interface — de-risks generator on cap-bearing ops (slot_ref args). |
 | **8.0pre.3** | Cover `sched`, `mm`, `char_device` interfaces.  Surfaces no-message-context ops (mm_alloc-style) and IRQ-entry shape (uart RX). |
 | **8.0pre.4** | Cut over: hand-written `interfaces/*.h` deleted, generator output is canonical.  `gen-iface` runs as a Make prerequisite; `verify-iface-fresh` enforced. |
