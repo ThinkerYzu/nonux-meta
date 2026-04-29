@@ -47,7 +47,7 @@
 >     - :ballot_box_with_check: 7.8a Wait-queue primitive + `NX_TASK_BLOCKED` activation (Session 76)
 >     - :ballot_box_with_check: 7.8b `NX_SYS_PPOLL` built on waitqs (Session 77)
 >     - :ballot_box_with_check: 7.8c Migrate yield-loops + revert busybox `fflush(stdout)` patch (Session 78) — closes Phase 7
-> - :white_large_square: Phases 8–10 (runtime recomposition, integration tests + benchmarks, docs + AI operability)
+> - :white_large_square: Phases 8–11 (runtime recomposition, per-process MM rework, integration tests + benchmarks, docs + AI operability)
 
 ### What We Have
 
@@ -87,32 +87,26 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
    Implementation pattern is already established by `sys_writev` (~30 lines kernel + 1 line each in `syscall_arch.h` and `syscall_cp.s` per addition).
 
-6. **Real per-process memory management** (long-term, post-Phase-7).  The current "every process gets one contiguous 8 MiB physical block, mapped via four 2 MiB L2 blocks" model is functional but wasteful and rigid:
-   - **Over-commit:** every process eats 8 MiB of physical RAM regardless of actual use.
-   - **PMM fragmentation:** `process_create` needs 10 MiB physically contiguous; after many fork/exec cycles PMM may not find a contiguous run.
-   - **Fork is O(USER_WINDOW_SIZE) memcpy** even for one-byte-overwrite children.  No COW.
-   - **Hard 8 MiB ceiling per process.**
-
-   The standard fix: **drop 2 MiB block descriptors for L3 4 KiB pages, per-process VMAs (text / data / heap / stack), demand paging + copy-on-write for fork.**  Multi-slice rework — page-table layout (4 KiB granule), VMA framework, fault handler, fork rework, mmap, and migration of existing tests off the contiguous-block assumption.  Probably lands between Phase 8 (recomposition) and Phase 9 (benchmarks), or as part of Phase 9's perf-oriented pass.
-
-7. **Phase 5 follow-ups still open:**
+6. **Phase 5 follow-ups still open:**
    - Per-task TTBR0 page table (kernel moves to high half via TTBR1).  Needed before multiple concurrent EL0 processes can share a single L1 root cleanly.
    - Type-aware handle duplicate so `dup` of a CHANNEL bumps the underlying refcount (today's plain duplicate breaks the invariant).
    - `copy_from_user` with page-fault fixup — current bounds-check is correct but doesn't handle faults gracefully.
 
-8. **Test-harness follow-ups:**
+7. **Test-harness follow-ups:**
    - Per-test quantum override.  `SCHED_RR_DEFAULT_QUANTUM_TICKS = 2` is a compromise; a `kernel.json` knob (once gen-config emits per-component config macros) lets tests tune per-build.
    - C-compiled EL0 crt0 for `main(argc, argv)` entry — needed when busybox expects POSIX main semantics directly.
 
-9. **`verify-registry.py` extensions:**
+8. **`verify-registry.py` extensions:**
    - pycparser-backed R1 / R6 (deep-dataflow, gated behind `--deep` so default `make test` stays fast).
    - R4 control-flow extension so "retain in enable, release only in error path" is flagged.
    - R8 call-graph once ISR / kthread entry points have a tagging convention.
 
-10. **Infrastructure polish:**
+9. **Infrastructure polish:**
     - Proper AArch64 Linux Image header so `-kernel` self-describes the load offset instead of hardcoding `0x40080000` in linker.ld.
     - `make test-host COMPONENT=X` filter (SPEC documents it; trivial once a future composition makes it useful).
     - Fix the `LOAD segment with RWX permissions` linker warning — unlocks with split-permission kernel pages (different PXN/AP on kernel text vs data blocks).
+
+> The per-process memory management rework — formerly tracked here as "long-term, post-Phase-7" — is now [IMPLEMENTATION-GUIDE.md §Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework).  It owns the L3 4 KiB / VMA / demand-paging / COW work.
 
 ### Deferred indefinitely
 

@@ -80,8 +80,9 @@ JSON manifests describe every component's interface, config options, dependencie
 | 6 | VFS & ramfs | File operations on in-memory filesystem |
 | 7 | Process model & POSIX | fork/exec, pipes, busybox shell |
 | 8 | Runtime recomposition | Live hot-swap, runtime config changes |
-| 9 | Test & benchmarks | Full test suite, IPC/context-switch benchmarks |
-| 10 | Docs & AI operability | AI agent can build a kernel from manifests alone |
+| 9 | Per-process MM rework | L3 4 KiB pages, VMAs, demand paging, COW fork |
+| 10 | Test & benchmarks | Full test suite, IPC/context-switch benchmarks |
+| 11 | Docs & AI operability | AI agent can build a kernel from manifests alone |
 
 See [IMPLEMENTATION-GUIDE.md](IMPLEMENTATION-GUIDE.md) for detailed steps per phase.
 

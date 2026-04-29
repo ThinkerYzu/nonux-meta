@@ -3606,9 +3606,33 @@ Steps:
 
 **Validation:** Scheduler swapped at runtime without crash. Tasks continue running under new scheduling policy.
 
-### Phase 9: Integration Tests and Benchmarks
+### Phase 9: Per-Process Memory Management Rework
 
-**Goal:** In-kernel integration tests and performance benchmarks. Test infrastructure was built incrementally in Phases 2-8; this phase adds system-level tests and benchmarking.
+**Goal:** Replace the contiguous 8 MiB-per-process backing model with L3 4 KiB pages, per-process VMAs, demand paging, and copy-on-write fork.  Phase 7 deliberately stayed on the simple model so we could ship busybox; this phase pays it down before Phase 10 benchmarks measure anything.
+**Status:** NOT STARTED
+
+The current model (Phase 5–7) gives every process one contiguous 8 MiB physical block, mapped via four 2 MiB L2 block descriptors.  That's functional but rigid:
+
+- **Over-commit.**  Every process eats 8 MiB of physical RAM regardless of actual use (`init_prog` is ~800 bytes; signal demo ~250 bytes).
+- **PMM fragmentation.**  `nx_process_create` needs 10 MiB physically contiguous (8 MiB usable + 2 MiB alignment slack); after many fork/exec cycles PMM may not find a contiguous run even with hundreds of MiB free elsewhere.
+- **Fork is O(USER_WINDOW_SIZE) memcpy** even when the child overwrites two bytes and exits — no COW.
+- **Hard 8 MiB ceiling per process.**  Any binary whose code+data+heap+stack would exceed ~6 MiB of mapped memory just can't run.
+- **Wasted alignment slack.**  Each `process_create` carries 2 MiB of slack locked away from PMM until the process is destroyed.
+
+Steps (multi-slice rework):
+
+1. Per-process page tables grow a third level — L3 4 KiB pages instead of L2 2 MiB blocks.  4 KiB granularity makes per-page demand-paging and per-page COW natural.
+2. `nx_process` gains a list of VMAs (`{vaddr_lo, vaddr_hi, prot, file_or_anon, offset}`).  ELF loader populates one VMA per PT_LOAD; brk grows a heap VMA up; mmap creates new VMAs.
+3. Page-fault handler upgrades from "panic" to "look up VMA, allocate one PMM page, populate L3 entry, return."  COW pages get a "copy on write" flag; first write demotes the entry from RO to RW with a fresh page.
+4. `mmu_copy_user_backing` becomes `mmu_clone_user_backing_cow`: walks parent's L3, marks each entry RO in both parent and child, no memcpy.  First write in either side faults, copies one page, splits.
+5. `mmap(NULL, size, PROT_*, MAP_ANON|MAP_PRIVATE, ...)` falls out for free as a new VMA + lazy population.  busybox + most real userspace stops needing brk.
+6. Migrate every existing test off the contiguous-block assumption (per-process layout constants, `mmu_user_window_*` semantics, the `pmm_reserve_range` boot-time exclusion in `boot.c`).
+
+**Validation:** `make test` still passes; an EL0 demo that mmap's 100 MiB of anonymous memory and touches one page per MiB completes without OOM; fork is O(VMA count) not O(window size); a stress test that forks/execs 1000 times per second runs steadily without PMM exhaustion.
+
+### Phase 10: Integration Tests and Benchmarks
+
+**Goal:** In-kernel integration tests and performance benchmarks. Test infrastructure was built incrementally in Phases 2-9; this phase adds system-level tests and benchmarking.
 **Status:** NOT STARTED
 
 Steps:
@@ -3625,7 +3649,7 @@ Steps:
 
 **Validation:** `make test` — all pass (host + kernel), >80% core coverage. `make bench` — produces reproducible report. Every component shows "0 leaks, 0 errors".
 
-### Phase 10: Documentation and AI Operability
+### Phase 11: Documentation and AI Operability
 
 **Goal:** Complete documentation. AI agent can build a custom kernel from manifests alone.
 **Status:** NOT STARTED
