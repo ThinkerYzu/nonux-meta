@@ -9,7 +9,7 @@
 
 ## Navigation
 
-**Project Docs:** [README](README.md) | [SPEC](SPEC.md) | [DESIGN](DESIGN.md) | [IMPLEMENTATION-GUIDE](IMPLEMENTATION-GUIDE.md) *(you are here)* | [HANDOFF](HANDOFF.md) | [IDL-SCHEMA](IDL-SCHEMA.md)
+**Project Docs:** [README](README.md) | [SPEC](SPEC.md) | [DESIGN](DESIGN.md) | [IMPLEMENTATION-GUIDE](IMPLEMENTATION-GUIDE.md) *(you are here)* | [HANDOFF](HANDOFF.md) | [IDL-SCHEMA](IDL-SCHEMA.md) | [SLOT-CALL-API](SLOT-CALL-API.md)
 
 **This Document:**
 - [Overview](#overview)
@@ -3622,7 +3622,7 @@ Phase 8 splits into three groups (15 slices total).  The original Phase 8 delive
 
 | Slice | Deliverable |
 |---|---|
-| **8.0a** | `framework/slot_call.{h,c}` — sync-call infrastructure.  API: `nx_slot_call_sync(slot, op_id, msg)`.  Body: pause-flag acquire (block on resume_waitq if PAUSING/PAUSED+queue, reject if =reject, redirect to fallback), in-flight counter, hook-chain walk, invoke ops, release.  Updates DESIGN.md with sync vs. async pause semantics.  Lands the cross-cutting test infrastructure (mock component, hook-chain inspector, recompose event logger, pause-injector fixture, cap-forgery harness, equivalence-runner macro) that every later slice depends on. |
+| **8.0a** | `framework/slot_call.{h,c}` — blocking-call infrastructure.  API: **`nx_slot_call_blocking(slot, msg)`**.  Full spec locked Session 81 in [SLOT-CALL-API.md](SLOT-CALL-API.md).  Resolution 1 model: dispatcher resolves `slot->active` (caller never reads it), reply-via-dispatched-message (Option β).  Substantial scope — promotes `posix_shim` to a real kernel component (renames today's userspace lib to `components/libnxlibc/`); adds per-task `caller_slot` to `struct nx_task` with auto-registered edges to all posix_shim service deps; new `NX_EABORT = -10` errcode; per-CPU reply-message pool sized 256; `posix_shim_on_dep_swapped` invalidates handle table on `STATE_LOST`; one-section update to DESIGN.md (sync-mode shortcut requires caller on a dispatcher, syscall edges therefore `mode: async`).  Lands the cross-cutting test infrastructure (mock component, hook-chain inspector, recompose event logger, pause-injector fixture, cap-forgery harness, equivalence-runner macro) that every later slice depends on.  ~70 ktests. |
 | **8.0b** | Activate generated `handle_msg` shims on all 5 production components (`vfs_simple`, `ramfs`, `procfs`, `mm_buddy`, `sched_rr`) + replace `uart_pl011`'s smoke-test handler with the real generated shim.  Components remain dual-callable (direct ops + handle_msg) so 8.0c equivalence tests can exercise both. |
 | **8.0c** | Migrate framework production paths to wrappers — `syscall.c` (~30 sites in vfs paths), `dispatcher.c`, `bootstrap.c`, `component.c`, `process.c`.  **Per-callsite equivalence tests land *before* the migration**, pinning down behavior; then wrappers swap in; then equivalence is asserted again.  Hot-path perf checkpoint: `read`/`write`/`open` round-trip cycles measured before and after; gated to ≤10% regression.  `make test` 453/453 + interactive 7/7 stay green. |
 | **8.0d** | Migrate component-to-component calls — `vfs_simple` → ramfs/procfs (mount-table dispatch).  Same green-test bar. |
@@ -3639,9 +3639,10 @@ Phase 8 splits into three groups (15 slices total).  The original Phase 8 delive
 | **8.3** | `framework/config.c` runtime config manager + handle API + EL0 syscall surface (`NX_SYS_CONFIG_*`).  EL0 program opens config handle, queries the live composition, fires `nx_recompose`. |
 | **8.4** | Second scheduler impl — `components/sched_priority/`.  Conformance suite reused from Phase 4.  Kernel boots with `sched_priority` from `kernel.json` start-to-finish.  Standalone validation (no swap yet). |
 | **8.5** | **Headline:** EL0 program runs N background tasks; mid-run swaps `sched_rr → sched_priority` via the config handle; tasks survive, leak-free, behavior change observable.  Phase 8's IMPLEMENTATION-GUIDE step-5 exit criterion. |
-| **8.6** | Runtime async↔sync mode switching — `conn_change` with `.action = CONN_REWIRE, .mode = IPC_*`.  Ktest: flip a CHANNEL connection async↔sync mid-flight; observe message routing changes without restart.  Closes Phase 8. |
+| **8.6** | Runtime async↔sync mode switching — `conn_change` with `.action = CONN_REWIRE, .mode = IPC_*`.  Ktest: flip a CHANNEL connection async↔sync mid-flight; observe message routing changes without restart. |
+| **8.7** | `NX_HOOK_SYSCALL_ENTER` / `NX_HOOK_SYSCALL_EXIT` hook points.  Fire from `framework/syscall.c` immediately after SVC entry / immediately before EL0 return.  Context exposes syscall number, args, return value, current task, current process.  Use cases: per-task syscall trace, security audit hooks, strace-equivalent.  ~60 lines + ~5 ktests.  Closes Phase 8. |
 
-**Checkpoint C:** Phase 8 closed.  Live recomposition shipping; per-edge mode switching shipping; second scheduler shipping.
+**Checkpoint C:** Phase 8 closed.  Live recomposition shipping; per-edge mode switching shipping; second scheduler shipping; syscall-boundary observability shipping.
 
 #### Test plan
 

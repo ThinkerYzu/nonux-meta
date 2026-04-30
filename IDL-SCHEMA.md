@@ -8,7 +8,7 @@
 
 ## Navigation
 
-**Project Docs:** [README](README.md) | [SPEC](SPEC.md) | [DESIGN](DESIGN.md) | [IMPLEMENTATION-GUIDE](IMPLEMENTATION-GUIDE.md) | [HANDOFF](HANDOFF.md) | [IDL-SCHEMA](IDL-SCHEMA.md) *(you are here)*
+**Project Docs:** [README](README.md) | [SPEC](SPEC.md) | [DESIGN](DESIGN.md) | [IMPLEMENTATION-GUIDE](IMPLEMENTATION-GUIDE.md) | [HANDOFF](HANDOFF.md) | [IDL-SCHEMA](IDL-SCHEMA.md) *(you are here)* | [SLOT-CALL-API](SLOT-CALL-API.md)
 
 **This Document:**
 - [Purpose](#purpose)
