@@ -2043,7 +2043,7 @@ The registry rules above are meaningless if only humans enforce them. nonux is a
 | **R4 — Retain/release pairing** | Every `nx_slot_ref_retain(…)` has a matching `nx_slot_ref_release(…)` reachable from `disable` / `destroy`. | **Machine** (`verify-registry.py` count match) + AI (reachability from `disable`/`destroy`). Machine control-flow extension pending pycparser. |
 | **R5 — Sender owns what it passes** | No component sends a cap referencing a slot it doesn't currently hold (via deps, lookup, or prior retain). | AI-verified — track the held-refs set at each send site. Machine check needs symbolic state. |
 | **R6 — Handler does not stash borrowed caps** | Inside a handler, a borrowed cap's slot ref cannot be assigned into `self->state`, component containers, or a delayed outbound message. | AI-verified — dataflow from borrowed-cap marker to every assignment sink. |
-| **R7 — Manifest is source of truth** | Generated `gen/<name>_deps.h` is byte-identical to a fresh generation from the manifest; authors never hand-edit it. | AI-verified today (`gen/` is gitignored, so there's nothing to regenerate-and-diff against; generator determinism is covered by `tools/tests/test_gen_config.py::*determinism*`). Flips to machine when the workflow commits generated headers. |
+| **R7 — Manifest is source of truth** | Generated `gen/<name>_deps.h` is byte-identical to a fresh generation from the manifest; authors never hand-edit it. | AI-verified today (`gen/` is gitignored, so there's nothing to regenerate-and-diff against; generator determinism is covered by `tools/tests/test_gen_config.py::*determinism*`). Flips to machine when the workflow commits generated headers. **The parallel rule for IDL artefacts is machine-checked** — `interfaces/<iface>.h`, `interfaces/<iface>_msg.h`, `framework/<iface>_{call,dispatch}.h`, and `framework/<iface>_isr.h` are committed and must match a fresh `tools/gen-iface.py` run; `make verify-iface-fresh` enforces this as a prerequisite of `make all` and `make test` (slice 8.0pre.4). See §"Interface Definition Language" above. |
 | **R8 — Slot-resolve locality** | `slot->active` reads (direct, via `nx_slot_resolve()`, or via `slot->active->ops->...`) happen only on a dispatcher thread — never ISRs, never arbitrary kthreads, and handlers never hand a resolved `impl*` into a worker closure. | AI-verified statically (walks ISR/kthread call graphs and cross-thread handoffs); runtime harness also asserts dispatcher-context at each resolve. Machine check needs an ISR-tagging convention (slice 3.8+/3.9). |
 
 See [AI-RULES.md](AI-RULES.md) for the full per-rule rubric — compliant/violating examples, step-by-step AI verification procedures, and the reviewer report shape.
@@ -2224,12 +2224,37 @@ This is the single source of truth for a kernel build. It declares:
 ### Build Flow
 
 ```
-kernel.json ──> make validate-config   (check completeness + compatibility)
-            ──> make                    (compile selected components, link into kernel image)
-            ──> make run                (boot in QEMU)
+kernel.json           ──> make validate-config   (check completeness + compatibility)
+                      ──> make                    (compile selected components, link into kernel image)
+                      ──> make run                (boot in QEMU)
+
+interfaces/idl/*.json ──> make gen-iface          (regenerate interfaces/<iface>.h, interfaces/<iface>_msg.h,
+                                                   framework/<iface>_{call,dispatch}.h, and (for IRQ-bearing
+                                                   IDLs) framework/<iface>_isr.h from the IDL)
+                      ──> make verify-iface-fresh (re-run generator into a tempdir, diff against in-tree;
+                                                   any drift fails the build — wired as a `make all` and
+                                                   `make test` prerequisite)
 ```
 
 The Makefile reads `kernel.json`, includes only the selected component source files, and generates a configuration header (`gen/config.h`) with compile-time constants.
+
+### Interface Definition Language
+
+Cross-component interfaces are declared in JSON IDL files under `interfaces/idl/<iface>.json` and compiled to C headers by `tools/gen-iface.py`. The IDL is the single source of truth; the generator's output is canonical and **must not be hand-edited**. See [IDL-SCHEMA.md](IDL-SCHEMA.md) for the meta-schema and [SLOT-CALL-API.md](SLOT-CALL-API.md) for the runtime contract the generated wrappers target.
+
+Per IDL file, the generator emits:
+
+| Artefact | Role |
+|---|---|
+| `interfaces/<iface>.h` | `struct nx_<iface>_ops` typedef + public `#define` constants + forward declarations. |
+| `interfaces/<iface>_msg.h` | `enum nx_<iface>_op_id` + per-op request/reply message structs. |
+| `framework/<iface>_call.h` | Per-op sender wrappers — `nx_<iface>_<op>(struct nx_slot *, ...)` that build a request, call `nx_slot_call_blocking`, and copy the reply back. |
+| `framework/<iface>_dispatch.h` | Receiver-side `handle_msg` template that components instantiate. |
+| `framework/<iface>_isr.h` *(when an op declares `context: "irq"`)* | `nx_<iface>_<op>_from_irq(struct nx_slot *, ...)` declarations + `NX_<IFACE>_ISR_POOL_SIZE` define. |
+
+**Enforcement.** `make verify-iface-fresh` re-runs the generator into a tempdir and `diff -r`s against the in-tree files; any drift (an edit to a generated file, or an IDL change without regeneration) fails the build. It is wired as a prerequisite of both `make all` and `make test`, alongside `make verify-registry` — the same `-Werror`-grade gate that R7 codifies for manifest-derived `gen/<name>_deps.h`.
+
+Hand-written companion headers are permitted for *types* (data layout — e.g. `interfaces/fs_types.h` carrying `struct nx_fs_dirent`); the IDL references them via its `includes:` array. Hand-written *ops* headers are not permitted; the IDL declares the operations and the generator owns the typedef.
 
 ### Runtime Config Manager
 

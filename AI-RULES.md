@@ -278,6 +278,8 @@ int my_on_msg(struct nx_component *self, struct nx_message *m) {
 
 **Machine check.** The original DESIGN says "regenerate and diff against the checked-in copy." Today `.gitignore` excludes `gen/`, so there's no on-disk artefact to diff against. The *intent* (generator determinism + no hand-edits) is covered by `tools/tests/test_gen_config.py::*determinism*`, which asserts the same manifest produces byte-identical output across runs. R7 flips to machine-checkable when the workflow commits `gen/<name>_deps.h` alongside the source.
 
+**Parallel rule for IDL artefacts (slice 8.0pre.4).** The IDL-driven generator (`tools/gen-iface.py`) emits headers under `interfaces/` and `framework/` that *are* committed; `make verify-iface-fresh` re-runs the generator into a tempdir and diffs against the in-tree files, failing the build on any drift. It is a prerequisite of both `make all` and `make test`. For IDL artefacts, R7 is machine-checked today.
+
 **AI verification procedure.**
 1. Confirm `gen/` is still in `.gitignore`. If yes, R7 rests on generator determinism — no author-visible step is needed beyond "don't hand-edit generated files."
 2. Grep the changeset for any modifications to files under `gen/`. **Fail** on any hit (authors shouldn't be editing generator output).
