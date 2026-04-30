@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-29 (Session 80)
-**Status:** Locked at Session 80; landed in slice 8.0pre.1 (Session 82).  The meta-schema gained a `forward_decls_doc` top-level field; the generator auto-detects forward-declaration *types* from op-param ctypes and uses this field for the optional block-comment prose.  Slice 8.0pre.2 (Session 83) extended the generator to also emit author-declared `includes:` in the message header, and to suppress auto-detected forward declarations when `includes:` is non-empty — interfaces that own data-shape types put them in a hand-written `<iface>_types.h` and reference it via `includes:`, keeping the IDL focused on operations.
+**Status:** Locked at Session 80; landed in slice 8.0pre.1 (Session 82).  The meta-schema gained a `forward_decls_doc` top-level field; the generator auto-detects forward-declaration *types* from op-param ctypes and uses this field for the optional block-comment prose.  Slice 8.0pre.2 (Session 83) extended the generator to also emit author-declared `includes:` in the message header, and to suppress auto-detected forward declarations when `includes:` is non-empty — interfaces that own data-shape types put them in a hand-written `<iface>_types.h` and reference it via `includes:`, keeping the IDL focused on operations.  Slice 8.0pre.3 (Session 84) added three orthogonal extensions: optional `ctype` on `opaque_self_handle` params (typed kernel-object pointers like `struct nx_task *task`); optional `ctype` on `void_ptr` returns (typed pointer returns like `pick_next` → `struct nx_task *`); new `u32` / `u64` return types (e.g. `mm.max_order` → `uint32_t`).  Same slice activated `framework/<iface>_isr.h` emission for IDLs with any `context: "irq"` op.
 
 ---
 
@@ -110,7 +110,7 @@ Closed set, mapped to C and to wire shape. Unbounded count of any param type per
 | `struct_out { ctype }` | caller pointer to POD struct, callee fills | reserved slot in payload; copy-back |
 | `struct_inout { ctype }` | caller pointer to POD struct, callee may read+write | inline + copy-back |
 | `slot_ref { ownership }` | `struct nx_slot *` | **lives in `msg->caps[]`, never payload** |
-| `opaque_self_handle` | `void *` (opaque to sender) | `u64` in payload |
+| `opaque_self_handle` | `void *` (opaque to sender) — or `<ctype> *` if optional `ctype` is present | `u64` in payload |
 
 ### Param record shape
 
@@ -132,6 +132,7 @@ Closed set, mapped to C and to wire shape. Unbounded count of any param type per
 | `bytes_out` | `cap: <param-name>` — name of the param holding the buffer cap |
 | `struct_in` / `struct_out` / `struct_inout` | `ctype: "struct nx_fs_dirent"` (verbatim C type name) |
 | `slot_ref` | `ownership: "borrow"` (default) or `"transfer"` |
+| `opaque_self_handle` | `ctype: "struct nx_task"` (optional; slice 8.0pre.3) — replaces the default `void` in the C signature.  Wire shape unchanged (still `u64` in payload).  Used for typed kernel-object pointers that cross the IPC boundary as borrowed handles. |
 
 Any param may carry `"direction": "in" | "out" | "inout"` (default `"in"`). The generator uses this to decide copy-in/copy-out behavior in the wrapper and dispatch template.
 
@@ -243,7 +244,8 @@ When all interfaces are IDL-driven, hand-written *ops* headers (`fs.h`, `vfs.h`,
 ```json
 "returns": {
   "type": "int_status",       // see table below
-  "out_param": "out_file"     // optional; names the param carrying principal output
+  "out_param": "out_file",    // optional; names the param carrying principal output
+  "ctype": "struct nx_task"   // optional; only for type: "void_ptr" (slice 8.0pre.3)
 }
 ```
 
@@ -253,7 +255,9 @@ When all interfaces are IDL-driven, hand-written *ops* headers (`fs.h`, `vfs.h`,
 | `int_status` | `int` | `NX_OK` or negative `NX_E*` |
 | `i64_count_or_status` | `int64_t` | `>= 0` byte count; negative `NX_E*` on error |
 | `usize` | `size_t` | Pure unsigned size (e.g. `mm.page_size`) |
-| `void_ptr` | `void *` | Raw pointer; no error code (e.g. `mm.alloc_pages`) |
+| `u32` | `uint32_t` | Scalar unsigned-int return (slice 8.0pre.3); e.g. `mm.max_order` |
+| `u64` | `uint64_t` | 64-bit unsigned return (slice 8.0pre.3); reserved for future use |
+| `void_ptr` | `void *` — or `<ctype> *` if optional `ctype` is present | Raw or typed pointer return; no error code (e.g. `mm.alloc_pages` → `void *`; `scheduler.pick_next` → `struct nx_task *`) |
 
 ### Type mapping conventions
 
@@ -319,7 +323,12 @@ Example (planned for char_device when slice 3.9b's deferred work lands):
   "returns": {"type":"void"}, "context": "irq" }
 ```
 
-v1 does not enforce `context: "irq"` automatically — there are no IRQ-entry ops yet. The first real user is `char_device` in slice 8.0pre.3, which will exercise pool sizing and the ISR header.
+Slice 8.0pre.3 (Session 84) activated this end of the spec.  `interfaces/idl/char_device.json`'s `rx_byte` op declares `context: "irq"` and produces `framework/char_device_isr.h` containing:
+
+- `#define NX_CHAR_DEVICE_ISR_POOL_SIZE 32` — the documented default pool size.  Future schema field will make it per-IDL tunable when a driver demands it.
+- `void nx_char_device_rx_byte_from_irq(struct nx_slot *slot, uint8_t byte);` — declaration only; body lands with slice 8.0a's runtime infra (pool storage + dispatcher enqueue).
+
+The ISR header is emitted **only** for IDLs that declare any IRQ-entry op.  IDLs with all-task-context ops (vfs, fs, mm, scheduler today) do not get an `_isr.h` artifact.
 
 ---
 
@@ -333,7 +342,7 @@ For each `interfaces/idl/<iface>.json`:
 | `interfaces/<iface>_msg.h` | `enum nx_<iface>_op_id` + per-op message structs (`struct nx_<iface>_msg_open`, etc.). |
 | `framework/<iface>_call.h` | Sender wrappers `nx_<iface>_<op>(struct nx_slot *slot, ...)`. Body builds the message, calls `nx_slot_call_sync(slot, op_id, msg)`. |
 | `framework/<iface>_dispatch.h` | Receiver-side `handle_msg` template. Component supplies `NX_<IFACE>_OP_<OP>_IMPL(self, ...)` macros pointing at static impl functions; the template expands into a `switch (op_id)` that unpacks the message and calls the impls. |
-| `framework/<iface>_isr.h` | (Only if any op has `context: "irq"`.) ISR-side enqueue helpers + pool. |
+| `framework/<iface>_isr.h` | (Only if any op has `context: "irq"`.) Pool-size define + per-IRQ-op `nx_<iface>_<op>_from_irq(struct nx_slot *slot, ...)` declarations.  Pool storage + bodies land with slice 8.0a (runtime infra). |
 
 ### Header guards & include ordering
 
