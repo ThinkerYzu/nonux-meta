@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-29 (Session 80)
-**Status:** Draft — locked at Session 80; landing in slice 8.0pre.1.
+**Status:** Locked at Session 80; landed in slice 8.0pre.1 (Session 82).  The meta-schema gained a `forward_decls_doc` top-level field; the generator auto-detects forward-declaration *types* from op-param ctypes and uses this field for the optional block-comment prose.
 
 ---
 
@@ -164,6 +164,12 @@ DESIGN.md rule **R3** (two-layer, per Session 79) requires every cross-component
 - **`BORROW`** (default): the cap is valid only while the handler is running. Receiver may inspect/dispatch through it but must not stash the pointer past handler return. The router silently drops borrowed caps after the handler.
 - **`TRANSFER`**: receiver is *obligated* to either claim it (`nx_slot_ref_retain` — promotes it into a registered outgoing edge owned by the receiver) or treat it as an error. Unclaimed transfer caps trip a protocol-error count.
 
+### Forward declarations are auto-detected
+
+The generator walks every op param.  If a `struct_in` / `struct_out` / `struct_inout` param's `ctype` matches `^(struct|union|enum)\s+\S+$` (i.e. names a tagged type rather than a primitive like `uint32_t`), the type is added to a forward-declaration set in op-id-of-first-appearance order.  Forward declarations are emitted above the `struct nx_<iface>_ops` typedef.
+
+The IDL author does **not** enumerate the set.  An optional top-level `forward_decls_doc` string supplies the leading block comment above the auto-detected `struct foo;` lines; if absent, the forward decls are emitted bare.  Locked Session 82.
+
 ### How the generator uses `slot_ref`
 
 When a param is declared `slot_ref`:
@@ -192,6 +198,20 @@ Today's five interfaces (`vfs`, `fs`, `mm`, `scheduler`, `char_device`) have **z
 | `i64_count_or_status` | `int64_t` | `>= 0` byte count; negative `NX_E*` on error |
 | `usize` | `size_t` | Pure unsigned size (e.g. `mm.page_size`) |
 | `void_ptr` | `void *` | Raw pointer; no error code (e.g. `mm.alloc_pages`) |
+
+### Type mapping conventions
+
+The IDL's signed-integer types map to existing C conventions in the hand-written headers, which are asymmetric with the unsigned forms:
+
+| IDL | C | Notes |
+|---|---|---|
+| `u8` … `u64` | `uint8_t` … `uint64_t` | Always stdint forms. |
+| `i8`, `i16` | `int8_t`, `int16_t` | Stdint forms (no native equivalent). |
+| `i32` | `int` | Native, **not** `int32_t` — matches today's `int whence` etc.  C's `int` is 32-bit on aarch64. |
+| `i64` | `int64_t` | Stdint form. |
+| `usize` | `size_t` | |
+
+Locked Session 82.
 
 ### `out_param`
 
@@ -372,7 +392,7 @@ For each `interfaces/idl/<iface>.json`:
 | `mkdir` | `int (*mkdir)(void *self, const char *path)` |
 | `stat` | `int (*stat)(void *self, const char *path, struct nx_fs_stat *out)` |
 
-The compatibility test for slice 8.0pre.1: generated `interfaces/vfs.h` matches the existing hand-written file byte-for-byte (modulo the `GENERATED — DO NOT EDIT` banner). If diff is non-empty after generation, the IDL or the generator template needs adjustment.
+The compatibility test for slice 8.0pre.1: generated `interfaces/vfs.h` matches the existing hand-written file byte-for-byte (modulo the `GENERATED — DO NOT EDIT` banner).  Slice 8.0pre.1 (Session 82) achieved this by canonicalizing the hand-written `vfs.h`'s comment style: hand-written used a mix of compact and expanded multi-line comments (`retain` and `read/write` were compact; `seek` / `readdir` / `mkdir` / `stat` were expanded).  The generator picks one rule (single-line if the prose fits, expanded multi-line otherwise) and emits a uniform layout.  C-level shape (preprocessor macros, struct fields, forward declarations, signatures) is unchanged so callers compile identically.  Going forward the IDL is the source of truth; `make verify-iface-fresh` enforces byte-equivalence between in-tree generated files and a fresh regeneration.
 
 ---
 

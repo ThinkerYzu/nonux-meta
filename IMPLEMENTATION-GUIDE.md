@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-04-29 (Phases 1–7 complete.  Phase 8 plan landed Session 79: 15 slices in 3 groups — Group A generator (8.0pre.1–4), Group B IPC migration (8.0a–e), Group C runtime recomposition (8.1–8.6).  ~270 new ktests across the migration, end-state target ~700/700.  Slice 8.0pre.1 is the next forward step.)
+**Last Updated:** 2026-04-30 (Phases 1–7 complete.  Phase 8 in progress: plan landed Session 79; IDL schema + slot-call API locked Sessions 80–81; **slice 8.0pre.1 landed Session 82** — `tools/gen-iface.py` + meta-schema extension + `interfaces/idl/vfs.json` enrichment + Makefile wiring + 18 new tools tests; `interfaces/vfs.h` canonicalized to byte-equal generator output.  Tests: `make test` 453 → **471/471 pass**; `make test-interactive` **7/7 pass**; `make verify-iface-fresh` clean.  Next forward step: slice 8.0pre.2 (`fs` interface) or slice 8.0a (runtime infra).)
 **Status:** Phase 3 — Component framework (Phases 1–2 done)
 
 ---
@@ -3595,7 +3595,7 @@ for the full bring-up notes.
 ### Phase 8: Runtime Recomposition and Config Manager
 
 **Goal:** Swap components at runtime. Change IPC modes on the fly.
-**Status:** NOT STARTED — plan landed Session 79.
+**Status:** IN PROGRESS — plan landed Session 79; IDL schema (Session 80) + slot-call API (Session 81) locked; slice 8.0pre.1 landed Session 82 (generator + vfs canonicalized).
 
 Phase 8 splits into three groups (15 slices total).  The original Phase 8 deliverables (live hot-swap, per-edge mode switching) are **Group C**; Groups A and B exist because today's production paths don't actually flow through the slice-3.8 IPC router — they reach into `slot->active->descriptor->iface_ops` directly (~184 sites across 19 files, all five production components have `handle_msg = NULL`).  A live recompose against that surface is a use-after-free.  Group A builds the generator that makes the migration tractable; Group B routes every cross-component call through `nx_slot_call_sync`; Group C then ships the original Phase 8 deliverables on top.
 
@@ -3611,7 +3611,7 @@ Phase 8 splits into three groups (15 slices total).  The original Phase 8 delive
 
 | Slice | Deliverable |
 |---|---|
-| **8.0pre.1** | IDL schema + `tools/gen-iface.py` + first interface (`vfs`).  Generator emits message structs, ops typedef, sender wrappers, dispatch template.  Makefile wires `make gen-iface` + `verify-iface-fresh`.  Existing direct-call code unchanged because emitted `interfaces/vfs.h` matches today's hand-written form.  Schema spec locked Session 80 in [IDL-SCHEMA.md](IDL-SCHEMA.md). |
+| **8.0pre.1** ✓ | **Landed Session 82.**  `tools/gen-iface.py` (~600 lines) emits four artifacts per IDL: typedef header, msg structs, sender wrappers, dispatch template.  Meta-schema gained one field (`forward_decls_doc`); the *set* of forward declarations is auto-detected by walking op-param `ctype` for `^(struct\|union\|enum)\s+\S+$`.  `interfaces/idl/vfs.json` enriched with verbatim hand-written prose; type-mapping convention codified (`u32 → uint32_t` but `i32 → int`, asymmetric).  `interfaces/vfs.h` canonicalized to generator output (DESIGN.md R7 — IDL is source of truth post-cutover; C-level shape unchanged so callers compile identically).  Makefile: `gen-iface` + `verify-iface-fresh` targets, both hooked into `all` and `test`.  18 new tools tests (`tools/tests/test_gen_iface.py`).  `make test` 453 → **471/471**; `make verify-iface-fresh` clean.  Generated `_msg.h` / `_call.h` / `_dispatch.h` not yet included by production code.  See [Session 82 log](logs/session-82-8.0pre.1-idl-generator.md). |
 | **8.0pre.2** | Cover `fs` interface — de-risks generator on cap-bearing ops (slot_ref args). |
 | **8.0pre.3** | Cover `sched`, `mm`, `char_device` interfaces.  Surfaces no-message-context ops (mm_alloc-style) and IRQ-entry shape (uart RX). |
 | **8.0pre.4** | Cut over: hand-written `interfaces/*.h` deleted, generator output is canonical.  `gen-iface` runs as a Make prerequisite; `verify-iface-fresh` enforced. |
@@ -3825,4 +3825,4 @@ make validate-config && make verify-registry && make && make test
 
 ---
 
-**Last Updated:** 2026-04-29 (Phases 1–7 complete.  Phase 8 plan landed Session 79: 15 slices in 3 groups — Group A generator (8.0pre.1–4), Group B IPC migration (8.0a–e), Group C runtime recomposition (8.1–8.6).  ~270 new ktests across the migration, end-state target ~700/700.  Slice 8.0pre.1 is the next forward step.)
+**Last Updated:** 2026-04-30 (Phases 1–7 complete.  Phase 8 in progress: plan landed Session 79; IDL schema + slot-call API locked Sessions 80–81; **slice 8.0pre.1 landed Session 82** — `tools/gen-iface.py` + meta-schema extension + `interfaces/idl/vfs.json` enrichment + Makefile wiring + 18 new tools tests; `interfaces/vfs.h` canonicalized to byte-equal generator output.  Tests: `make test` 453 → **471/471 pass**; `make test-interactive` **7/7 pass**; `make verify-iface-fresh` clean.  Next forward step: slice 8.0pre.2 (`fs` interface) or slice 8.0a (runtime infra).)
