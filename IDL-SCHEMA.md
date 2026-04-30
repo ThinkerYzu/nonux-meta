@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-29 (Session 80)
-**Status:** Locked at Session 80; landed in slice 8.0pre.1 (Session 82).  The meta-schema gained a `forward_decls_doc` top-level field; the generator auto-detects forward-declaration *types* from op-param ctypes and uses this field for the optional block-comment prose.
+**Status:** Locked at Session 80; landed in slice 8.0pre.1 (Session 82).  The meta-schema gained a `forward_decls_doc` top-level field; the generator auto-detects forward-declaration *types* from op-param ctypes and uses this field for the optional block-comment prose.  Slice 8.0pre.2 (Session 83) extended the generator to also emit author-declared `includes:` in the message header, and to suppress auto-detected forward declarations when `includes:` is non-empty — interfaces that own data-shape types put them in a hand-written `<iface>_types.h` and reference it via `includes:`, keeping the IDL focused on operations.
 
 ---
 
@@ -17,6 +17,7 @@
 - [Per-Op Record](#per-op-record)
 - [Param Type System](#param-type-system)
 - [Capabilities (`slot_ref`)](#capabilities-slot_ref)
+- [Author-Declared Includes (`includes:`)](#author-declared-includes-includes)
 - [Return Types](#return-types)
 - [`self` Is Implicit](#self-is-implicit)
 - [IRQ-Entry Ops](#irq-entry-ops)
@@ -51,6 +52,9 @@ This document specifies the IDL schema. Slice 8.0pre.1 implements the generator 
   "version": 1,              // bumped on breaking changes (op signature, removed op, type change)
   "iface_id": 4097,          // 16-bit stable id; unique across interfaces
   "doc": "...",              // optional; copied verbatim into header comment
+  "includes": [ ... ],       // optional; author-declared #include lines (see Author-Declared Includes)
+  "constants": [ ... ],      // optional; #define lines (see Constants section)
+  "forward_decls_doc": "...", // optional; prose above auto-detected forward decls (only when no includes:)
   "ops": [ /* per-op records, see below */ ]
 }
 ```
@@ -179,6 +183,58 @@ When a param is declared `slot_ref`:
 - **Receiver dispatch template** extracts the cap by id, hands it to the impl as `struct nx_slot *`. For `ownership: transfer`, the template wraps a "did you claim?" check around the impl call.
 
 Today's five interfaces (`vfs`, `fs`, `mm`, `scheduler`, `char_device`) have **zero** `slot_ref` params — v1 cap support is plumbing with no live users. The first real consumer is likely Phase 8.3's config-handle API.
+
+---
+
+## Author-Declared Includes (`includes:`)
+
+The `includes:` top-level array names hand-written headers that provide types referenced by op-param `ctype` fields.  Locked Session 80; extended in slice 8.0pre.2 (Session 83) to also emit in the msg header and to suppress auto-detected forward decls.
+
+```json
+"includes": [
+  { "path": "interfaces/fs_types.h",
+    "doc": "Data shapes (struct nx_fs_dirent, struct nx_fs_stat) shared with vfs.h." }
+]
+```
+
+### Fields
+
+| Field | Required | Meaning |
+|---|---|---|
+| `path` | yes | Header path emitted verbatim in the `#include` line. `<...>` form if `system: true`, `"..."` otherwise. |
+| `system` | no | `true` for system includes, default `false`. |
+| `doc` | no | Trailing comment on the include line. |
+
+### Where the includes are emitted
+
+The generator emits the `includes:` list (after `<stddef.h>` / `<stdint.h>`) in **both** generated headers that may need the types:
+
+- `interfaces/<iface>.h` — the typedef header.  Op signatures may take pointers to the included types.
+- `interfaces/<iface>_msg.h` — per-op request/reply structs may **embed** the included types by value (e.g., `struct nx_fs_dirent out;` inside `struct nx_fs_msg_readdir`); the compiler needs the full definition for sizeof.
+
+The wrapper header (`framework/<iface>_call.h`) and dispatch header (`framework/<iface>_dispatch.h`) include their iface headers transitively, so they don't need separate include emission.
+
+### Forward-decl auto-detection is suppressed when `includes:` is non-empty
+
+The generator walks every op param's `ctype` and (by default) emits forward declarations for tagged types (`struct foo`, `union bar`, `enum baz`).  When `includes:` is non-empty, this is skipped — the included header carries the full definition, and a redundant forward decl after a full definition is legal but visually noisy.  An IDL that needs explicit forward decls anyway should put them in its hand-written types header.
+
+### Convention: hand-written `<iface>_types.h` for owned types
+
+When an interface owns its data-shape types (defines them, vs. just referencing types defined by another interface), the canonical pattern is:
+
+1. Hand-write `interfaces/<iface>_types.h` containing the struct definitions and any constants tightly bound to them (array sizes, enum-like discriminants).
+2. Declare it in the IDL's `includes:` array so the generated `<iface>.h` and `<iface>_msg.h` `#include` it.
+3. Operational constants (op flag bits, op enum-like inputs) stay in the IDL's `constants:` so they're emitted in the operations header alongside the ops table.
+
+The naming convention `<iface>_types.h` is suggested but not enforced; the IDL author chooses the path.
+
+### Why hand-written types over inline-in-IDL
+
+The IDL's job is to describe *interface contracts* — op signatures, op-IDs, returns, capability flow.  Data-layout concerns (struct field types, alignment, sizes, macro-sized arrays, trailing per-field comments) are naturally C: the compiler reasons about them, hand-written code already supports any C-legal shape, and a JSON-encoded representation would be opaque to the generator's schema validation.  An earlier iteration of slice 8.0pre.2 prototyped a `structs:` schema field for inline struct definitions; reverted in favor of this includes-driven path because it kept the IDL focused on operations and avoided the verbatim-string `body` clutter (Session 83 decision).
+
+### Slice 8.0pre.4 cutover scope
+
+When all interfaces are IDL-driven, hand-written *ops* headers (`fs.h`, `vfs.h`, `mm.h`, `scheduler.h`, `char_device.h`) are deleted — the generator's output is canonical.  Hand-written *types* headers (`fs_types.h` and any future `<iface>_types.h`) survive the cutover.  They're declared as IDL dependencies via `includes:` and stay under hand maintenance.
 
 ---
 
