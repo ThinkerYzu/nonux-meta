@@ -581,6 +581,17 @@ Sender                  IPC Router                 Receiver
 
 The component code is identical in both cases — it calls `ipc_send()` and `ipc_recv()`. The router handles the blocking/unblocking transparently.
 
+#### Sync-mode caller must be on a dispatcher
+
+The "router invokes the receiver's handler on the caller's stack" shortcut is only valid when the caller is itself a framework-owned dispatcher thread (a per-CPU dispatcher, or a `dedicated` component's private thread). The handler's body must execute somewhere R8 (slot-resolve locality) holds, and that's exactly the dispatcher's domain.
+
+This bounds where `mode: sync` can be used:
+
+- **Dispatcher-to-dispatcher edges (e.g. `vfs → block_virtio`):** sync is fine. The caller is a dispatcher inside `vfs_simple`'s handler; the receiver's handler runs on the same stack with `preempt_disable()` already held.
+- **Syscall-entry edges (e.g. `posix_shim → vfs`, `posix_shim → scheduler`, `posix_shim → mm`):** sync is **not** valid. The "caller" is a userspace task that just trapped via SVC; the kernel-side `posix_shim` runs on that task's kstack, which is not a dispatcher. Running a receiver handler there would let `slot->active` be read off-dispatcher, breaking the drain step's completeness guarantee. All four `posix_shim → service` edges in slice 8.0a's `kernel.json` are therefore `mode: async`; the kernel-side blocking-call infra ([SLOT-CALL-API.md](SLOT-CALL-API.md)) implements "block on reply waitq, dispatcher runs handler" semantics that look synchronous to the syscall caller but route the request through the dispatcher.
+
+The framework does not yet enforce this at config-validation time — it's an AI-verified rule today. A future `verify-registry` extension can flag a `mode: sync` edge whose `from_slot` belongs to a component that runs on a non-dispatcher context (the per-task `caller_slot` introduced in slice 8.0a is the canonical instance).
+
 ### Message Format
 
 ```c
@@ -620,7 +631,7 @@ struct ipc_message {
     {
       "from": "posix_shim",
       "to": "scheduler",
-      "mode": "sync",
+      "mode": "async",
       "stateful": false,
       "hooks": []
     }
@@ -629,6 +640,8 @@ struct ipc_message {
 ```
 
 The `mode` field can be changed at runtime via the config manager. The framework drains in-flight messages before switching.
+
+> **Why every `posix_shim → *` edge here is `mode: async`:** see §"Sync-mode caller must be on a dispatcher" above. An earlier draft of this section listed `posix_shim → scheduler` as `mode: sync`; that was incorrect because the syscall caller's task is not a dispatcher thread. Updated in slice 8.0a alongside the kernel-side blocking-call infrastructure.
 
 #### Every Component Occupies a Slot
 
@@ -639,6 +652,14 @@ The `mode` field can be changed at runtime via the config manager. The framework
 - **Entry-boundary components are just components.** `posix_shim` is the boundary between userspace syscall entry and the in-kernel graph; the syscall-entry trampoline resolves the `posix_shim` slot the same way any dispatcher resolves a destination. "Nothing sends to it from inside the graph" is a property of the connection list, not of the slot.
 
 The only things without slots are non-component code paths — ISRs, the syscall-entry trampoline itself, the boot sequencer — which are framework machinery, not components.
+
+#### Tasks as IPC Senders
+
+A **task** (the schedulable entity in `core/sched/task.h`) is not a component — it has no `init/enable/pause/destroy` lifecycle, no manifest, no descriptor — but it can be the *origin* of a cross-component call. Most concretely: a userspace task that traps via SVC into the kernel-side `posix_shim` becomes the sender of every blocking call that posix_shim's handler issues onward to vfs / scheduler / mm / char_device. For the registry's two foundational invariants ("every slot ref reachable from any sender is registered" and "every call goes through a registered connection") to hold for those edges, the task must be a graph entity with its own slot identity.
+
+Slice 8.0a promotes every task to a slot-bearing entity by embedding a `caller_slot` in `struct nx_task`. The slot is created at `nx_task_create` and unregistered at `nx_task_destroy`; its `active` is bound to the singleton `posix_shim` component. The task's slot serves as `msg->src_slot` for every blocking call the task issues — giving the IPC router, the cap-scan, the hold queue, and the registry a well-defined sender identity.
+
+Tasks remain scheduling entities; the slot is purely an identity for the graph. Tasks do not declare manifests, do not own dependencies in the manifest sense, and do not appear in `kernel.json`. The framework synthesizes their slot identity at task-create time. See [SLOT-CALL-API.md](SLOT-CALL-API.md) §"Per-Task `caller_slot`" for the runtime mechanics.
 
 ---
 
@@ -741,18 +762,47 @@ int vfs_read_block(struct vfs_component *self, uint64_t block, void *buf) {
 
 This means hot-swap never leaves stale pointers — the slot always points to the current implementation.
 
-Slots also carry two pieces of pause-protocol metadata that the IPC
-router consults (both added in slice 3.8):
+##### Multi-slot binding (N:1)
+
+The default case is a single slot bound to a single component instance. The data model — `component_node.active_in: list<slot>` — already supports a single component instance being the active impl of multiple slots, and slice 8.0a relies on that: every per-task `caller_slot` (one per task) is bound to the singleton `posix_shim` component instance, so with `NX_PROCESS_TABLE_CAPACITY = 128` tasks, a single posix_shim component is the active impl of 128+ slots simultaneously.
+
+Two implications for the protocols:
+
+- **Pause/swap walks via `nx_component_foreach_bound_slot`.** "Pause posix_shim" is not "set one slot's pause_state to CUTTING" — it's "walk every slot whose `active` is the posix_shim component, set each one's pause_state, drain each one's inbox". The framework's pause primitive remains slot-side (per the §Pause Implementation pseudocode); the orchestrator iterates the component's bound-slot list to apply it across the N:1 fan-out. Callers of the pause primitive may operate on either a single slot (the existing per-slot path) or a component (the N:1 path); both ultimately mutate slot-side `pause_state` because that is where the IPC router reads it.
+- **Edge enumeration is per-slot, not per-component.** Each per-task caller_slot has its own outgoing edges (registered at task_create — see §"Tasks as IPC Senders" + §"Component Graph Registry — Edge inheritance"). The component_node's `active_in` list lets the framework walk to slots; edges live on slots.
+
+Pause-protocol cost scales linearly with the number of bound slots. For N=128 task slots, a posix_shim swap pauses 128 slots; the per-slot pause is O(inbox depth) and inboxes are typically empty for blocking-call senders (each task has at most one outstanding call). So total pause time is dominated by walk + state writes, not by drain.
+
+##### Slot-side pause + blocking-call metadata
+
+Slots carry pause-protocol metadata that the IPC router and (for slice 8.0a) the blocking-call wrapper consult:
 
 - `_Atomic(enum nx_slot_pause_state) pause_state` — `NONE / CUTTING /
   DRAINING / DONE`. Written by the pause protocol, read by the router
   on every send. Atomic from day one so the SMP upgrade is a barrier
-  change, not a restructure.
+  change, not a restructure. *(Slice 3.8.)*
 - `struct nx_slot *fallback` — target for the `NX_PAUSE_REDIRECT`
   policy. Configured via `nx_slot_set_fallback`. A paused slot with
   `REDIRECT` policy and `fallback == NULL` returns `NX_ENOENT` to the
   sender (fail-closed); the router has a depth-4 loop guard that
-  returns `NX_ELOOP` when a fallback chain folds back on itself.
+  returns `NX_ELOOP` when a fallback chain folds back on itself. *(Slice 3.8.)*
+- `struct nx_waitq resume_waitq` — `QUEUE`-policy callers blocked on a
+  paused slot wait here; resume's `nx_waitq_wake_all` releases all
+  blocked callers atomically. The blocking-call wrapper
+  ([SLOT-CALL-API.md](SLOT-CALL-API.md) §"Pause Protocol Interaction")
+  reads this field from caller (non-dispatcher) context — atomic-load
+  semantics make that safe; R8 is not violated because `slot->active`
+  is not touched. *(Slice 8.0a.)*
+- `_Atomic(uint32_t) in_flight_calls` — the dispatcher kthread
+  increments this before invoking a slot's handler and decrements after.
+  The pause protocol's drain step waits for the counter to reach 0
+  before transitioning `DRAINING → DONE`, guaranteeing no handler is
+  running on the slot when a swap proceeds. The counter belongs on the
+  slot rather than the component because handler-in-progress is the
+  slot's invariant, not the component's (mid-swap, the slot is between
+  two components). *(Slice 8.0a.)*
+
+Reading these fields off the dispatcher (e.g. by the blocking-call wrapper on a syscall-caller's task stack) is permitted: they are atomic loads that do not dereference `slot->active`, so the R8 invariant — which constrains only `slot->active` reads — still holds.
 
 #### Slot-Resolve Locality (invariant)
 
@@ -774,7 +824,7 @@ Connections between components are declared as stateful or stateless in the kern
 ```json
 {
   "connections": [
-    {"from": "posix_shim", "to": "scheduler", "mode": "sync", "stateful": false},
+    {"from": "posix_shim", "to": "scheduler", "mode": "async", "stateful": false},
     {"from": "posix_shim", "to": "vfs",       "mode": "async", "stateful": true}
   ]
 }
@@ -1809,6 +1859,16 @@ void connection_unregister(struct connection *c);
 
 Every one of these emits a change event (see below) and appends to the change log. The existing `component_swap` and recomposition transaction paths call these internally — there is no code path that touches a slot, component, or connection without going through the registry.
 
+#### Edge inheritance: per-task slots clone the boundary component's outgoing edges
+
+A boundary component such as `posix_shim` declares its own outgoing edges in `kernel.json` (e.g. `posix_shim → vfs`, `posix_shim → scheduler`, `posix_shim → mm`, `posix_shim → char_device.serial`). Slice 8.0a binds every per-task `caller_slot` to that same component instance (see §"Tasks as IPC Senders" + §"Slot-Based Indirection — Multi-slot binding"); the task slot is the *graph entity* that issues the blocking call, but its dependencies are conceptually those of the boundary component.
+
+To keep the cap-scan and pause-policy paths uniform with the rest of the IPC router, the framework registers a parallel set of edges from each per-task `caller_slot` to each of the boundary component's dependency slots. The clone inherits the parent edge's `mode`, `stateful`, and `policy` attributes verbatim — so a per-task `caller_slot → vfs` edge has the same `mode: async, stateful: true, policy: queue` as the parent `posix_shim → vfs` edge.
+
+The cloning is performed at `nx_task_create` (walk the boundary component's outgoing edges via the registry, register a parallel edge per task slot) and undone at `nx_task_destroy` (walk the per-task slot's outgoing edges, unregister each). When the boundary component's deps change at runtime (e.g. a swap of vfs that adds a new transitive dep — not a v1 scenario, but the design accommodates it), the recomposition orchestrator must propagate the diff to every task-slot clone, or refuse the recomposition. Slice 8.0a does not implement runtime propagation — boundary deps are static in v1; the design space is left open for Phase 8 Group C.
+
+Edge cloning makes R3 cap-scan and the pause hold-queue's `(src, dst)` keying work without any per-callsite special case for blocking-call senders: every `nx_slot_call_blocking` carries a real `src_slot` (the task's `caller_slot`) and a registered `(src_slot → dst_slot)` edge, indistinguishable from any other in-graph IPC.
+
 ### Traversal API
 
 ```c
@@ -1906,7 +1966,7 @@ Entry writes use C11 atomics (per the project-wide preemptive/atomics rule — i
 
 The framework maintains and the test harness verifies:
 
-1. Every `struct slot *` reachable from any `struct component` is registered.
+1. Every `struct slot *` reachable from any `struct component` (or any `struct nx_task` via its embedded `caller_slot`, post slice 8.0a — see §"Tasks as IPC Senders") is registered.
 2. Every call through a slot goes through a registered connection (verified by the IPC router).
 3. Component lifecycle state in the registry matches the component's internal state machine at every observable moment.
 4. `slot->active` equals the component marked `active_in` that slot in the registry.
@@ -2080,8 +2140,8 @@ Hook points exist at every major boundary. Hooks are registered dynamically and 
 | Lifecycle | `NX_HOOK_COMPONENT_PAUSE` | Pause verb entered | 3.8 |
 | Lifecycle | `NX_HOOK_COMPONENT_RESUME` | Resume verb entered | 3.8 |
 | Registry | `NX_HOOK_SLOT_SWAPPED` | Slot's active impl changed | 3.9 (runtime dispatch) |
-| Syscall Entry | `NX_HOOK_SYSCALL_ENTER` | Userspace makes a syscall | Phase 7 |
-| Syscall Exit | `NX_HOOK_SYSCALL_EXIT` | Syscall returns to userspace | Phase 7 |
+| Syscall Entry | `NX_HOOK_SYSCALL_ENTER` | Userspace makes a syscall | Slice 8.7 |
+| Syscall Exit | `NX_HOOK_SYSCALL_EXIT` | Syscall returns to userspace | Slice 8.7 |
 | Scheduler | `NX_HOOK_CONTEXT_SWITCH` | Task switch occurs (prev/next) | 4.3 (enum added) / 4.4 (dispatch live) |
 | Memory | `NX_HOOK_PAGE_FAULT` | Page fault handled | Phase 5 |
 
@@ -2142,6 +2202,20 @@ Notes:
 - **IPC_RECV ABORT drops the message and continues the drain** — counts
   as dispatched so the queue makes progress. IPC_SEND ABORT returns
   `NX_EABORT` to the caller (no enqueue, no handler invocation).
+- **ABORT on a blocking-call edge synthesizes a reply.** The above two
+  rules suffice when the sender does not block on a reply (the original
+  fire-and-forget IPC model). For senders that *do* block — every
+  `nx_slot_call_blocking` caller (slice 8.0a) waits on its task's
+  `reply_waitq` — an ABORT that simply suppresses the handler invocation
+  would hang the caller forever. The dispatcher therefore synthesizes a
+  reply message with `rc = NX_EABORT` and posts it to the caller's
+  `caller_slot` whenever a SEND-leg ABORT or post-handler RECV-leg ABORT
+  fires on a message that carries `NX_MSG_FLAG_REPLY_REQUESTED`. The
+  caller's reply-waitq wakes; `nx_slot_call_blocking` returns
+  `NX_EABORT`. Synchronous-from-the-caller's-perspective semantics are
+  preserved without weakening the hook chain's ABORT contract. See
+  [SLOT-CALL-API.md](SLOT-CALL-API.md) §"Reply Path (Option β) — ABORT
+  path" for the dispatcher-side flow.
 
 Hooks can:
 - **Observe** — Log, trace, count (return `NX_HOOK_CONTINUE`)
@@ -2210,7 +2284,7 @@ This is the single source of truth for a kernel build. It declares:
   "connections": [
     {"from": "vfs", "to": "block_virtio", "mode": "sync"},
     {"from": "posix_shim", "to": "vfs", "mode": "async"},
-    {"from": "posix_shim", "to": "scheduler", "mode": "sync"}
+    {"from": "posix_shim", "to": "scheduler", "mode": "async"}
   ],
 
   "hooks": [],

@@ -57,7 +57,8 @@ The design honors DESIGN.md's **dispatcher-only entry** invariant directly: the 
 | `posix_shim` is a userspace library only (crt0 + libnxlibc.a), not a kernel slot | Userspace lib renamed to `libnxlibc/`; new kernel `posix_shim` component lands |
 | Tasks have no slot identity; `src_slot` would be NULL for syscalls | Per-task `caller_slot` lands; src is well-defined per DESIGN |
 | Sync IPC (`mode == NX_CONN_SYNC`) invokes handler on caller's stack — violates R8 if caller isn't a dispatcher | Sync mode = "block on reply waitq, dispatcher runs handler" semantics |
-| No reply-routing infrastructure | New: `msg->flags |= NX_MSG_FLAG_REPLY_REQUESTED`, dispatcher posts reply message back |
+| `framework/ipc.h` defines only `NX_MSG_FLAG_REPLY` (set on the reply itself); no way to mark a request as "reply expected" | New: `NX_MSG_FLAG_REPLY_REQUESTED` (request flag); dispatcher posts reply message back when set |
+| No reply-routing infrastructure | `nx_slot_call_blocking` takes an explicit `reply_buf` + `reply_buf_len`; stashes them on the task; reply leg's payload lands there via `posix_shim_handle_msg` |
 
 ---
 
@@ -73,9 +74,9 @@ The design honors DESIGN.md's **dispatcher-only entry** invariant directly: the 
    │  nx_vfs_read(slot, file, buf, cap)        ← generated wrapper       │
    │    │                                                                 │
    │    ▼                                                                 │
-   │  nx_slot_call_blocking(vfs_slot, &msg)                               │
+   │  nx_slot_call_blocking(vfs_slot, &msg, &reply_buf, sizeof(reply_buf))│
    │    │  (1) atomic load slot->pause_state; apply edge policy           │
-   │    │  (2) enqueue msg → dispatcher                                   │
+   │    │  (2) stash reply_buf on task; enqueue msg → dispatcher          │
    │    │  (3) block on task->reply_waitq                                 │
    └────┼─────────────────────────────────────────────────────────────────┘
         │
@@ -134,10 +135,11 @@ Promoting tasks to graph entities — each task gets a slot — fixes all four. 
 struct nx_task {
     /* ... existing fields ... */
 
-    struct nx_slot   caller_slot;       /* embedded; lifetime == task lifetime */
-    struct nx_waitq  reply_waitq;       /* per-task; one in-flight call at a time */
-    void            *in_flight_reply_buf;   /* set by wrapper; cleared on wake */
-    int              in_flight_reply_rc;    /* set by posix_shim_handle_msg */
+    struct nx_slot   caller_slot;            /* embedded; lifetime == task lifetime */
+    struct nx_waitq  reply_waitq;            /* per-task; one in-flight call at a time */
+    void            *in_flight_reply_buf;    /* set by nx_slot_call_blocking; cleared on wake */
+    size_t           in_flight_reply_buf_len;/* capacity of the kstack reply buffer */
+    int              in_flight_reply_rc;     /* set by posix_shim_handle_msg */
 };
 ```
 
@@ -247,8 +249,11 @@ static int posix_shim_handle_msg(void *self, struct nx_ipc_message *msg) {
     if (!task || !task->in_flight_reply_buf) return NX_EINVAL;
 
     /* Decode rc + outputs from msg->payload into task->in_flight_reply_buf.
-     * Wrapper-emitted reply struct shape is per-op. */
-    memcpy(task->in_flight_reply_buf, msg->payload, msg->payload_len);
+     * Wrapper-emitted reply struct shape is per-op; first field is `rc`.
+     * Truncation guard: msg->payload_len must fit task->in_flight_reply_buf_len. */
+    size_t n = msg->payload_len;
+    if (n > task->in_flight_reply_buf_len) return NX_EINVAL;
+    memcpy(task->in_flight_reply_buf, msg->payload, n);
     task->in_flight_reply_rc = ((struct reply_header *)msg->payload)->rc;
     nx_waitq_wake_one(&task->reply_waitq);
     return 0;
@@ -290,8 +295,15 @@ posix_shim's component is `concurrency: shared`. Single instance, multiple per-t
  *   msg->msg_type   = op_id from generated `enum nx_<iface>_op_id`
  *   msg->flags     |= NX_MSG_FLAG_REPLY_REQUESTED
  *   msg->payload    = pointer to wrapper-built request struct (kstack)
- *   msg->reply_buf  = pointer to wrapper-allocated reply struct (kstack)
  *   msg->n_caps    + msg->caps  -- optional; per-iface
+ *
+ * `reply_buf` / `reply_buf_len` describe the wrapper-allocated kstack
+ * struct the reply leg's payload is copied into.  Stashed on the
+ * caller task before enqueue; cleared after wake.  Threading the
+ * pointer through a separate arg (vs. growing `nx_ipc_message`) keeps
+ * the IPC carrier generic — the reply-buffer concept is specific to
+ * the blocking-call wrapper protocol.  Pass NULL/0 only if the op
+ * has no return payload (rare; see the per-op generated wrapper).
  *
  * Returns the handler's int rc (NX_OK or negative NX_E*) on successful
  * round-trip, or one of:
@@ -301,13 +313,17 @@ posix_shim's component is `concurrency: shared`. Single instance, multiple per-t
  *   NX_EABORT   — NX_HOOK_IPC_SEND chain returned ABORT.
  *   NX_EINVAL   — NULL/mismatched args.
  */
-int nx_slot_call_blocking(struct nx_slot *slot, struct nx_ipc_message *msg);
+int nx_slot_call_blocking(struct nx_slot       *slot,
+                          struct nx_ipc_message *msg,
+                          void                  *reply_buf,
+                          size_t                 reply_buf_len);
 ```
 
 ### Body sequence
 
 ```
-1. Validate args; assert msg->src_slot == nx_task_current()->caller_slot.
+1. Validate args; assert msg->src_slot == nx_task_current()->caller_slot;
+   assert task->in_flight_reply_buf is NULL (no recursive blocking calls in v1).
 2. Read slot->pause_state (atomic acquire).
 3. If pause_state != NX_SLOT_PAUSE_NONE:
      find_edge(msg->src_slot, msg->dst_slot)  -- per-task edge from task_create
@@ -315,12 +331,13 @@ int nx_slot_call_blocking(struct nx_slot *slot, struct nx_ipc_message *msg);
      b. policy == REJECT  → return NX_EBUSY.
      c. policy == REDIRECT → retarget msg->dst_slot = slot->fallback;
                              re-enter with depth+1; cap at NX_IPC_REDIRECT_DEPTH_MAX.
-4. Set up reply: task->in_flight_reply_buf = msg->reply_buf.
-5. Fire NX_HOOK_IPC_SEND chain; ABORT → return NX_EABORT (skip enqueue).
+4. Set up reply: task->in_flight_reply_buf = reply_buf;
+                 task->in_flight_reply_buf_len = reply_buf_len.
+5. Fire NX_HOOK_IPC_SEND chain; ABORT → clear in_flight_reply_buf, return NX_EABORT.
 6. nx_ipc_scan_send_caps(msg->src_slot, msg).  Forged caps → NX_EINVAL.
 7. nx_dispatcher_enqueue(msg).
 8. nx_waitq_wait_with_deadline(&task->reply_waitq, 0).
-9. Clear task->in_flight_reply_buf.
+9. Clear task->in_flight_reply_buf and in_flight_reply_buf_len.
 10. Return task->in_flight_reply_rc.
 ```
 
@@ -410,22 +427,21 @@ int64_t nx_vfs_read(struct nx_slot *slot, void *file,
         .cap  = cap,
     };
 
-    /* Reply payload — kstack-allocated; dispatcher writes here. */
+    /* Reply payload — kstack-allocated; posix_shim_handle_msg writes here. */
     struct nx_vfs_reply_read reply_buf = { 0 };
 
     struct nx_ipc_message msg = {
-        .src_slot    = nx_task_current()->caller_slot_ptr,
+        .src_slot    = &nx_task_current()->caller_slot,
         .dst_slot    = slot,
         .msg_type    = NX_VFS_OP_READ,
         .flags       = NX_MSG_FLAG_REPLY_REQUESTED,
         .payload     = &req,
         .payload_len = sizeof(req),
-        .reply_buf   = &reply_buf,
         .n_caps      = 0,
         .caps        = NULL,
     };
 
-    int rc = nx_slot_call_blocking(slot, &msg);
+    int rc = nx_slot_call_blocking(slot, &msg, &reply_buf, sizeof(reply_buf));
     if (rc != NX_OK) return rc;
 
     /* Copy bytes_out portion back into caller's buffer. */
@@ -438,7 +454,7 @@ int64_t nx_vfs_read(struct nx_slot *slot, void *file,
 Wrapper sets up:
 - request struct on kstack (input scalar fields, opaque handles, slot_refs as caps).
 - reply struct on kstack (output scalar fields, output buffers up to a max size, return value).
-- `msg->reply_buf` pointer threading to the dispatcher's reply-decoder.
+- `reply_buf` pointer + length passed as explicit args to `nx_slot_call_blocking`, which stashes them on the task; posix_shim's reply handler copies the dispatched reply payload into that buffer.
 
 Wrapper does NOT touch `slot->active`. R8 holds.
 
@@ -468,25 +484,20 @@ The increment/decrement happens in **dispatcher context** (with `preempt_disable
 
 ## Error Codes
 
-Existing codes (`framework/registry.h`):
+Codes used by `nx_slot_call_blocking` — all already exist in `framework/registry.h` since slice 3.x; slice 8.0a adds **no new errcodes** and reuses the existing values:
 
-| Code | Meaning |
-|---|---|
-| `NX_OK = 0` | Success |
-| `NX_EINVAL = -1` | Invalid argument |
-| `NX_ENOENT = -2` | No such entry |
-| `NX_ENOMEM = -3` | Out of memory |
-| `NX_EBUSY = -7` | Slot paused, REJECT policy |
-| `NX_EDEADLINE = -9` | Wait deadline exceeded |
-| `NX_ELOOP = -11` | REDIRECT depth cap |
+| Code | Value | Meaning |
+|---|---|---|
+| `NX_OK` | `0` | Success |
+| `NX_EINVAL` | `-1` | Invalid argument |
+| `NX_ENOMEM` | `-2` | Out of memory |
+| `NX_ENOENT` | `-4` | Slot has no active impl with handle_msg / no registered edge |
+| `NX_EBUSY` | `-5` | Slot paused, REJECT policy on the edge |
+| `NX_ELOOP` | `-7` | REDIRECT depth cap exceeded (loop in fallback chain) |
+| `NX_EABORT` | `-8` | Hook chain returned ABORT (already used by `nx_ipc_send` and `nx_component_pause`) |
+| `NX_EDEADLINE` | `-9` | Wait deadline exceeded |
 
-**New in slice 8.0a:**
-
-| Code | Meaning |
-|---|---|
-| `NX_EABORT = -10` | Hook chain returned ABORT |
-
-(`NX_EABORT = -10` slots between `NX_EDEADLINE = -9` and `NX_ELOOP = -11`; numbering preserves chronological allocation order.)
+(Earlier draft of this doc proposed `NX_EABORT = -10` as a new code; that proposal is obsolete — `NX_EABORT = -8` was already added in slice 3.x for the hook-chain ABORT path and `nx_slot_call_blocking` reuses it.  Slot `-10` is `NX_EPERM`, slot `-11` is `NX_EAGAIN`.)
 
 ---
 
