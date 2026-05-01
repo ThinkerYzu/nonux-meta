@@ -263,9 +263,6 @@ static int posix_shim_on_dep_swapped(void *self, struct nx_slot *dep_slot,
                                      struct nx_component *old, struct nx_component *new,
                                      uint32_t flags) {
     if (flags & SWAP_STATE_LOST) {
-        /* Walk the kernel handle table; mark all entries pointing at
-         * dep_slot as stale.  Subsequent userspace ops on those fds
-         * return NX_EBADF. */
         nx_handle_table_invalidate_for_slot(dep_slot);
     }
     return 0;
@@ -273,6 +270,66 @@ static int posix_shim_on_dep_swapped(void *self, struct nx_slot *dep_slot,
 ```
 
 `task_from_caller_slot()` is a small helper that maps a slot pointer back to its containing task — implementable as `container_of(slot, struct nx_task, caller_slot)` since the slot is embedded.
+
+### Handle-table invalidation (slice 8.0a.7)
+
+`nx_handle_table_invalidate_for_slot()` is implemented via **Option B — optional slot field + post-alloc setter**:
+
+**`struct nx_handle_entry` gains one field (slice 8.0a.7):**
+
+```c
+struct nx_handle_entry {
+    enum nx_handle_type  type;
+    uint32_t             rights;
+    void                *object;
+    uint32_t             generation;   /* bumped on close */
+    struct nx_slot      *slot;         /* NULL → immune to slot invalidation */
+};
+```
+
+**New allocation helpers:**
+
+```c
+/* Allocate a handle and immediately wire its backing slot.
+ * Used by sys_open / sys_opendir so FILE/DIR handles can be
+ * invalidated when their backing vfs dep is swapped. */
+int nx_handle_alloc_with_slot(struct nx_handle_table *t,
+                              enum nx_handle_type type,
+                              uint32_t rights,
+                              void *object,
+                              struct nx_slot *slot,
+                              nx_handle_t *out);
+
+/* Post-alloc setter — for callers that allocate first, then wire.
+ * No-op if h is invalid or already has a non-NULL slot. */
+void nx_handle_set_slot(struct nx_handle_table *t,
+                        nx_handle_t h,
+                        struct nx_slot *slot);
+```
+
+Only the `NX_HANDLE_FILE` and `NX_HANDLE_DIR` allocations in `syscall.c`'s `sys_open` / `sys_opendir` paths wire the slot. All other `nx_handle_alloc()` call sites leave `slot = NULL` and are immune to slot-based invalidation.
+
+**`nx_handle_table_invalidate_for_slot()` implementation:**
+
+```c
+void nx_handle_table_invalidate_for_slot(struct nx_slot *dep_slot) {
+    /* Walk every task's handle table; bump generation on entries whose
+     * backing slot matches dep_slot.  Userspace sees NX_EBADF on the
+     * next op against those fds. */
+    nx_process_for_each([dep_slot](struct nx_process *p) {
+        struct nx_handle_table *t = &p->handle_table;
+        for (size_t i = 0; i < NX_HANDLE_TABLE_CAPACITY; i++) {
+            struct nx_handle_entry *e = &t->entries[i];
+            if (e->slot == dep_slot && e->object != NULL) {
+                e->generation++;   /* invalidates any handle encoding this gen */
+                e->object = NULL;
+            }
+        }
+    });
+}
+```
+
+The generation bump is the same stale-handle mechanism slice 5.3 already uses; no new invariant is introduced.
 
 ### Concurrency mode
 
