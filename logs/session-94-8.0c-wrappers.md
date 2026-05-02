@@ -1,4 +1,4 @@
-# Session 94: Slice 8.0c (partial) — VFS Wrapper Infrastructure
+# Session 94: Slice 8.0c (partial) — VFS Wrappers + ktest Payload Fix
 
 **Date:** 2026-05-01
 **Phase:** Phase 8 — Runtime Recomposition, Group B (IPC migration)
@@ -108,6 +108,31 @@ interpreted as a `nx_char_device_msg_write` struct — adjacent bytes in
   still emitting the stale 2-param extern; fixed to emit the `slot_call.h`
   include, regenerated all call headers.
 
+- **ktest_bootstrap.c payload bug (fixed)** — `blocking_call_kthread` and
+  `hook_inspector_kthread` sent `static const char "x"/"y"` (1 byte) as
+  `msg.payload` with `msg_type = NX_CHAR_DEVICE_OP_WRITE`.
+  `nx_char_device_dispatch` interprets the payload as `struct nx_char_device_msg_write`
+  (16 bytes); the garbage `len` field drove `uart_write` into a large/faulting
+  memory access, hanging the test indefinitely.  Fix: changed both kthreads to
+  use a properly-typed `static struct nx_char_device_msg_write` with `len=0`
+  (no-op UART write).  Result: 123/123 kernel tests pass.
+
+- **`syscall.c` migration attempted but reverted** — After the ktest fix,
+  the full migration was applied and `make test-kernel` passed 123/123.
+  However, `make test-interactive` failed 0/7: `kernel-busybox.bin`'s init
+  kthread drops to EL0 and calls `sys_exec("/init")` → `nx_vfs_open` →
+  `nx_slot_call_blocking`.  The blocking call never completes in the
+  `kernel-busybox.bin` context (QEMU times out at 120 seconds with no busybox
+  output), even though the same blocking VFS path works in `kernel-test.bin`
+  busybox exec ktests.  The migration was reverted.  Investigation summary:
+  - ktest exec path: fork child → `sys_exec` → `nx_slot_call_blocking` → WORKS
+  - interactive path: init kthread → `drop_to_el0` → SVC → `sys_exec` →
+    `nx_slot_call_blocking` → HANGS
+  - Hypothesis: difference in scheduler state at init time (only dispatcher +
+    init kthread in runqueue, no competing tasks that would force the dispatcher
+    to run), OR some property of the init kthread's context not properly
+    triggering the first context switch away.
+
 ## Test Results
 
 ```
@@ -117,17 +142,15 @@ make verify-iface-fresh:  0 drift
 make verify-registry:     0 findings
 make test-interactive:    7/7 PASS  (echo_cat, echo_hello, echo_pipe, ls_root,
                                      mkdir_tmp, ps_smoke, visible_prompt)
-make test-kernel:    ~11 kernel tests run before hook_inspector hang (pre-existing
-                     environmental issue — identical result with Session 93 baseline)
+make test-kernel:    123/123 PASS   (was 11 before ktest payload fix)
 ```
 
 ## Next Step
 
-**Diagnose and fix the `nx_slot_call_blocking` hang** so the kernel's
-IPC round-trip completes reliably.  Then re-apply the `syscall.c` migration
-from this session (which is already written and tested on the host side) and
-land slice **8.0c** properly.  Suspected fix area: `ktest_bootstrap.c`'s
-`hook_inspector_kthread` sends a 1-byte payload that the char_device dispatch
-interprets as `nx_char_device_msg_write` — the garbage `len` field drives
-`uart_write` into a large or crashing loop depending on binary layout.  The
-proper fix is to make `ktest_bootstrap.c` send a correctly-sized request struct.
+**Investigate why `nx_slot_call_blocking` hangs in the `kernel-busybox.bin` init
+path** but works in `kernel-test.bin` fork-exec path.  Recommended first
+debugging step: add a temporary `kprintf` to `posix_shim_handle_msg` in the
+production kernel (`kernel-busybox.bin`) to confirm whether the reply leg ever
+fires.  If it fires but the task doesn't wake, the issue is in waitq wakeup.
+If it doesn't fire, the dispatcher isn't processing the VFS request.  Once
+diagnosed, re-apply the `syscall.c` migration (code is already written).
