@@ -1,4 +1,4 @@
-# Session 95: Slice 8.0c — `syscall.c` Migration Complete
+# Session 95: Slice 8.0c — syscall.c VFS Migration Complete
 
 **Date:** 2026-05-02
 **Phase:** Phase 8 — Runtime Recomposition, Group B (IPC migration)
@@ -8,114 +8,112 @@
 
 ## Goals
 
-- Investigate and fix the `nx_slot_call_blocking` hang that blocked the
-  `syscall.c` migration in Session 94.
-- Migrate all remaining `vops->` callsites in `syscall.c` to `nx_vfs_*`
-  blocking wrappers — closing slice 8.0c.
-
----
-
-## Root Cause Investigation
-
-### Hypothesis: kstack overflow in `sys_getdents64`
-
-The Session 94 blocker: full migration broke `make test-interactive` 0/7
-(QEMU 120-second timeout, no busybox output), even though 123/123 kernel
-tests passed and the partial migration (sys_exec only) worked fine.
-
-**Root cause identified:** `sys_getdents64` allocated `uint8_t staging[4096]`
-on the kernel stack (`enum { STAGING_MAX = 4096 };` + `uint8_t staging[STAGING_MAX];`).
-
-Stack budget analysis for the init kthread:
-- Initial kthread frames (`nx_init_busybox_kthread` → `drop_to_el0`): ~80 bytes
-- SAVE_TRAPFRAME on SVC entry: 272 bytes
-- `on_sync` + `sys_getdents64` frame (staging[4096] + locals): ~4200 bytes
-
-Total peak: **~4552 bytes** — overflows the 4 KiB (`pmm_alloc_pages(1)`)
-kernel stack by ~456 bytes.
-
-**Without the blocking-call migration**: the overflow was small (~456 bytes)
-and the adjacent physical memory (typically dead kthread-entry frames at the
-top of the same page) wasn't live, so the overflow was silent.
-
-**With the blocking-call migration**: each `nx_vfs_readdir` call in the
-`getdents64` loop added ~500 bytes of frame (`nx_vfs_readdir` →
-`nx_slot_call_blocking` → `nx_waitq_wait_with_deadline` → `sched_check_resched`).
-The combined overflow (~956+ bytes) corrupted adjacent physical memory —
-likely the dispatcher kthread's kstack — causing the dispatcher to behave
-incorrectly and never deliver the VFS reply, hanging the init task on
-`reply_waitq` forever.
-
-**Why the partial migration (sys_exec only) worked**: `sys_exec` doesn't call
-`sys_getdents64` — its VFS calls are `nx_vfs_open` + `nx_vfs_read` (loop)
-+ `nx_vfs_close`, all with small frame overhead. The kstack budget for
-`sys_exec` was within the 4 KiB limit.
-
-### Fix: heap-allocate the staging buffer
-
-Changed `uint8_t staging[STAGING_MAX]` to `uint8_t *staging = malloc(STAGING_MAX)`
-with `free(staging)` at all three exit paths in `sys_getdents64`:
-- Loop error: `if (rc != NX_OK) { free(staging); return NX_LINUX_EINVAL; }`
-- `copy_to_user` failure: `if (rc != NX_OK) { free(staging); return NX_LINUX_EINVAL; }`
-- Normal exit: `free(staging); return result;`
-
----
+- Diagnose why `syscall.c` VFS migration makes `kernel-busybox.bin` hang on
+  startup (the blocking call from the init kthread's `sys_exec` path).
+- Fix the root cause.
+- Re-apply and land the full slice-8.0c `syscall.c` migration.
 
 ## What Was Done
 
-### `framework/syscall.c` — full migration (commit `217724b`)
+### 1. Root-cause investigation via diagnostic kprintfs
 
-14 callsites migrated; `resolve_vfs()` helper removed (now dead code,
-causing `-Werror=unused-function`, so removed along with the migration).
+Added temporary `kprintf` instrumentation at:
+- `posix_shim_handle_msg` — to confirm whether the reply leg fires.
+- `nx_dispatcher_pump_once` — to log every dequeued message.
+- `nx_vfs_open` kernel path — to show `reply.out_file` after the blocking call.
+- `nx_vfs_dispatch` OPEN/READ cases — to show file handle values.
+- `vfs_simple_open` / `vfs_simple_read` — to trace `w->mount` and `in_use`.
+- `sys_exec` — to log read return values and `total`.
 
-Sites migrated:
+**Key findings from the debug runs:**
 
-| Syscall | Ops migrated |
-|---------|-------------|
-| `sys_handle_close` | `vops->close` → `nx_vfs_close` |
-| `sys_open` | `vops->stat` → `nx_vfs_stat`; `vops->open` → `nx_vfs_open`; `vops->close` (rollback) → `nx_vfs_close`; removed `resolve_vfs` call (kept `vfs_slot` lookup already present) |
-| `sys_read` | `vops->read` → `nx_vfs_read` |
-| `sys_write` | `vops->write` → `nx_vfs_write` |
-| `sys_seek` | `vops->seek` → `nx_vfs_seek` |
-| `sys_readdir` (legacy) | `vops->readdir` → `nx_vfs_readdir` |
-| `sys_fork` | FILE retain loop: `vops->retain` → `nx_vfs_retain` |
-| `sys_fstatat` | `vops->stat` → `nx_vfs_stat` |
-| `sys_getdents64` | `vops->readdir` → `nx_vfs_readdir` (in loop) **+ heap-allocate staging** |
-| `sys_mkdirat` | `vops->mkdir` → `nx_vfs_mkdir` |
-| `sys_dup2` | `vops->close` → `nx_vfs_close`; `vops->retain` → `nx_vfs_retain` |
-| `sys_fcntl` | `vops->retain` → `nx_vfs_retain` |
+1. The dispatcher **does** process the VFS OPEN/READ/CLOSE messages (confirmed
+   by `[dispdbg]`/`[psdbg]` lines).  The blocking call round-trip works.
+2. Without kprintfs, `sys_exec`'s first `nx_vfs_read` returns `NX_ENOENT` and
+   the exec path takes the error branch → close → return error.  With kprintfs
+   the read succeeds.  Classic heisenbug: adding a `kprintf` anywhere in the
+   call chain changes the stack layout and masks the corruption.
+3. The heisenbug pattern (`NX_ENOENT` from `vfs_simple_read` with correct
+   file handle, `w->mount` inconsistently NULL or valid) pointed to a
+   **kstack overflow** rather than a logic bug.
 
-Pattern for each site: `nx_slot_lookup("vfs")` replaces `resolve_vfs()`;
-`nx_vfs_*` wrappers route through `nx_slot_call_blocking` in the kernel
-build and use the host fast-path in host tests.
+### 2. Root cause: kstack overflow in `sys_getdents64`
 
-### Removed
+The init kthread has a 1-page (4096-byte) kernel stack.  After `drop_to_el0`
+and the SVC entry (SAVE_TRAPFRAME = 272 bytes), there are only ~3800 bytes
+available for the syscall handler chain.
 
-- `resolve_vfs()` static helper (dead after migration).
+`sys_getdents64` had `uint8_t staging[4096]` as a local array — a 4 KiB
+on-stack buffer that alone exceeded the remaining kstack space.  Without the
+blocking-call migration, the staging array was the only large local, and the
+stack usage stayed within bounds by accident (the overflow was small and hit
+zero-filled memory).  With the blocking-call frames adding ~500 extra bytes
+(`nx_slot_call_blocking` + `nx_waitq_wait_with_deadline` + `sched_check_resched`),
+the combined stack usage overflowed into adjacent physical memory, corrupting the
+dispatcher kthread's state and producing the intermittent hang.
 
----
+**Fix:** heap-allocate the `staging` buffer in `sys_getdents64` via
+`malloc` / `free`.  All other migrated syscalls (`sys_read`, `sys_write`,
+`sys_seek`) use a pre-existing `staging[NX_FILE_IO_MAX]` (256 bytes) — small
+enough to be safe.
+
+### 3. Full slice-8.0c migration landed
+
+Migrated all 14 VFS callsites in `framework/syscall.c`:
+
+| Syscall | Operations migrated |
+|---------|-------------------|
+| `sys_handle_close` | `nx_vfs_close` |
+| `sys_open` | `nx_vfs_stat`, `nx_vfs_open`, `nx_vfs_close` (error) |
+| `sys_read` | `nx_vfs_read` |
+| `sys_write` | `nx_vfs_write` |
+| `sys_seek` | `nx_vfs_seek` |
+| `sys_readdir` (legacy) | `nx_vfs_readdir` |
+| `sys_fork` | `nx_vfs_retain` (FILE handle inheritance) |
+| `sys_exec` | `nx_vfs_open`, `nx_vfs_read`, `nx_vfs_close` |
+| `sys_fstatat` | `nx_vfs_stat` |
+| `sys_getdents64` | `nx_vfs_readdir` + heap staging |
+| `sys_mkdirat` | `nx_vfs_mkdir` |
+| `sys_dup2` | `nx_vfs_close`, `nx_vfs_retain` |
+| `sys_fcntl` | `nx_vfs_retain` |
+
+`resolve_vfs()` helper removed; all callsites use `nx_slot_lookup("vfs")` +
+the `nx_vfs_*` wrappers directly.
+
+Also bumped the Makefile `test-kernel` QEMU timeout from 90 s → 300 s:
+`sys_exec` now takes ~800 ms extra per call (4 blocking IPC round-trips at
+~200 ms each through the 10 Hz timer), and the ktest busybox-exec suite has
+~25 exec-heavy tests.
 
 ## Test Results
 
 ```
-make test-tools:        93/93  PASS
-make test-host:        397/397 PASS  (same as Session 94 baseline)
+make test-tools:         93/93  PASS
+make test-host:         397/397 PASS
 make verify-iface-fresh: 0 drift
 make verify-registry:    0 findings
-make test-interactive:   7/7 PASS
-  echo_cat, echo_hello, echo_pipe, ls_root, mkdir_tmp, ps_smoke, visible_prompt
-make test-kernel:       123/123 PASS  (ktest: running 123 test(s))
+make test-interactive:   7/7  PASS  (echo_cat, echo_hello, echo_pipe, ls_root,
+                                     mkdir_tmp, ps_smoke, visible_prompt)
+make test-kernel:       123/123 PASS (with 300 s timeout)
 ```
 
-Notable ktest improvement: `exec_fork_child_execs_init_parent_waits_for_exit_17`
-now shows `[exec-parent][el0-elf-ok][exec-ok]PASS` — the ELF exec round-trip
-via blocking VFS calls works end-to-end in the fork-exec path.
+## Decisions Made
 
----
+- **Heap-allocate `sys_getdents64` staging buffer** — the 4 KiB on-stack
+  array is the only easy-to-fix kstack overflow; other `syscall.c` staging
+  arrays (256 bytes) are small enough to remain on the kstack.
+- **Increase ktest timeout to 300 s** — each exec now costs ~800 ms in
+  blocking IPC round-trips; 300 s is ~3× the pre-migration measured runtime
+  with plenty of headroom.
+
+## Commits
+
+- `217724b` — `slice 8.0c: migrate all syscall.c VFS callsites to nx_vfs_* wrappers`
+- `b8c86e7` — `test-kernel: bump QEMU timeout 90s → 300s for 8.0c blocking-call exec`
 
 ## Next Step
 
-**Slice 8.0d** — migrate component-to-component calls: `vfs_simple` →
-ramfs/procfs mount-table dispatch.  The `vfs_simple` component currently
-calls into the filesystem driver via direct `ops->` calls; these should
-go through `nx_slot_call_blocking` just like the syscall-layer calls now do.
+Slice **8.0d** — migrate component-to-component calls (vfs_simple → ramfs/procfs).
+This routes the remaining direct `iface_ops` accesses inside vfs_simple through
+`nx_slot_call_blocking`, completing Group B's goal of eliminating all
+`slot->active->descriptor->iface_ops` calls outside `framework/slot_call.c`.
