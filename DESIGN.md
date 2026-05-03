@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-04-21 (Session 16 — scheduler core/component split, R8 escape-hatch for timer→scheduler, `NX_HOOK_CONTEXT_SWITCH`, timer quiescence during recomposition)
+**Last Updated:** 2026-05-03 (Session 100 — slice 8.3: config manager API as-built)
 
 ---
 
@@ -2332,23 +2332,34 @@ Hand-written companion headers are permitted for *types* (data layout — e.g. `
 
 ### Runtime Config Manager
 
-The config manager is a kernel-space component that:
-- Loads the initial config at boot
-- Exposes a handle-based API for runtime changes (swap component, change connection mode, register hooks)
-- Validates changes against manifest constraints before applying
-- Coordinates the lifecycle framework for hot-swap operations
+Landed in slice 8.3.  The config manager lives in `framework/config.c` and exposes three kernel-side functions plus a `NX_HANDLE_CONFIG` capability handle and three EL0 syscalls.
 
+**Kernel API** (`framework/config.h`):
 ```c
-/* Runtime recomposition via handle */
-nx_status_t nx_config_swap(nx_handle_t config_handle,
-                           const char *slot_name,
-                           const char *new_impl,
-                           const char *config_json);
+/* Allocate a config handle in the caller's table.  The handle is the
+ * revocation point — close it to terminate config access. */
+int nx_config_open(struct nx_handle_table *t, nx_handle_t *out_h);
 
-nx_status_t nx_config_set_connection_mode(nx_handle_t config_handle,
-                                          const char *from, const char *to,
-                                          enum ipc_mode mode);
+/* Snapshot the live composition: generation counter + per-slot
+ * (name, manifest_id, lifecycle_state).  Capped at 32 entries. */
+int nx_config_query_snapshot(struct nx_config_snapshot *snap);
+
+/* Swap slot `slot_name` to the first NX_LC_READY component whose
+ * manifest_id matches `new_impl`.  Drives the full
+ * pause/drain/swap/resume protocol via nx_recompose(). */
+int nx_config_swap_component(const char *slot_name, const char *new_impl);
 ```
+
+**EL0 syscall surface** (syscalls 42–44):
+```c
+NX_SYS_CONFIG_OPEN  = 42   /* () → nx_handle_t */
+NX_SYS_CONFIG_QUERY = 43   /* (h, struct nx_config_snapshot *buf) → NX_OK */
+NX_SYS_CONFIG_SWAP  = 44   /* (h, slot_name, new_impl) → NX_OK */
+```
+
+`NX_HANDLE_CONFIG` (value 9) was added to `enum nx_handle_type`.  The config handle carries no per-instance state in v1 — a static sentinel provides the non-NULL object pointer required by `nx_handle_alloc`.
+
+`nx_config_set_connection_mode` (connection mode switching) is deferred to slice 8.6.
 
 ---
 
