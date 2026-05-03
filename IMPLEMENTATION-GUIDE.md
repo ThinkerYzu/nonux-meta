@@ -3642,7 +3642,7 @@ Phase 8 splits into three groups (15 slices total).  The original Phase 8 delive
 
 | Slice | Deliverable |
 |---|---|
-| **8.1** | Lift pause/drain/resume from host build into kernel build.  Slice-3.8's host-only protocol gets QEMU-side coverage.  Adds slice-3.9's deferred kernel rollback path.  End-to-end ktest: pause an existing slot, drain hold queue, resume, verify no message loss. |
+| **8.1** ✓ | Lift pause/drain/resume from host build into kernel build.  `in_flight_calls` moved to enqueue-time; `slot_drain_cb` yields until counter reaches zero.  3 ktests: basic lifecycle, inflight-MPSC drain, hold-queue flush on resume.  QEMU timeout 300 → 360 s.  126/126 kernel. — Session 98 |
 | **8.2** | `framework/recompose.c` orchestrator — `struct recomp_plan`, `nx_recompose()`, topological pause order from registry edges, rollback on pause-hook failure, connection rewiring (`conn_change`).  `timer_pause()` / `timer_resume()` bookends.  Demo: recompose a leaf slot. |
 | **8.3** | `framework/config.c` runtime config manager + handle API + EL0 syscall surface (`NX_SYS_CONFIG_*`).  EL0 program opens config handle, queries the live composition, fires `nx_recompose`. |
 | **8.4** | Second scheduler impl — `components/sched_priority/`.  Conformance suite reused from Phase 4.  Kernel boots with `sched_priority` from `kernel.json` start-to-finish.  Standalone validation (no swap yet). |
