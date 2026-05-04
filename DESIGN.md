@@ -206,10 +206,10 @@ components/
     README.md                   # Human-readable docs
     test/
       test_sched_rr.c           # Unit tests
-  sched_priority/               # Priority scheduler (same interface)
+  sched_priority/               # Priority scheduler (same interface) — slice 8.4
     manifest.json
-    sched_priority.c
-    ...
+    sched_priority.c            # 8 priority buckets (0=default, 7=highest); set_priority works
+    README.md
 ```
 
 ### Manifest Example
