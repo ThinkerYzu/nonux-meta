@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-03 (Session 102 — slice 8.5: live scheduler swap landed)
+**Last Updated:** 2026-05-04 (Session 104 — slice 8.7: NX_HOOK_SYSCALL_ENTER/EXIT landed; Phase 8 closed)
 
 ---
 
@@ -2140,8 +2140,8 @@ Hook points exist at every major boundary. Hooks are registered dynamically and 
 | Lifecycle | `NX_HOOK_COMPONENT_PAUSE` | Pause verb entered | 3.8 |
 | Lifecycle | `NX_HOOK_COMPONENT_RESUME` | Resume verb entered | 3.8 |
 | Registry | `NX_HOOK_SLOT_SWAPPED` | Slot's active impl changed | 3.9 (runtime dispatch) |
-| Syscall Entry | `NX_HOOK_SYSCALL_ENTER` | Userspace makes a syscall | Slice 8.7 |
-| Syscall Exit | `NX_HOOK_SYSCALL_EXIT` | Syscall returns to userspace | Slice 8.7 |
+| Syscall Entry | `NX_HOOK_SYSCALL_ENTER` | Userspace makes a syscall | 8.7 |
+| Syscall Exit | `NX_HOOK_SYSCALL_EXIT` | Syscall returns to userspace | 8.7 |
 | Scheduler | `NX_HOOK_CONTEXT_SWITCH` | Task switch occurs (prev/next) | 4.3 (enum added) / 4.4 (dispatch live) |
 | Memory | `NX_HOOK_PAGE_FAULT` | Page fault handled | Phase 5 |
 
@@ -2709,3 +2709,14 @@ Optional for basic boot (required for busybox):
 ---
 
 **Last Updated:** 2026-04-21 (Session 16)
+
+---
+
+### 2026-05-04 — Slice 8.7: NX_HOOK_SYSCALL_ENTER / _EXIT hook points (Session 104)
+
+**Syscall-boundary hook points.**
+- Added `NX_HOOK_SYSCALL_ENTER` (enum value 8) and `NX_HOOK_SYSCALL_EXIT` (9) to `framework/hook.h`.  `NX_HOOK_POINT_COUNT` shifts from 8 to 10; requires `make clean` when header enums change (no Makefile header-dep tracking — same caveat as `NX_HANDLE_CONFIG` in Session 100).
+- Added `sc` arm to `struct nx_hook_context.u`: `num` (x8), `a[6]` (snapshot of x0..x5), `rc *int64_t` (points at the dispatch-local accumulator in `nx_syscall_dispatch`), `tf *trap_frame`.
+- ENTER hook returning `NX_HOOK_ABORT` skips the syscall body; `*rc` at that point becomes the EL0 return value (x0).  EXIT hook may overwrite `*rc` to change the return value after the body has run.
+- **`int64_t *` vs `nx_status_t *` in the sc arm.**  `sc.rc` uses `int64_t *` to avoid adding `framework/syscall.h` as a dependency of `framework/hook.h` (hook.h is included by nearly every kernel file; pulling in syscall.h would create a wide transitive dependency chain).  The cast `(int64_t *)&rc` in `syscall.c` is safe because `nx_status_t` is `typedef int64_t`.
+- **Phase 8 fully closed.**  All 15 slices (Groups A, B, C) shipped.  Live recomposition, per-edge mode switching, second scheduler, and syscall-boundary observability all operational.
