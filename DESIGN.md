@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-03 (Session 100 — slice 8.3: config manager API as-built)
+**Last Updated:** 2026-05-03 (Session 102 — slice 8.5: live scheduler swap landed)
 
 ---
 
