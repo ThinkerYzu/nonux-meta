@@ -407,6 +407,76 @@ If you added a new `.c` file, list it in the top-level `Makefile` under `KTEST_C
 
 Kernel tests run with IRQs unmasked and the timer armed at 10 Hz. Treat the environment as "real" — no setjmp/longjmp, `KASSERT*` on failure prints + sets a flag + `return`s. Don't clobber global state needed by later tests (the runner does not reset PMM state between tests; alloc what you need, free before returning).
 
+### Kernel test fixture pattern (slots + components)
+
+Tests that exercise the IPC/component framework need to set up slots, bind components, register connection edges, and tear them down cleanly.  The canonical pattern discovered during Phase 8 testing:
+
+**Slots must be `static`.**  The global slot registry (`g_slots`) stores a pointer to the caller-owned `struct nx_slot`.  If the slot is stack-allocated and `nx_slot_unregister` fails silently (e.g. NX_EBUSY because an edge still references it), the registry node becomes a dangling pointer as soon as the stack frame is reclaimed.  Subsequent `slot_node_find` calls dereference `node->slot->name` from the dead frame — a fault.  `static` storage eliminates this: the slot struct lives for the entire test run, so the registry pointer is always valid.
+
+**Components may be stack-allocated** (local to the `KTEST` body or `fixture_up`).  The registry node for a component must be removed while the struct is still alive.
+
+**Teardown order** (while all structs are still in scope):
+
+```c
+nx_connection_unregister(edge);      /* 1. remove edge — clears slot's in/out lists */
+nx_slot_swap(&slot, NULL);           /* 2. unbind component (nx_component_unregister
+                                      *    requires is_bound == false) */
+nx_component_unregister(&comp);      /* 3. remove component node from g_components */
+/* nx_slot_unregister NOT called — slot is static, stays in g_slots */
+```
+
+Step 1 must come before step 2: `nx_slot_unregister` would return NX_EBUSY with edges present (if you were calling it), but more importantly `nx_slot_swap` emits a graph event that iterates `g_connections` — clean edge state avoids spurious entries.
+
+**`fixture_up` swaps directly** to the new component; it does not need to handle whatever `slot->active` was left pointing to (NULL from the previous teardown, or a dead pointer on first run before any teardown):
+
+```c
+nx_slot_swap(&s_slot, &new_comp);   /* NULL → new_comp, or dead_ptr → new_comp */
+```
+
+`nx_slot_swap` reads the old `active` only to emit an event; it never dereferences through it, and in the kernel there are no graph observers.
+
+**Complete example** (`static` slots, stack components, two tests reusing the same fixture):
+
+```c
+static struct nx_slot s_src;
+static struct nx_slot s_tgt;
+
+static struct nx_connection *s_edge;
+
+static void fixture_up(const char *src_name, const char *tgt_name)
+{
+    /* (re-)initialise static slots with this test's names */
+    s_src = (struct nx_slot){ .name = src_name, .iface = "test",
+                              .mutability = NX_MUT_HOT,
+                              .concurrency = NX_CONC_SHARED };
+    s_tgt = (struct nx_slot){ .name = tgt_name, .iface = "test",
+                              .mutability = NX_MUT_HOT,
+                              .concurrency = NX_CONC_SHARED };
+
+    /* Register once (NX_EEXIST on re-run is silently ignored — the static
+     * struct was re-initialised above so slot_node_find sees the new name). */
+    (void)nx_slot_register(&s_src);
+    (void)nx_slot_register(&s_tgt);
+
+    /* Stack-allocated components — fine, unregistered in fixture_down */
+    /* ... register, swap, init, enable ... */
+    s_edge = nx_connection_register(&s_src, &s_tgt, NX_CONN_ASYNC, false,
+                                    NX_PAUSE_QUEUE, &err);
+}
+
+static void fixture_down(struct my_comp *src_comp, struct my_comp *tgt_comp)
+{
+    /* Must run while src_comp / tgt_comp are still in scope */
+    (void)nx_connection_unregister(s_edge);   /* 1 */
+    s_edge = NULL;
+    (void)nx_slot_swap(&s_src, NULL);          /* 2 */
+    (void)nx_slot_swap(&s_tgt, NULL);
+    (void)nx_component_unregister(src_comp);  /* 3 */
+    (void)nx_component_unregister(tgt_comp);
+    /* slots NOT unregistered */
+}
+```
+
 ---
 
 ## Troubleshooting
