@@ -3720,13 +3720,15 @@ No changes to `registry.c` or `slot_call.c` — `task->caller_slot` is registere
 
 Host tests: open/read/write/close round-trip through the new ID-based API; stale-id returns error; table-full returns error.  ~10 host tests.
 
-#### Slice 9b.2 — Handle entry redesign + open/close routing
+#### Slice 9b.2 — Handle entry redesign + open/close routing ✓ Session 106
 
-Replace `{ type, rights, void *object }` in `nx_handle_entry` with `{ rights, uint32_t id, struct nx_slot *target }`.  Update `nx_handle_alloc` signature.
+`NX_HANDLE_RESOURCE` type added to `enum nx_handle_type`; `nx_handle_entry` gains `union { void *object; uint32_t id; }` (CHANNEL/VMO/DIR/CONFIG continue using `object`; RESOURCE uses `id`) and renames `slot` → `target`.  `nx_handle_alloc_resource(t, rights, id, target, out)` allocates a RESOURCE entry; `nx_handle_entry_get(t, h)` returns the live entry pointer for direct field access.
 
-`sys_open` sends an `FS_OPEN` message through `task->caller_slot → vfs`, receives `id`, stores it in the entry with `target = &g_vfs_slot`.  `sys_handle_close` for `NX_HANDLE_RESOURCE` sends `FS_CLOSE(id)` to `entry->target` then frees the entry.
+`sys_open` calls `nx_handle_alloc_resource` — no pointer-cast bridge.  `sys_handle_close` RESOURCE arm calls `nx_vfs_close(entry->target, entry->id)` (skips for console, where `target == char_device_slot`).
 
-`nx_process_create` pre-installs stdin/stdout/stderr as `{ rights, id=0, target=&g_char_device_slot }` — the console component ignores `id` (singleton).  The POSIX fd-0 magic (`h == 0` special-case in `sys_read`) disappears: lookup resolves handle 0 normally, finds the console target, routes through `caller_slot`.
+`nx_process_create` pre-installs stdin/stdout/stderr as `NX_HANDLE_RESOURCE` with `id=0, target=char_device_slot`.  The `h == 0` special-case in sys_read/write/ioctl/dup3 is kept for now; RESOURCE dispatch routes by `entry->target` (char_device → console path; vfs → file path).  sys_fork, sys_dup3, sys_fcntl F_DUPFD updated to retain/copy RESOURCE handles correctly.
+
+Key finding: adding `NX_HANDLE_RESOURCE` shifts `NX_HANDLE_CONFIG` by 1 — `make clean` required (same stale-.o pattern as Session 100).
 
 No routing change yet for read/write/seek — still type-switches for now.  Purely structural.
 
