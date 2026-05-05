@@ -3708,7 +3708,7 @@ No changes to `registry.c` or `slot_call.c` — `task->caller_slot` is registere
 
 **Component ownership benefits.**  The component validates `id` on every call (stale-id detection after recomposition), reclaims all open resources for a dead process by scanning its table, and controls its own allocation policy without exposing internal pointers.
 
-#### Slice 9b.1 — Component-side object tables
+#### Slice 9b.1 — Component-side object tables ✓ Session 105
 
 `vfs_simple` and `ramfs` replace the caller-supplied `vfs_file *` path with an internal file table: `uint32_t nx_vfs_open(path, flags) → id`; `nx_vfs_read(id, buf, len)`; `nx_vfs_write(id, buf, len)`; `nx_vfs_seek(id, offset, whence)`; `nx_vfs_close(id)`.  The table is a fixed-size array (e.g. 256 entries) keyed by `id`; `open` finds a free slot, stores the `vfs_file`, returns the index.
 
