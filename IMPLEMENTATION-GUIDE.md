@@ -3724,7 +3724,7 @@ Add `nx_slot_init_anon(struct nx_slot *s, const char *iface, enum nx_slot_mutabi
 
 Relax `nx_connection_register`: remove the `NX_ENOENT` guard on unregistered `from`; `slot_add_outgoing` becomes a no-op (already conditional).  The conn_node is added to `g_connections` and `to_sn->incoming` as before — the anonymous source simply has no outgoing list entry, which is correct since anonymous slots are leaf nodes never targeted by `nx_slot_foreach_dependency`.
 
-Replace `find_outgoing_edge(src, dst)` in `slot_call.c` with `find_incoming_edge(dst, src)` that calls `nx_slot_foreach_dependent(dst, ...)` matching `c->from_slot == src`.  Functionally identical for registered sources; now also works for anonymous sources.
+Replace `find_outgoing_edge(src, dst)` in `slot_call.c` with `find_incoming_edge(dst, src)` that calls `nx_slot_foreach_dependent(dst, ...)` matching `c->from_slot == src`.  This works because both `nx_slot_foreach_dependency` and `nx_slot_foreach_dependent` already guard with `slot_node_for(s); if (!sn) return;` — unregistered slots silently produce empty walks.  Flipping to the `dst` side works as long as `dst` is registered (architectural slot), which is the invariant for Phase 9b: anonymous slots may be `from`, never `to`.  If that invariant is ever violated, `find_incoming_edge` silently returns NULL and the call fails with `NX_ENOENT` — correct behaviour, implicitly enforcing the constraint.
 
 Add `nx_slot_is_registered(const struct nx_slot *)` predicate.
 
