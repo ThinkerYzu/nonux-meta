@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-04 (Session 104 — slice 8.7 + two-tier slot model planned; Phase 8 closed)
+**Last Updated:** 2026-05-04 (Session 104 — slice 8.7 + handles-as-capabilities design; Phase 8 closed)
 
 ---
 
@@ -545,32 +545,27 @@ nx_handle_duplicate(channel, RIGHT_READ, &readonly);
 
 This is how per-process API surfaces work: a sandboxed process receives handles with restricted rights. No global capability — only what was explicitly given.
 
-### Two-Tier Slot Model (planned — Phase 9b)
+### Handles as Capabilities (planned — Phase 9b)
 
-**Problem.** The registry requires every slot to be named and globally enumerable. A naive "handle-as-slot" design (one registered slot per open file descriptor) would flood the registry with thousands of ephemeral entries, break the O(n-slots) pause-order sort, and make the config snapshot unreadable.
+**Problem.** `sys_read`/`sys_write` switch on `handle_type` to decide whether to call `nx_console_read`, `nx_channel_recv`, or `nx_vfs_read`.  Adding a new resource type (network socket, GPU buffer) requires editing `syscall.c`.  The `void *object` in `nx_handle_entry` crosses the IPC boundary as a kernel pointer, coupling the caller to the component's internal representation.
 
-**Insight.** The registry serves three distinct purposes, and only the first is structurally required by every slot:
+**Design.**  Every task already has a registered `caller_slot` (slice 8.0a.5) with one outgoing edge per architectural target (`vfs`, `scheduler`, `mm`, `char_device`) wired by `wire_caller_slot`.  No per-fd slots are needed.  The fd entry changes from a type-tagged pointer to a pure capability token:
 
-| Purpose | Required by | Required by per-fd slots? |
-|---|---|---|
-| Pause/drain topological sort | `build_pause_order` walks `incoming`/`outgoing` edge lists | Yes — but edge lists suffice; no global list needed |
-| Name-based lookup | `nx_slot_lookup`, config swap/rewire API | No — per-fd slots are never config-swapped by name |
-| Observable composition graph | config snapshot, `verify-registry`, AI operability | No — per-fd topology is not an architectural boundary |
+```c
+/* today */
+struct nx_handle_entry { enum nx_handle_type type; uint32_t rights; void *object; };
 
-**`nx_slot_register` conflates two concerns** that both live in `slot_node`: (1) *name binding* — adds the slot to `g_slots` for lookup, config snapshots, and `verify-registry`; (2) *edge-list storage* — the `incoming`/`outgoing` conn_node chains.  For architectural slots both are always needed.  For anonymous slots neither is needed: no name, and — as the lookup-direction analysis below shows — no outgoing list either.
+/* Phase 9b */
+struct nx_handle_entry { uint32_t rights; uint32_t id; struct nx_slot *target; };
+```
 
-`nx_slot_call_blocking` finds the connection by walking `src->outgoing` (`find_outgoing_edge`); for anonymous sources there is no `slot_node` and the walk silently returns nothing.  But the conn_node also lives in the *target* slot's `incoming` list — `nx_connection_register` writes it there unconditionally via `slot_add_incoming(to_sn, n)` as long as `to` is registered.  The fix is to flip the lookup: `find_incoming_edge(dst, src)` walks the registered target's `incoming` list matching `c->from_slot == src`.  No struct changes, no edge-list infrastructure on the anonymous side.  The only other change is relaxing `nx_connection_register` to accept an unregistered non-NULL `from` (currently rejected with `NX_ENOENT`); `slot_add_outgoing` is already conditional on `from_sn != NULL` and becomes a no-op.
+`id` is assigned by the *component* when the resource is opened and stored in the component's own internal table.  Messages carry only `id` — no kernel pointer crosses the IPC boundary.  `sys_read(fd)` becomes a uniform `nx_slot_call_blocking(&task->caller_slot, entry->target, &msg)` regardless of what kind of object `fd` represents.  The `switch (handle_type)` disappears; routing is data-driven by `entry->target`.
 
-**Two-tier model.**
+**Component ownership.**  The component allocates the object, assigns the ID, validates it on every call (stale-ID detection after recomposition), and reclaims all open resources for a dead process by scanning its table.  The kernel-side handle entry holds nothing but a capability token — rights, ID, and target slot pointer.
 
-- **Architectural slots** — named, registered, config-swappable, visible in snapshots and `verify-registry`. Today there are seven (scheduler, mm, vfs, char_device.serial, filesystem.root, filesystem.proc, posix_shim). This set grows slowly, only when a new kernel subsystem boundary is introduced.
-- **Ephemeral (anonymous) slots** — unregistered, known only to their direct peers. Created and destroyed with the object they represent. Not config-swappable individually. Never appear in snapshots or `verify-registry`. The pause/drain protocol works transparently because: (a) ephemeral slots are leaf nodes — no other component holds an incoming edge to them, so they never appear in a pause order; (b) `in_flight_calls` on the registered *target* slot (vfs_simple, char_device, etc.) counts all callers regardless of whether the caller slot is registered.
+**`nx_slot_register` conflation note.**  `nx_slot_register` bundles two concerns into `slot_node`: (1) *name binding* — `g_slots` membership, `nx_slot_lookup`, config snapshots, `verify-registry`; (2) *edge-list storage* — the `incoming`/`outgoing` conn_node chains.  Per-fd handles need neither: the sender is always `task->caller_slot` (already registered) and the edge is found via the existing `find_outgoing_edge` on that slot.  No new slots, no registry changes, no changes to `slot_call.c`.
 
-**Handle table evolution.** `struct nx_handle_entry` embeds a `struct nx_slot`. The handle table becomes a per-process capability table where each file/channel/console entry is an anonymous slot with an outgoing edge to the backing architectural slot (vfs_simple, uart_pl011, etc.). `sys_read(fd)` resolves to: look up fd's embedded slot → `nx_slot_call_blocking` → dispatcher routes to backing component. The entire `switch (handle_type)` in `sys_read`/`sys_write` disappears; routing is data-driven by the slot's edge.
-
-**Invariant #1 update.** The current invariant ("every `struct slot *` reachable from any component is registered") narrows to: "every *architectural* slot ref reachable from any component is registered; ephemeral slots are visible only to their direct peers and are exempt."
-
-**Deferred.** Implementation is Phase 9b; see [IMPLEMENTATION-GUIDE.md §Phase 9b](IMPLEMENTATION-GUIDE.md#phase-9b-ephemeral-slots-and-handles-as-capabilities).
+**Deferred.** Implementation is Phase 9b; see [IMPLEMENTATION-GUIDE.md §Phase 9b](IMPLEMENTATION-GUIDE.md#phase-9b-handles-as-capabilities--component-owned-object-tables).
 
 ---
 
@@ -2739,14 +2734,14 @@ Optional for basic boot (required for busybox):
 
 ---
 
-### 2026-05-04 — Two-Tier Slot Model (design decision, Phase 9b planning)
+### 2026-05-04 — Handles as Capabilities (design decision, Phase 9b planning)
 
-**Two-tier slot model.**
-- The registry's three roles (pause/drain topology, name lookup, observable snapshot) are not all required by every slot.  Per-fd slots need pause/drain participation only — they don't need to be named, config-swapped, or snapshotted.
-- No struct migration needed.  `nx_slot_call_blocking` finds edges via `find_outgoing_edge(src)` — flip to `find_incoming_edge(dst, src)` (walk the registered target's `incoming` list).  Also relax `nx_connection_register` to accept unregistered non-NULL `from` (currently `NX_ENOENT`); `slot_add_outgoing` is already conditional and becomes a no-op.
-- Two-tier split: **architectural slots** (named, registered, ~7 subsystem boundaries, config-swappable) vs **ephemeral slots** (anonymous, peer-local, per-fd/per-channel, leaf nodes in the pause graph, never snapshotted).
-- Handle table evolution: `struct nx_handle_entry` embeds `struct nx_slot`; `sys_read`/`sys_write` route through `nx_slot_call_blocking` instead of a `switch (handle_type)`.  Invariant #1 narrows from "every slot ref is registered" to "every *architectural* slot ref is registered."
-- Documented in §"Handle System — Two-Tier Slot Model"; implementation plan in IMPLEMENTATION-GUIDE §Phase 9b.
+**Handles as capabilities — component-owned object tables.**
+- `nx_handle_entry` changes from `{ type, rights, void *object }` to `{ rights, uint32_t id, struct nx_slot *target }`.  Type tag and kernel pointer both disappear.
+- Components own their object tables: `open` allocates an entry and returns an ID; `read`/`write`/`seek`/`close` take the ID.  No pointer crosses the IPC boundary.
+- `sys_read(fd)` becomes `nx_slot_call_blocking(&task->caller_slot, entry->target, &msg)` for all handle types — `switch (handle_type)` gone.  `task->caller_slot` (slice 8.0a.5) already has outgoing edges to all architectural targets via `wire_caller_slot`; no new slots, no registry changes, no changes to `slot_call.c`.
+- `nx_slot_register` conflation: it bundles name-binding and edge-list storage; per-fd handles need neither since `caller_slot` is always the sender.
+- Documented in §"Handle System — Handles as Capabilities"; implementation plan in IMPLEMENTATION-GUIDE §Phase 9b.
 
 ---
 

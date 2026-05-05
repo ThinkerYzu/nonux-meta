@@ -3705,76 +3705,88 @@ Steps (multi-slice rework):
 
 **Validation:** `make test` still passes; an EL0 demo that mmap's 100 MiB of anonymous memory and touches one page per MiB completes without OOM; fork is O(VMA count) not O(window size); a stress test that forks/execs 1000 times per second runs steadily without PMM exhaustion.
 
-### Phase 9b: Ephemeral Slots and Handles as Capabilities
+### Phase 9b: Handles as Capabilities — Component-Owned Object Tables
 
-**Goal:** Eliminate the `switch (handle_type)` dispatch in `sys_read`/`sys_write` by making every open file descriptor an anonymous (unregistered) slot wired to the backing architectural slot.  Handles become capability tokens whose routing is data-driven by the slot graph rather than hard-coded type tags.
-**Status:** NOT STARTED — design decision recorded in [DESIGN.md §"Two-Tier Slot Model"](DESIGN.md#two-tier-slot-model-planned--phase-9b).  May be scheduled before or after Phase 9 (MM rework); the two phases are independent.
+**Goal:** Eliminate the `switch (handle_type)` dispatch in `sys_read`/`sys_write`.  Each open fd becomes a capability token `(rights, component_id, target_slot*)`.  Components own their object tables; callers hold only an opaque ID.  Routing is data-driven by `target_slot`, not by a hard-coded type tag.
+**Status:** NOT STARTED — design decision recorded in [DESIGN.md §"Handles as Capabilities"](DESIGN.md#handles-as-capabilities-planned--phase-9b).  Independent of Phase 9 MM rework; may be scheduled in either order.
 
-**Background.** The registry currently requires every slot to be named and globally registered. Placing one slot per open fd would flood the registry with thousands of ephemeral entries.  The minimum structural change needed is smaller than it first appears — no struct migration required.  See DESIGN.md §"Two-Tier Slot Model" for the full rationale.
+**Design.**  Every task already has a `caller_slot` (slice 8.0a.5), registered, with one outgoing edge per architectural target wired by `wire_caller_slot`.  No per-fd slots are needed.  The fd entry changes shape:
 
-**Key insight on the edge-lookup direction.**  `nx_slot_call_blocking` uses `find_outgoing_edge(src, dst)` which walks `nx_slot_foreach_dependency(src)` — i.e. the *source* slot's outgoing list.  An anonymous source has no `slot_node`, so this walk finds nothing.  But there is no need to move edge lists onto `struct nx_slot`: the connection also lives in the *target* slot's `incoming` list (via `slot_add_incoming(to_sn, n)` in `nx_connection_register`, which fires unconditionally as long as `to_sn` is registered).  The target IS registered.  Flipping the lookup to walk the target's `incoming` list instead — `find_incoming_edge(dst, src)` matching `c->from_slot == src` — finds the same conn_node with no struct changes at all.
+```c
+/* today */
+struct nx_handle_entry { enum nx_handle_type type; uint32_t rights; void *object; };
 
-This reduces the implementation to two targeted changes before the handle-embedding work:
-1. Relax `nx_connection_register` to accept an unregistered (but non-NULL) `from` slot — currently line 534 rejects it with `NX_ENOENT`; the `slot_add_outgoing` call at line 558 is already conditional on `from_sn != NULL` and becomes a no-op.
-2. Replace `find_outgoing_edge(src, dst)` in `slot_call.c` with `find_incoming_edge(dst, src)`.
+/* Phase 9b */
+struct nx_handle_entry { uint32_t rights; uint32_t id; struct nx_slot *target; };
+```
 
-#### Slice 9b.1 — Anonymous slot API + flip edge lookup
+`id` is assigned by the target component when the resource is opened; the component stores the object in its own internal table keyed by `id`.  Messages carry only `id` — no kernel pointer crosses the IPC boundary.  `sys_read(fd)` becomes:
 
-Add `nx_slot_init_anon(struct nx_slot *s, const char *iface, enum nx_slot_mutability m)` — initialises `pause_state` and `in_flight_calls` atomics, zero-fills the name (anonymous), but does NOT call `nx_slot_register`.
+```c
+entry = handle_lookup(fd);
+msg   = { .op = FS_READ, .id = entry->id, .len = cap };
+nx_slot_call_blocking(&task->caller_slot, entry->target, &msg, reply, sizeof reply);
+```
 
-Relax `nx_connection_register`: remove the `NX_ENOENT` guard on unregistered `from`; `slot_add_outgoing` becomes a no-op (already conditional).  The conn_node is added to `g_connections` and `to_sn->incoming` as before — the anonymous source simply has no outgoing list entry, which is correct since anonymous slots are leaf nodes never targeted by `nx_slot_foreach_dependency`.
+No changes to `registry.c` or `slot_call.c` — `task->caller_slot` is registered and its outgoing edge to `entry->target` is found by the existing `find_outgoing_edge`.
 
-Replace `find_outgoing_edge(src, dst)` in `slot_call.c` with `find_incoming_edge(dst, src)` that calls `nx_slot_foreach_dependent(dst, ...)` matching `c->from_slot == src`.  This works because both `nx_slot_foreach_dependency` and `nx_slot_foreach_dependent` already guard with `slot_node_for(s); if (!sn) return;` — unregistered slots silently produce empty walks.  Flipping to the `dst` side works as long as `dst` is registered (architectural slot), which is the invariant for Phase 9b: anonymous slots may be `from`, never `to`.  If that invariant is ever violated, `find_incoming_edge` silently returns NULL and the call fails with `NX_ENOENT` — correct behaviour, implicitly enforcing the constraint.
+**Component ownership benefits.**  The component validates `id` on every call (stale-id detection after recomposition), reclaims all open resources for a dead process by scanning its table, and controls its own allocation policy without exposing internal pointers.
 
-Add `nx_slot_is_registered(const struct nx_slot *)` predicate.
+#### Slice 9b.1 — Component-side object tables
 
-Host tests: anonymous slot lifecycle (init, connect, disconnect, no registry entry), `nx_slot_call_blocking` succeeds from an anonymous source, drain works (target's `in_flight_calls` reaches zero), pause/drain order never includes anonymous slots.
+`vfs_simple` and `ramfs` replace the caller-supplied `vfs_file *` path with an internal file table: `uint32_t nx_vfs_open(path, flags) → id`; `nx_vfs_read(id, buf, len)`; `nx_vfs_write(id, buf, len)`; `nx_vfs_seek(id, offset, whence)`; `nx_vfs_close(id)`.  The table is a fixed-size array (e.g. 256 entries) keyed by `id`; `open` finds a free slot, stores the `vfs_file`, returns the index.
 
-~50 lines + ~6 host tests.  No struct layout changes.
+`fs` IDL gains `open(path, flags) → u32` and `close(id)` ops; existing `read`/`write`/`seek` gain a leading `id: u32` parameter.  `gen-iface.py` regenerates the dispatch headers.
 
-#### Slice 9b.3 — Embed `struct nx_slot` in handle entries
+`char_device` IDL gains `read(buf, len) → i64_count_or_status`; `uart_pl011` implements it via `nx_console_read`.  For a singleton device `id` is ignored (pass 0); a future multi-device scenario uses `id` to select the instance.
 
-`struct nx_handle_entry` gains an embedded `struct nx_slot slot` field (zero-initialised until the handle is allocated).  `nx_handle_alloc` for `HANDLE_FILE`, `HANDLE_DIR`, `HANDLE_CHANNEL`, and `HANDLE_CONSOLE` calls `nx_slot_init_anon` on `entry->slot` and registers a connection from `entry->slot` to the relevant architectural slot (vfs, char_device, etc.) via `nx_connection_register`.  `nx_handle_free` (called from `sys_handle_close`) unregisters the connection and zeroes the slot.
+`posix_shim` declares `char_device` as a dependency (so `wire_caller_slot` automatically adds the edge for every task — currently only vfs, scheduler, mm are wired).
 
-`nx_process_create` initialises the three pre-installed console handles (stdin/stdout/stderr at slots 0/1/2) by wiring their embedded slots to `char_device.serial`.
+Host tests: open/read/write/close round-trip through the new ID-based API; stale-id returns error; table-full returns error.  ~10 host tests.
 
-`sys_open` wires the new handle's slot to `vfs` (mode: sync, same as the current `nx_vfs_*` path).  `sys_pipe` wires each end's slot to a channel endpoint — the channel IS the object, so the slot is effectively a named reference to the endpoint.
+#### Slice 9b.2 — Handle entry redesign + open/close routing
 
-No routing change yet (type-switch still present); this slice is purely structural.
+Replace `{ type, rights, void *object }` in `nx_handle_entry` with `{ rights, uint32_t id, struct nx_slot *target }`.  Update `nx_handle_alloc` signature.
 
-~120 lines kernel code; ~8 host tests covering embed/wire/unwire lifecycle.
+`sys_open` sends an `FS_OPEN` message through `task->caller_slot → vfs`, receives `id`, stores it in the entry with `target = &g_vfs_slot`.  `sys_handle_close` for `NX_HANDLE_RESOURCE` sends `FS_CLOSE(id)` to `entry->target` then frees the entry.
 
-#### Slice 9b.4 — Route `sys_read` / `sys_write` through slot calls
+`nx_process_create` pre-installs stdin/stdout/stderr as `{ rights, id=0, target=&g_char_device_slot }` — the console component ignores `id` (singleton).  The POSIX fd-0 magic (`h == 0` special-case in `sys_read`) disappears: lookup resolves handle 0 normally, finds the console target, routes through `caller_slot`.
 
-Replace the `switch (handle_type)` in `sys_read`, `sys_write`, `sys_seek`, `sys_readv`, `sys_writev` with `nx_slot_call_blocking(&entry->slot, &msg)`.  The message type encodes the operation (READ / WRITE / SEEK); the dispatcher on the other side routes to the component's op handler.
+No routing change yet for read/write/seek — still type-switches for now.  Purely structural.
 
-The `char_device` IDL gains a `read(buf, len) → i64_count_or_status` op (currently only `write` and `rx_byte` exist).  `uart_pl011` implements it via `nx_console_read` (same as today).  The `fs` IDL already has `read`/`write`/`seek`; vfs_simple and ramfs already implement them.  The HANDLE_CHANNEL arm (pipe read) becomes `nx_channel_recv` through the channel slot — the channel endpoint IS the slot's target object.
+~100 lines; ~8 host tests covering alloc/free, open/close message flow, pre-installed console handles.
 
-The POSIX fd-0 magic (stdin special-case) disappears: slot 0's embedded slot already points to the console component, so `nx_slot_call_blocking` routes correctly without the `h == 0` branch.
+#### Slice 9b.3 — Route read/write/seek through slot calls
 
-~100 lines changed in syscall.c; updated IDL + regenerated char_device headers; ~10 ktests for the routed read/write/seek paths.
+Replace the `switch (handle_type)` in `sys_read`, `sys_write`, `sys_seek`, `sys_readv`, `sys_writev` with:
 
-#### Slice 9b.5 — Cleanup: retire per-type dispatch remnants
+```c
+nx_slot_call_blocking(&task->caller_slot, entry->target, &msg, reply, sizeof reply);
+```
 
-- Remove `NX_HANDLE_CONSOLE`, `NX_HANDLE_FILE`, `NX_HANDLE_DIR` type tags from `enum nx_handle_type`; replace with `NX_HANDLE_RESOURCE` (a generic "anonymous slot to some backing component") so `sys_handle_close` has one code path for all of them.
-- `NX_HANDLE_CHANNEL` survives — channels have their own close semantics (endpoint refcount).  Its slot still routes via `nx_slot_call_blocking` for read/write, but `sys_handle_close` still calls `nx_channel_endpoint_close`.
-- Remove the `copy_path_from_user` HANDLE_DIR special-case in `sys_readdir`; directory cursors become a slot op (`READDIR`) dispatched through the vfs component.
-- `verify-registry` R9 rule already exempts the host fast-paths; no rule changes needed — anonymous slots are invisible to it by design.
-- `make verify-registry` 0 findings; `make test` all pass; the `HANDLE_FILE`/`HANDLE_DIR`/`HANDLE_CONSOLE` branches in syscall.c are gone.
+where `msg` encodes `{ op, id, buf/len/offset }` per the fs or char_device IDL.  The type-switch is gone; routing is purely `entry->target`.
 
-~80 lines removed; 0 new tests (all coverage comes from earlier slices).
+Regenerate `fs_call.h`/`char_device_call.h` from updated IDL.  ~80 lines changed in syscall.c; ~10 ktests for the routed paths.
 
-**Checkpoint 9b:** Every open fd is an anonymous slot.  `sys_read(fd)` is `nx_slot_call_blocking`.  The kernel's POSIX shim is free of hard-coded object types; routing is entirely data-driven by the slot graph.  Adding a new "file-like" object (e.g. a network socket) requires only a new component implementing the `fs` interface — no changes to `syscall.c`.
+#### Slice 9b.4 — Cleanup
+
+- Retire `NX_HANDLE_FILE`, `NX_HANDLE_DIR`, `NX_HANDLE_CONSOLE` from `enum nx_handle_type`; replace with `NX_HANDLE_RESOURCE`.  `sys_handle_close` has one code path for all resource handles.
+- `NX_HANDLE_CHANNEL` survives unchanged — pipe endpoints have their own refcount semantics and don't go through the ID-table model.
+- Remove the `void *object` field and all `handle_type` switch arms from syscall.c.
+- `make verify-registry` 0 findings; `make test` all pass.
+
+~60 lines removed; 0 new tests.
+
+**Checkpoint 9b:** `sys_read(fd)` is `nx_slot_call_blocking`.  Components own their object tables.  Adding a new file-like resource (e.g. a network socket) requires a new component implementing the `fs` interface — zero changes to `syscall.c`.  No per-fd slots, no anonymous slot infrastructure, no changes to `registry.c` or `slot_call.c`.
 
 **Test plan**
 
 | Slice | New tests | Notes |
 |---|---|---|
-| 9b.1 | 0 (regression gate) | All 600 existing tests must pass |
-| 9b.2 | ~6 host | Anonymous lifecycle, drain without registration |
-| 9b.3 | ~8 host | Embed/wire/unwire; console pre-install; open/close |
-| 9b.4 | ~10 kernel | Routed read/write/seek; stdin=slot-0; pipe read via slot |
-| 9b.5 | 0 (cleanup) | Verify no HANDLE_FILE/DIR/CONSOLE remnants |
+| 9b.1 | ~10 host | ID-table open/read/write/close/stale/full |
+| 9b.2 | ~8 host | Handle alloc/free; open/close msg flow; console pre-install |
+| 9b.3 | ~10 kernel | Routed read/write/seek; console stdin; readv/writev |
+| 9b.4 | 0 | Cleanup — coverage from earlier slices |
 
 ### Phase 10: Integration Tests and Benchmarks
 
