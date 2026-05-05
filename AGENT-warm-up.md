@@ -5,9 +5,8 @@ All project documents are in the same directory as this file. Read these to get 
 1. **`README.md`** — project overview, doc index, and recent updates.
 2. **`HANDOFF.md`** — full handoff package: current status, next actions, session history, design decisions. Start with "Current Status" and "Next Actions" at the top.
 3. **`DESIGN.md`** — architecture and design decisions; read the sections relevant to the current phase before implementing.
-4. **`IMPLEMENTATION-GUIDE.md`** — code-level details for the current and upcoming slices; read the next-slice section before starting work.
 
-These documents link to everything else you'll need (session logs, design docs, spec, test guide). Follow the links as needed for the specific task the user gives you.
+These documents link to everything else you'll need (session logs, design docs, spec, implementation guide, test guide). Follow the links as needed for the specific task the user gives you.
 
 Key codebase location: `sources/nonux/`.
 
