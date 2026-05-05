@@ -93,13 +93,11 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
 ### Forward step
 
-1. **Phase 9 — Per-process Memory Management Rework.**  Phase 8 is fully closed (Session 104).  Next is Phase 9: L3 4 KiB pages, VMAs, demand paging, COW fork — see [IMPLEMENTATION-GUIDE.md §Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework).
+1. **Phase 9b — Handles as Capabilities.**  Phase 8 is fully closed (Session 104).  Next is Phase 9b: component-owned object tables, `{ rights, id, target_slot* }` handle entries, `sys_read` routed through `task->caller_slot` — see [IMPLEMENTATION-GUIDE.md §Phase 9b](IMPLEMENTATION-GUIDE.md#phase-9b-handles-as-capabilities--component-owned-object-tables).  Phase 9 (MM rework) follows.
 
    **Tests at end of Session 104:** `make test-tools` **102/102 pass**; `make test-host` **459/459 pass**; `make test-interactive` **7/7 pass**; `make test-kernel` **141/141 pass**; `make verify-iface-fresh` 0 drift; `make verify-registry` 0 findings (R2,R4,R9).
 
 ### Deferred — actionable when a workload demands
-
-2. **Phase 9b — Handles as capabilities.**  Design decision in [DESIGN.md §"Handles as Capabilities"](DESIGN.md#handles-as-capabilities-planned--phase-9b); implementation plan in [IMPLEMENTATION-GUIDE.md §Phase 9b](IMPLEMENTATION-GUIDE.md#phase-9b-handles-as-capabilities--component-owned-object-tables).  Four slices: (9b.1) component-side object tables — vfs_simple/ramfs gain ID-keyed file tables; fs/char_device IDL updated; (9b.2) `nx_handle_entry` → `{ rights, id, target_slot* }`, sys_open/close send OPEN/CLOSE messages; (9b.3) sys_read/write/seek route through `nx_slot_call_blocking(&task->caller_slot, entry->target, &msg)` — type-switch gone; (9b.4) retire HANDLE_FILE/DIR/CONSOLE type tags.  No per-fd slots, no registry changes, no changes to slot_call.c — task's `caller_slot` is already the sender.  Independent of Phase 9 MM rework.
 
 3. **7.6d.N.final.c-full — full signal-handler dispatch trampoline.**  Promote `sys_rt_sigaction` from no-op stub to actually-installs-handler (per-process `sigaction[NSIG]` table); EL0-return path pushes a synthetic frame on the user stack, sets PC to the handler, sets x0 = signo, sets LR to an EL0 trampoline (or musl's `sa_restorer`) that issues `NX_SYS_RT_SIGRETURN` to restore.  Switches Ctrl-C from "kill everyone" to "post SIGINT, deliver via handler".  Estimated ~200-300 lines kernel + ktest using mock-RX 0x03 injection.  v1 minimal Ctrl-C / Ctrl-D side channels (slice 7.6d.N.final.c-minimal, Session 71) cover the scripted smoke tests; .c-full lands when interactive UX needs handler dispatch.
 
