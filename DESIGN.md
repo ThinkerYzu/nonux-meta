@@ -557,7 +557,7 @@ This is how per-process API surfaces work: a sandboxed process receives handles 
 | Name-based lookup | `nx_slot_lookup`, config swap/rewire API | No — per-fd slots are never config-swapped by name |
 | Observable composition graph | config snapshot, `verify-registry`, AI operability | No — per-fd topology is not an architectural boundary |
 
-The structural bottleneck is that `incoming`/`outgoing` edge lists currently live in `slot_node` (registry-allocated), not in `struct nx_slot` (caller-allocated). Moving them onto `struct nx_slot` is the single change that enables anonymous slots to participate in the pause/drain protocol without entering `g_slots`.
+The structural bottleneck appears to be that `incoming`/`outgoing` edge lists live in `slot_node`, but no struct migration is actually needed.  `nx_slot_call_blocking` finds the connection by walking `src->outgoing` (`find_outgoing_edge`); for anonymous sources there is no outgoing list.  The fix is to flip the lookup: walk `dst->incoming` instead (`find_incoming_edge(dst, src)` matching `c->from_slot == src`).  The target slot IS registered, so its `incoming` list already holds the conn_node — `nx_connection_register` writes it there unconditionally via `slot_add_incoming(to_sn, n)`.  The only other change is relaxing `nx_connection_register` to accept an unregistered non-NULL `from` (currently rejected with `NX_ENOENT`); the `slot_add_outgoing` call is already conditional on `from_sn != NULL` and becomes a no-op for anonymous sources.
 
 **Two-tier model.**
 
@@ -2741,7 +2741,7 @@ Optional for basic boot (required for busybox):
 
 **Two-tier slot model.**
 - The registry's three roles (pause/drain topology, name lookup, observable snapshot) are not all required by every slot.  Per-fd slots need pause/drain participation only — they don't need to be named, config-swapped, or snapshotted.
-- Root structural fix: move `incoming`/`outgoing` edge lists from `slot_node` (registry-allocated) onto `struct nx_slot` (caller-allocated).  Anonymous slots can then hold edges and participate in drain without entering `g_slots`.
+- No struct migration needed.  `nx_slot_call_blocking` finds edges via `find_outgoing_edge(src)` — flip to `find_incoming_edge(dst, src)` (walk the registered target's `incoming` list).  Also relax `nx_connection_register` to accept unregistered non-NULL `from` (currently `NX_ENOENT`); `slot_add_outgoing` is already conditional and becomes a no-op.
 - Two-tier split: **architectural slots** (named, registered, ~7 subsystem boundaries, config-swappable) vs **ephemeral slots** (anonymous, peer-local, per-fd/per-channel, leaf nodes in the pause graph, never snapshotted).
 - Handle table evolution: `struct nx_handle_entry` embeds `struct nx_slot`; `sys_read`/`sys_write` route through `nx_slot_call_blocking` instead of a `switch (handle_type)`.  Invariant #1 narrows from "every slot ref is registered" to "every *architectural* slot ref is registered."
 - Documented in §"Handle System — Two-Tier Slot Model"; implementation plan in IMPLEMENTATION-GUIDE §Phase 9b.

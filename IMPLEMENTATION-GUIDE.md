@@ -3710,25 +3710,27 @@ Steps (multi-slice rework):
 **Goal:** Eliminate the `switch (handle_type)` dispatch in `sys_read`/`sys_write` by making every open file descriptor an anonymous (unregistered) slot wired to the backing architectural slot.  Handles become capability tokens whose routing is data-driven by the slot graph rather than hard-coded type tags.
 **Status:** NOT STARTED — design decision recorded in [DESIGN.md §"Two-Tier Slot Model"](DESIGN.md#two-tier-slot-model-planned--phase-9b).  May be scheduled before or after Phase 9 (MM rework); the two phases are independent.
 
-**Background.** The registry currently requires every slot to be named and globally registered. Placing one slot per open fd would flood the registry with thousands of ephemeral entries. The root fix is moving the `incoming`/`outgoing` edge lists from `slot_node` (registry-allocated) onto `struct nx_slot` (caller-allocated), so a slot can hold edges and participate in pause/drain without being in `g_slots`. See DESIGN.md §"Two-Tier Slot Model" for the full rationale.
+**Background.** The registry currently requires every slot to be named and globally registered. Placing one slot per open fd would flood the registry with thousands of ephemeral entries.  The minimum structural change needed is smaller than it first appears — no struct migration required.  See DESIGN.md §"Two-Tier Slot Model" for the full rationale.
 
-#### Slice 9b.1 — Move edge lists onto `struct nx_slot` (pure refactor)
+**Key insight on the edge-lookup direction.**  `nx_slot_call_blocking` uses `find_outgoing_edge(src, dst)` which walks `nx_slot_foreach_dependency(src)` — i.e. the *source* slot's outgoing list.  An anonymous source has no `slot_node`, so this walk finds nothing.  But there is no need to move edge lists onto `struct nx_slot`: the connection also lives in the *target* slot's `incoming` list (via `slot_add_incoming(to_sn, n)` in `nx_connection_register`, which fires unconditionally as long as `to_sn` is registered).  The target IS registered.  Flipping the lookup to walk the target's `incoming` list instead — `find_incoming_edge(dst, src)` matching `c->from_slot == src` — finds the same conn_node with no struct changes at all.
 
-Add `incoming` and `outgoing` `conn_node *` pointers directly to `struct nx_slot`.  Keep a parallel copy in `slot_node` for now and assert they match.  Update `nx_slot_foreach_dependency` and `nx_slot_foreach_dependent` to read from the slot struct directly (so they work for unregistered slots later).  Update `nx_connection_register` to write into both the slot's inline lists and the slot_node's lists.
+This reduces the implementation to two targeted changes before the handle-embedding work:
+1. Relax `nx_connection_register` to accept an unregistered (but non-NULL) `from` slot — currently line 534 rejects it with `NX_ENOENT`; the `slot_add_outgoing` call at line 558 is already conditional on `from_sn != NULL` and becomes a no-op.
+2. Replace `find_outgoing_edge(src, dst)` in `slot_call.c` with `find_incoming_edge(dst, src)`.
 
-No behaviour change; all 459 host + 141 kernel tests pass.  This is the load-bearing refactor that unlocks all later slices.
+#### Slice 9b.1 — Anonymous slot API + flip edge lookup
 
-~80 lines changed, 0 new tests (existing tests are the regression gate).
+Add `nx_slot_init_anon(struct nx_slot *s, const char *iface, enum nx_slot_mutability m)` — initialises `pause_state` and `in_flight_calls` atomics, zero-fills the name (anonymous), but does NOT call `nx_slot_register`.
 
-#### Slice 9b.2 — Anonymous slot API
+Relax `nx_connection_register`: remove the `NX_ENOENT` guard on unregistered `from`; `slot_add_outgoing` becomes a no-op (already conditional).  The conn_node is added to `g_connections` and `to_sn->incoming` as before — the anonymous source simply has no outgoing list entry, which is correct since anonymous slots are leaf nodes never targeted by `nx_slot_foreach_dependency`.
 
-Remove the slot_node copy of the edge lists (now redundant).  Add `nx_slot_init_anon(struct nx_slot *s, const char *iface, enum nx_slot_mutability m)` — initialises `pause_state`, `in_flight_calls`, and the inline edge lists, but does NOT call `nx_slot_register`.  `nx_connection_register` is already tolerant of NULL `from_slot`; extend it to also accept an initialised-but-unregistered slot as `from_slot` (it won't appear in `g_slots` traversal, but the conn_node wires into the slot's inline edge lists).
+Replace `find_outgoing_edge(src, dst)` in `slot_call.c` with `find_incoming_edge(dst, src)` that calls `nx_slot_foreach_dependent(dst, ...)` matching `c->from_slot == src`.  Functionally identical for registered sources; now also works for anonymous sources.
 
-Add `nx_slot_is_registered(const struct nx_slot *)` predicate for assertions.
+Add `nx_slot_is_registered(const struct nx_slot *)` predicate.
 
-Host tests: anonymous slot lifecycle (init, connect, disconnect, no registry entry), drain still works (target's `in_flight_calls` reaches zero after abort), pause/drain order excludes anonymous slots (they're never in `plan->changes[]`).
+Host tests: anonymous slot lifecycle (init, connect, disconnect, no registry entry), `nx_slot_call_blocking` succeeds from an anonymous source, drain works (target's `in_flight_calls` reaches zero), pause/drain order never includes anonymous slots.
 
-~60 lines + ~6 host tests.
+~50 lines + ~6 host tests.  No struct layout changes.
 
 #### Slice 9b.3 — Embed `struct nx_slot` in handle entries
 
