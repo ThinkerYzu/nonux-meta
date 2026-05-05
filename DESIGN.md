@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-04 (Session 104 — slice 8.7: NX_HOOK_SYSCALL_ENTER/EXIT landed; Phase 8 closed)
+**Last Updated:** 2026-05-04 (Session 104 — slice 8.7 + two-tier slot model planned; Phase 8 closed)
 
 ---
 
@@ -544,6 +544,31 @@ nx_handle_duplicate(channel, RIGHT_READ, &readonly);
 ```
 
 This is how per-process API surfaces work: a sandboxed process receives handles with restricted rights. No global capability — only what was explicitly given.
+
+### Two-Tier Slot Model (planned — Phase 9b)
+
+**Problem.** The registry requires every slot to be named and globally enumerable. A naive "handle-as-slot" design (one registered slot per open file descriptor) would flood the registry with thousands of ephemeral entries, break the O(n-slots) pause-order sort, and make the config snapshot unreadable.
+
+**Insight.** The registry serves three distinct purposes, and only the first is structurally required by every slot:
+
+| Purpose | Required by | Required by per-fd slots? |
+|---|---|---|
+| Pause/drain topological sort | `build_pause_order` walks `incoming`/`outgoing` edge lists | Yes — but edge lists suffice; no global list needed |
+| Name-based lookup | `nx_slot_lookup`, config swap/rewire API | No — per-fd slots are never config-swapped by name |
+| Observable composition graph | config snapshot, `verify-registry`, AI operability | No — per-fd topology is not an architectural boundary |
+
+The structural bottleneck is that `incoming`/`outgoing` edge lists currently live in `slot_node` (registry-allocated), not in `struct nx_slot` (caller-allocated). Moving them onto `struct nx_slot` is the single change that enables anonymous slots to participate in the pause/drain protocol without entering `g_slots`.
+
+**Two-tier model.**
+
+- **Architectural slots** — named, registered, config-swappable, visible in snapshots and `verify-registry`. Today there are seven (scheduler, mm, vfs, char_device.serial, filesystem.root, filesystem.proc, posix_shim). This set grows slowly, only when a new kernel subsystem boundary is introduced.
+- **Ephemeral (anonymous) slots** — unregistered, known only to their direct peers. Created and destroyed with the object they represent. Not config-swappable individually. Never appear in snapshots or `verify-registry`. The pause/drain protocol works transparently because: (a) ephemeral slots are leaf nodes — no other component holds an incoming edge to them, so they never appear in a pause order; (b) `in_flight_calls` on the registered *target* slot (vfs_simple, char_device, etc.) counts all callers regardless of whether the caller slot is registered.
+
+**Handle table evolution.** `struct nx_handle_entry` embeds a `struct nx_slot`. The handle table becomes a per-process capability table where each file/channel/console entry is an anonymous slot with an outgoing edge to the backing architectural slot (vfs_simple, uart_pl011, etc.). `sys_read(fd)` resolves to: look up fd's embedded slot → `nx_slot_call_blocking` → dispatcher routes to backing component. The entire `switch (handle_type)` in `sys_read`/`sys_write` disappears; routing is data-driven by the slot's edge.
+
+**Invariant #1 update.** The current invariant ("every `struct slot *` reachable from any component is registered") narrows to: "every *architectural* slot ref reachable from any component is registered; ephemeral slots are visible only to their direct peers and are exempt."
+
+**Deferred.** Implementation is Phase 9b; see [IMPLEMENTATION-GUIDE.md §Phase 9b](IMPLEMENTATION-GUIDE.md#phase-9b-ephemeral-slots-and-handles-as-capabilities).
 
 ---
 
@@ -2709,6 +2734,17 @@ Optional for basic boot (required for busybox):
 ---
 
 **Last Updated:** 2026-04-21 (Session 16)
+
+---
+
+### 2026-05-04 — Two-Tier Slot Model (design decision, Phase 9b planning)
+
+**Two-tier slot model.**
+- The registry's three roles (pause/drain topology, name lookup, observable snapshot) are not all required by every slot.  Per-fd slots need pause/drain participation only — they don't need to be named, config-swapped, or snapshotted.
+- Root structural fix: move `incoming`/`outgoing` edge lists from `slot_node` (registry-allocated) onto `struct nx_slot` (caller-allocated).  Anonymous slots can then hold edges and participate in drain without entering `g_slots`.
+- Two-tier split: **architectural slots** (named, registered, ~7 subsystem boundaries, config-swappable) vs **ephemeral slots** (anonymous, peer-local, per-fd/per-channel, leaf nodes in the pause graph, never snapshotted).
+- Handle table evolution: `struct nx_handle_entry` embeds `struct nx_slot`; `sys_read`/`sys_write` route through `nx_slot_call_blocking` instead of a `switch (handle_type)`.  Invariant #1 narrows from "every slot ref is registered" to "every *architectural* slot ref is registered."
+- Documented in §"Handle System — Two-Tier Slot Model"; implementation plan in IMPLEMENTATION-GUIDE §Phase 9b.
 
 ---
 
