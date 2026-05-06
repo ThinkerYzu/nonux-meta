@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-03 (Phases 1–7 complete.  Phase 8 in progress.  **Group A complete** (8.0pre.1 → 8.0pre.4, Sessions 82–85).  **Group B — slice 8.0d CLOSED Session 96:** 8.0a (Sessions 86–92) + 8.0b (Session 93) + 8.0c (Sessions 94–95) + 8.0d (Session 96) landed.  Slice 8.0d: `framework/fs_call.c` — 9 `nx_fs_*` sync-dispatcher wrappers; `vfs_simple.c` migrated to use them (removed `resolve_fs`/`resolve_for_path`); 24 new host tests.  Key finding: GCC -O2 strict-aliasing heisenbug required `__asm__ volatile(""::: "memory")` barrier after every `hmsg()` call.  Tests: `make test-tools` **93/93 pass**; `make test-host` **421/421 pass**; `make test-interactive` **7/7 pass**; `make test-kernel` **123/123 pass**; `make verify-iface-fresh` clean; `make verify-registry` clean.  Next forward step: slice 8.0e (`verify-registry` rule banning `iface_ops` access outside `framework/dispatcher.c`).)
+**Last Updated:** 2026-05-05 (Phases 1–8 complete; Phase 9b CLOSED Sessions 105–109.  Session 109: `nx_vfs_open` guard bug fixed (`rc != NX_OK` → `rc < 0`) — el0_file kernel test now passes; `make test-kernel` 138/151.  Next: Phase 9 per-process MM rework.)
 **Status:** Phase 3 — Component framework (Phases 1–2 done)
 
 ---
@@ -3684,7 +3684,7 @@ Cross-cutting test infrastructure lands in slice **8.0a.8** (sub-sliced from the
 ### Phase 9b: Handles as Capabilities — Component-Owned Object Tables
 
 **Goal:** Eliminate the `switch (handle_type)` dispatch in `sys_read`/`sys_write`.  Each open fd becomes a capability token `(rights, component_id, target_slot*)`.  Components own their object tables; callers hold only an opaque ID.  Routing is data-driven by `target_slot`, not by a hard-coded type tag.
-**Status:** NOT STARTED — design decision recorded in [DESIGN.md §"Handles as Capabilities"](DESIGN.md#handles-as-capabilities-planned--phase-9b).  Independent of Phase 9 MM rework; may be scheduled in either order.
+**Status:** CLOSED — slices 9b.1–9b.4 landed Sessions 105–108.  `NX_HANDLE_RESOURCE` type live; `NX_HANDLE_FILE`/`NX_HANDLE_CONSOLE` retired (9b.4); `nx_vfs_open` guard bug (`rc != NX_OK` → `rc < 0`) fixed Session 109 (was silently returning 0 on successful opens with vfs_id > 0).
 
 **Design.**  Every task already has a `caller_slot` (slice 8.0a.5), registered, with one outgoing edge per architectural target wired by `wire_caller_slot`.  No per-fd slots are needed.  The fd entry changes shape:
 
@@ -3918,4 +3918,4 @@ make validate-config && make verify-registry && make && make test
 
 ---
 
-**Last Updated:** 2026-05-03 (Phases 1–7 complete.  Phase 8 in progress.  **Group A complete** (8.0pre.1 → 8.0pre.4, Sessions 82–85).  **Group B — slice 8.0d CLOSED Session 96:** 8.0a (Sessions 86–92) + 8.0b (Session 93) + 8.0c (Sessions 94–95) + 8.0d (Session 96) landed.  Slice 8.0d: `framework/fs_call.c` — 9 `nx_fs_*` sync-dispatcher wrappers; `vfs_simple.c` migrated to use them (removed `resolve_fs`/`resolve_for_path`); 24 new host tests.  Key finding: GCC -O2 strict-aliasing heisenbug required `__asm__ volatile(""::: "memory")` barrier after every `hmsg()` call.  Tests: `make test-tools` **93/93 pass**; `make test-host` **421/421 pass**; `make test-interactive` **7/7 pass**; `make test-kernel` **123/123 pass**; `make verify-iface-fresh` clean; `make verify-registry` clean.  Next forward step: slice 8.0e (`verify-registry` rule banning `iface_ops` access outside `framework/dispatcher.c`).)
+**Last Updated:** 2026-05-05 (Phases 1–8 complete; Phase 9b CLOSED Sessions 105–109.  Session 109: `nx_vfs_open` guard bug fixed (`rc != NX_OK` → `rc < 0`) — el0_file kernel test now passes; `make test-kernel` 138/151.  Next: Phase 9 per-process MM rework.)

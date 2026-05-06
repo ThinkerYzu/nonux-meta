@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-04 (Session 104 — slice 8.7 + handles-as-capabilities design; Phase 8 closed)
+**Last Updated:** 2026-05-05 (Session 109 — Phase 9b closed Sessions 105–108; `nx_vfs_open` guard fix; 138/151 kernel tests pass)
 
 ---
 
@@ -545,7 +545,7 @@ nx_handle_duplicate(channel, RIGHT_READ, &readonly);
 
 This is how per-process API surfaces work: a sandboxed process receives handles with restricted rights. No global capability — only what was explicitly given.
 
-### Handles as Capabilities (planned — Phase 9b)
+### Handles as Capabilities (Phase 9b — CLOSED Sessions 105–108)
 
 **Problem.** `sys_read`/`sys_write` switch on `handle_type` to decide whether to call `nx_console_read`, `nx_channel_recv`, or `nx_vfs_read`.  Adding a new resource type (network socket, GPU buffer) requires editing `syscall.c`.  The `void *object` in `nx_handle_entry` crosses the IPC boundary as a kernel pointer, coupling the caller to the component's internal representation.
 
