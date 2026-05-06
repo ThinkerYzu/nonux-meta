@@ -19,7 +19,7 @@
 
 **Tests:** `make test-tools` → **102/102 pass**; `make test-host` → **476/476 pass**; `make test-interactive` → **7/7 pass** (last run Session 105); `make test-kernel` → **151/151 pass** (3600 s).  `make verify-iface-fresh`: 0 drift.  `make verify-registry`: 0 findings (R2,R4,R9).
 
-**Latest session log:** [Session 111](logs/session-111-ktest-9b3-dispatcher-fix.md) — All 9 pre-existing ktest_9b_3 failures fixed.  Three independent root causes: (1) live_swap test killed the dispatcher kthread by not re-enqueueing it after the scheduler swap — fixed by exposing `nx_dispatcher_task_for_test()` and dequeuing/re-enqueueing the dispatcher alongside the test kthreads; (2) `uart_pl011_read` blocked the dispatcher via `nx_waitq_wait_unless` when the RX ring was empty — fixed by adding `nx_console_read_nonblocking()` and switching uart_pl011 to use it; (3) `RAMFS_MAX_FILES = 24` exhausted after ~150 kernel tests — bumped to 32.  151/151 kernel tests pass.
+**Latest session log:** [Session 112](logs/session-112-scheduler-idle-latency-fix.md) — Scheduler idle-latency fix: `make run-busybox` was slow due to five compounding scheduling inefficiencies.  Fixed: (1) `sched_rr_enqueue`/`sched_priority_enqueue` now set `idle->need_resched = 1` when a non-idle task is enqueued while idle is current — idle is preempted at the next IRQ; (2) dispatcher kthread now blocks on `g_disp_wq` waitq when MPSC queue is empty, and `nx_dispatcher_enqueue()` wakes it — dispatcher leaves the runqueue when idle, and waking it triggers the idle-preemption fix; (3) `nx_process_exit()` dequeues the exiting task before the `wfe` loop — zombie tasks no longer accumulate in the round-robin cycle; (4) `sched_check_resched()` issues `wfi` when `next == curr` — `nx_task_yield()` waits for a real IRQ rather than spinning, keeping ktest WAIT_FOR loops time-correct.  151/151 kernel tests pass.
 
 **Blockers:** None.
 
@@ -97,9 +97,9 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
 ### Forward step
 
-1. **Phase 9 — per-process MM rework.**  Phase 9b closed (Session 108), el0_file fixed (Session 109), posix_musl fixed (Session 110), all ktest_9b_3 failures fixed (Session 111).  All 151/151 kernel tests pass.  Next: start Phase 9 — L3 4 KiB pages, per-process VMAs, demand paging, COW fork.  See [IMPLEMENTATION-GUIDE.md §Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework).
+1. **Phase 9 — per-process MM rework.**  Phase 9b closed (Session 108), el0_file fixed (Session 109), posix_musl fixed (Session 110), all ktest_9b_3 failures fixed (Session 111), scheduler idle-latency fixed (Session 112).  All 151/151 kernel tests pass.  Next: start Phase 9 — L3 4 KiB pages, per-process VMAs, demand paging, COW fork.  See [IMPLEMENTATION-GUIDE.md §Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework).
 
-   **Tests at end of Session 111:** `make test-tools` **102/102 pass**; `make test-host` **476/476 pass**; `make test-interactive` **7/7 pass** (last run Session 105); `make test-kernel` **151/151** (3600 s).  `make verify-iface-fresh` 0 drift; `make verify-registry` 0 findings (R2,R4,R9).
+   **Tests at end of Session 112:** `make test-tools` **102/102 pass**; `make test-host` **476/476 pass**; `make test-interactive` **7/7 pass** (last run Session 105); `make test-kernel` **151/151** (3600 s).  `make verify-iface-fresh` 0 drift; `make verify-registry` 0 findings (R2,R4,R9).
 
 ### Deferred — actionable when a workload demands
 
@@ -149,13 +149,13 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
 Each log captures that session's goals, decisions, findings, and next steps — the canonical narrative lives in the linked file.
 
-1. **[Session 111](logs/session-111-ktest-9b3-dispatcher-fix.md)** (2026-05-05) — **All 9 ktest_9b_3 failures fixed**.  Three independent root causes: (1) live_swap test stranded the dispatcher kthread in sched_priority's destroyed runqueue — fixed via `nx_dispatcher_task_for_test()` + dequeue/re-enqueue alongside test kthreads; (2) `uart_pl011_read` blocked the dispatcher via `nx_waitq_wait_unless` on empty RX ring — fixed with `nx_console_read_nonblocking()`; (3) `RAMFS_MAX_FILES = 24` exhausted after ~150 tests — bumped to 32.  `make test-kernel` **151/151** (was 142/151).
-2. **[Session 110](logs/session-110-char-device-slot-name-fix.md)** (2026-05-05) — **posix_musl + char_device slot name fixed**.  Two root causes: (1) `nx_slot_lookup("char_device")` everywhere but slot is "char_device.serial" — fixed in process.c, syscall.c, ktest_9b_3.c; (2) `uart_pl011_write` called `uart_putc` directly, not `nx_console_write`, so `nx_console_write_calls()` never incremented.  `make test-kernel` **142/151** (was 138/151).
-3. **[Session 109](logs/session-109-el0_file-fix.md)** (2026-05-05) — **el0_file kernel test fixed**.  Root cause: `nx_vfs_open` checked `rc != NX_OK` after `nx_slot_call_blocking`, treating vfs_id (>0) as a framework error.  Fix: `if (rc < 0) return 0`.  `make test-kernel` **138/151** (was 75/151).
-4. **[Session 108](logs/session-108-9b.4-handle-type-cleanup.md)** (2026-05-05) — slice **9b.4 CLOSED** — retire `NX_HANDLE_FILE` + `NX_HANDLE_CONSOLE`.  `make test-host` **476/476**; `make test-kernel` **57/151**; 0 drift; 0 findings.  **Phase 9b closed.**
-5. **[Session 107](logs/session-107-9b.3-slot-call-routing.md)** (2026-05-04) — slice **9b.3 CLOSED** — route read/write/seek through slot calls.  `make test-host` **477/477**; 0 drift; 0 findings.  **Phase 9b slice 9b.3 closed.**
-(Sessions 80–110 archived to [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) per the "keep last 5" convention.)
-Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–110).
+1. **[Session 112](logs/session-112-scheduler-idle-latency-fix.md)** (2026-05-06) — **Scheduler idle-latency fix**.  Five compounding inefficiencies caused slow `make run-busybox`: idle not preempted on wakeup (fixed in `sched_rr_enqueue`/`sched_priority_enqueue`); IPC enqueue not signalling the dispatcher (fixed via dispatcher waitq `g_disp_wq`); dispatcher busy-polling (fixed: blocks on `wait_unless` when MPSC empty); zombie tasks burning quanta (fixed: dequeued in `nx_process_exit()`); `nx_task_yield()` spinning when alone (fixed: WFI in `sched_check_resched` when `next == curr`).  `make test-kernel` **151/151**.
+2. **[Session 111](logs/session-111-ktest-9b3-dispatcher-fix.md)** (2026-05-05) — **All 9 ktest_9b_3 failures fixed**.  Three independent root causes: (1) live_swap test stranded the dispatcher kthread in sched_priority's destroyed runqueue — fixed via `nx_dispatcher_task_for_test()` + dequeue/re-enqueue alongside test kthreads; (2) `uart_pl011_read` blocked the dispatcher via `nx_waitq_wait_unless` on empty RX ring — fixed with `nx_console_read_nonblocking()`; (3) `RAMFS_MAX_FILES = 24` exhausted after ~150 tests — bumped to 32.  `make test-kernel` **151/151** (was 142/151).
+3. **[Session 110](logs/session-110-char-device-slot-name-fix.md)** (2026-05-05) — **posix_musl + char_device slot name fixed**.  Two root causes: (1) `nx_slot_lookup("char_device")` everywhere but slot is "char_device.serial" — fixed in process.c, syscall.c, ktest_9b_3.c; (2) `uart_pl011_write` called `uart_putc` directly, not `nx_console_write`, so `nx_console_write_calls()` never incremented.  `make test-kernel` **142/151** (was 138/151).
+4. **[Session 109](logs/session-109-el0_file-fix.md)** (2026-05-05) — **el0_file kernel test fixed**.  Root cause: `nx_vfs_open` checked `rc != NX_OK` after `nx_slot_call_blocking`, treating vfs_id (>0) as a framework error.  Fix: `if (rc < 0) return 0`.  `make test-kernel` **138/151** (was 75/151).
+5. **[Session 108](logs/session-108-9b.4-handle-type-cleanup.md)** (2026-05-05) — slice **9b.4 CLOSED** — retire `NX_HANDLE_FILE` + `NX_HANDLE_CONSOLE`.  `make test-host` **476/476**; `make test-kernel` **57/151**; 0 drift; 0 findings.  **Phase 9b closed.**
+(Sessions 80–111 archived to [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) per the "keep last 5" convention.)
+Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–111).
 
 ---
 
