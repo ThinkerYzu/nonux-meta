@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-05 (Session 110 — `char_device.serial` slot name fix + `uart_pl011_write` via `nx_console_write`; 142/151 kernel tests pass)
+**Last Updated:** 2026-05-05 (Session 111 — dispatcher-handler non-blocking constraint confirmed by ktest_9b_3 fix; 151/151 kernel tests pass)
 
 ---
 
@@ -2753,3 +2753,32 @@ Optional for basic boot (required for busybox):
 - ENTER hook returning `NX_HOOK_ABORT` skips the syscall body; `*rc` at that point becomes the EL0 return value (x0).  EXIT hook may overwrite `*rc` to change the return value after the body has run.
 - **`int64_t *` vs `nx_status_t *` in the sc arm.**  `sc.rc` uses `int64_t *` to avoid adding `framework/syscall.h` as a dependency of `framework/hook.h` (hook.h is included by nearly every kernel file; pulling in syscall.h would create a wide transitive dependency chain).  The cast `(int64_t *)&rc` in `syscall.c` is safe because `nx_status_t` is `typedef int64_t`.
 - **Phase 8 fully closed.**  All 15 slices (Groups A, B, C) shipped.  Live recomposition, per-edge mode switching, second scheduler, and syscall-boundary observability all operational.
+
+---
+
+### 2026-05-05 — Dispatcher-Handler Non-Blocking Constraint Confirmed (Session 111)
+
+**Dispatcher handlers must never block — formal confirmation.**
+
+The bounded-handler rule (§Execution Model — Bounded Handlers and Async Split) already states that handlers must complete in bounded time with no unbounded waits.  Session 111 found a concrete production violation and fixed it, strengthening the rule with an explicit device-driver corollary:
+
+- `uart_pl011_read` called `nx_console_read` which calls `nx_waitq_wait_unless` when the RX ring is empty.  This blocks the dispatcher kthread indefinitely — violating the bounded-handler rule and stalling all IPC on the system.
+
+**Corollary added to the bounded-handler rule:**  Device driver component handlers that service `read` operations must use non-blocking ring access and return `NX_EAGAIN` when no data is available.  The blocking wait (if any) belongs in the EL0 task context (`sys_read` path), which runs on a per-task kthread and may safely call `nx_waitq_wait_unless`.
+
+**Fix shape (canonical pattern for future device read handlers):**
+```c
+/* WRONG — blocks the dispatcher */
+int uart_read_handler(struct component *self, msg_t *msg) {
+    nx_console_read(buf, len);    /* may call nx_waitq_wait_unless — kills the dispatcher */
+    reply(msg, buf, len);
+}
+
+/* RIGHT — non-blocking; EAGAIN is the caller's signal to retry or block elsewhere */
+int uart_read_handler(struct component *self, msg_t *msg) {
+    int rc = nx_console_read_nonblocking(buf, len);
+    reply_with_rc(msg, rc);       /* caller sees NX_EAGAIN if ring is empty */
+}
+```
+
+**Dispatcher kthread is a schedulable entity.**  A second finding from Session 111: when test code performs a scheduler swap (dequeue all tasks from the outgoing scheduler, enqueue into the new one), **framework kthreads — including the dispatcher — must be treated exactly like any other task**.  Failing to dequeue the dispatcher from the outgoing scheduler's runqueue strands it in a destroyed runqueue; the dispatcher is dead and no IPC completes.  `nx_dispatcher_task_for_test()` was added to `framework/dispatcher.h` (kernel-build-only) to give ktest code access to the dispatcher kthread pointer for this purpose.
