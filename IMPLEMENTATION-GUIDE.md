@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-05 (Phases 1–8 complete; Phase 9b CLOSED Sessions 105–109.  Session 109: `nx_vfs_open` guard bug fixed (`rc != NX_OK` → `rc < 0`) — el0_file kernel test now passes; `make test-kernel` 138/151.  Next: Phase 9 per-process MM rework.)
+**Last Updated:** 2026-05-05 (Phases 1–8 complete; Phase 9b CLOSED Sessions 105–110.  Session 110: `char_device.serial` slot name fix + `uart_pl011_write` via `nx_console_write`; posix_musl tests pass; `make test-kernel` 142/151.  Next: Phase 9 per-process MM rework.)
 **Status:** Phase 3 — Component framework (Phases 1–2 done)
 
 ---
@@ -3918,4 +3918,4 @@ make validate-config && make verify-registry && make && make test
 
 ---
 
-**Last Updated:** 2026-05-05 (Phases 1–8 complete; Phase 9b CLOSED Sessions 105–109.  Session 109: `nx_vfs_open` guard bug fixed (`rc != NX_OK` → `rc < 0`) — el0_file kernel test now passes; `make test-kernel` 138/151.  Next: Phase 9 per-process MM rework.)
+**Last Updated:** 2026-05-05 (Phases 1–8 complete; Phase 9b CLOSED Sessions 105–110.  Session 110: `char_device.serial` slot name fix + `uart_pl011_write` via `nx_console_write`; posix_musl tests pass; `make test-kernel` 142/151.  Next: Phase 9 per-process MM rework.)

@@ -2,7 +2,7 @@
 
 **Project:** nonux
 **Created:** 2026-04-17
-**Last Updated:** 2026-05-05 (Session 109 — Phase 9b closed Sessions 105–108; `nx_vfs_open` guard fix; 138/151 kernel tests pass)
+**Last Updated:** 2026-05-05 (Session 110 — `char_device.serial` slot name fix + `uart_pl011_write` via `nx_console_write`; 142/151 kernel tests pass)
 
 ---
 
