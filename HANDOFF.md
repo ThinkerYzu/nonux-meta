@@ -19,7 +19,7 @@
 
 **Tests:** `make test-tools` → **102/102 pass**; `make test-host` → **485/485 pass**; `make test-interactive` → **7/7 pass** (last run Session 115); `make test-kernel` → **152/152 pass** (3600 s).  `make verify-iface-fresh`: 0 drift.  `make verify-registry`: 0 findings (R2,R4,R9).
 
-**Latest session log:** [Session 116](logs/session-116-chdir-getcwd.md) — `chdir` / `getcwd` + relative path resolution.  `ramfs_op_readdir` now yields `.` (cookie 0→1) and `..` (cookie 1→2) before real entries (file-table cookies shifted to ≥ 2).  `sys_getdents64` sets `d_type = DT_DIR` for `.`/`..`.  Root cause of `ls -a /` still failing: busybox stats each dirent as a full path (`stat("/..")`) and the FS had no path normalization — added `path_normalize()` in `syscall.c`, called from `sys_open` and `sys_fstatat`.  Conformance tests updated to tolerate dot entries.  `ls -a /` now shows `.` and `..` (blue, DT_DIR).  476/476 host; 151/151 kernel; 7/7 interactive.
+**Latest session log:** [Session 118](logs/session-118-subdirectory-readmes.md) — subdirectory README files added.  `README.md` created for every top-level subdirectory in `sources/nonux/` (`core/`, `framework/`, `components/`, `interfaces/`, `lib/`, `third_party/`, `test/`); top-level `README.md` updated with a Directory Structure table.  No code changes; 102/102 tools; 485/485 host; 152/152 kernel.
 
 **Blockers:** None.
 
@@ -147,13 +147,13 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
 Each log captures that session's goals, decisions, findings, and next steps — the canonical narrative lives in the linked file.
 
-1. **[Session 116](logs/session-116-chdir-getcwd.md)** (2026-05-06) — **`chdir` / `getcwd`**.  `char cwd[128]` added to `struct nx_process`; `path_make_absolute()` prepends CWD to relative paths in `sys_open`, `sys_fstatat`, `sys_mkdirat`; `NX_SYS_CHDIR=46` + `NX_SYS_GETCWD=47` + musl translation entries added.  9 host tests + 1 kernel test.  Makefile: `kernel-busybox.bin` added to `test` target so stale `initramfs-busybox.cpio` is caught by `make test`.  485/485 host; 152/152 kernel.
-2. **[Session 115](logs/session-115-dot-dot-entries.md)** (2026-05-06) — **POSIX `.`/`..` directory entries**.  `ramfs_op_readdir` yields `.` (cookie 0→1) and `..` (cookie 1→2) before real entries.  `sys_getdents64` sets `d_type = DT_DIR` for dot entries.  Added `path_normalize()` in `syscall.c`; `path_normalize()` called from `sys_open` and `sys_fstatat`.  476/476 host; 151/151 kernel; 7/7 interactive.
-3. **[Session 114](logs/session-114-reap-on-wait.md)** (2026-05-06) — **Reap-on-wait implemented**.  `sys_wait` now calls `nx_process_destroy(child)` after delivering exit status.  `make test-host` **476/476**; `make test-kernel` **151/151**.
-4. **[Session 113](logs/session-113-idle-runqueue-check.md)** (2026-05-06) — **Idle runqueue check**.  Added `runqueue_size` op to scheduler IDL; idle loop yields immediately after `wfi` wakes if non-idle tasks are runnable.  `make test-host` **476/476**.
-5. **[Session 112](logs/session-112-scheduler-idle-latency-fix.md)** (2026-05-06) — **Scheduler idle-latency fix**.  Five compounding inefficiencies fixed.  `make test-kernel` **151/151**.
-(Sessions 80–115 archived to [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) per the "keep last 5" convention.)
-Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–115).
+1. **[Session 118](logs/session-118-subdirectory-readmes.md)** (2026-05-08) — **Subdirectory README files**.  `README.md` created for `core/`, `framework/`, `components/`, `interfaces/`, `lib/`, `third_party/`, `test/`; top-level `README.md` updated with Directory Structure table.  Documentation-only; 102/102 tools; 485/485 host; 152/152 kernel.
+2. **[Session 117](logs/session-117-libnxlibc-relocation.md)** (2026-05-07) — **`libnxlibc` relocated to `lib/`**.  Moved from `components/libnxlibc/` to top-level `lib/libnxlibc/`; 37 files updated.  102/102 tools; 485/485 host; 152/152 kernel.
+3. **[Session 116](logs/session-116-chdir-getcwd.md)** (2026-05-06) — **`chdir` / `getcwd`**.  `char cwd[128]` added to `struct nx_process`; `path_make_absolute()` prepends CWD to relative paths in `sys_open`, `sys_fstatat`, `sys_mkdirat`; `NX_SYS_CHDIR=46` + `NX_SYS_GETCWD=47` + musl translation entries added.  9 host tests + 1 kernel test.  Makefile: `kernel-busybox.bin` added to `test` target so stale `initramfs-busybox.cpio` is caught by `make test`.  485/485 host; 152/152 kernel.
+4. **[Session 115](logs/session-115-dot-dot-entries.md)** (2026-05-06) — **POSIX `.`/`..` directory entries**.  `ramfs_op_readdir` yields `.` (cookie 0→1) and `..` (cookie 1→2) before real entries.  `sys_getdents64` sets `d_type = DT_DIR` for dot entries.  Added `path_normalize()` in `syscall.c`; `path_normalize()` called from `sys_open` and `sys_fstatat`.  476/476 host; 151/151 kernel; 7/7 interactive.
+5. **[Session 114](logs/session-114-reap-on-wait.md)** (2026-05-06) — **Reap-on-wait implemented**.  `sys_wait` now calls `nx_process_destroy(child)` after delivering exit status.  `make test-host` **476/476**; `make test-kernel` **151/151**.
+(Sessions 80–113 archived to [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) per the "keep last 5" convention.)
+Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–113).
 
 ---
 
