@@ -6,7 +6,9 @@ Older session log entries, rolled off from [HANDOFF.md](HANDOFF.md) once the inl
 
 ## Session Logs (archived)
 
-1. **[Session 113](logs/session-113-idle-runqueue-check.md)** (2026-05-06) — **Idle runqueue check**.  Added `runqueue_size` op to scheduler IDL; idle loop yields immediately after `wfi` wakes if non-idle tasks are runnable.  `make test-host` **476/476**.
+1. **[Session 114](logs/session-114-reap-on-wait.md)** (2026-05-06) — **Reap-on-wait implemented**.  `sys_wait` now calls `nx_process_destroy(child)` after delivering exit status.  `make test-host` **476/476**; `make test-kernel` **151/151**.
+
+2. **[Session 113](logs/session-113-idle-runqueue-check.md)** (2026-05-06) — **Idle runqueue check**.  Added `runqueue_size` op to scheduler IDL; idle loop yields immediately after `wfi` wakes if non-idle tasks are runnable.  `make test-host` **476/476**.
 
 2. **[Session 86](logs/session-86-8.0a-kickoff.md)** (2026-04-30) — **Group B kicked off; slice 8.0a sub-sliced into 8.0a.1 → 8.0a.8**; **8.0a.1 (rename) and 8.0a.2 (IPC + slot scaffolding) landed**.  Three commits this session — proj_docs spec refinement (`37a70f3`) + source-repo `5f0b3e0` (8.0a.1 rename) + source-repo `93aa7b5` (8.0a.2 scaffolding).  **Spec refinement:** DESIGN.md gained 4 new subsections.  SLOT-CALL-API.md reconciled — `nx_slot_call_blocking` signature gained explicit `(reply_buf, reply_buf_len)` arg pair; `NX_MSG_FLAG_REPLY_REQUESTED` added; `NX_EABORT` reuses existing `-8`.  **Slice 8.0a.1 (rename):** `components/posix_shim/` → `components/libnxlibc/`.  **Slice 8.0a.2 (scaffolding):** `NX_MSG_FLAG_REPLY_REQUESTED`; `struct nx_waitq resume_waitq` + `_Atomic(uint32_t) in_flight_calls` on `struct nx_slot`.  Sub-sliced 8.0a into 8.0a.1 → 8.0a.8.  `make test` **495/495 pass**.  Next: slice **8.0a.3**.  See [Session 86 log](logs/session-86-8.0a-kickoff.md).
 
