@@ -19,7 +19,7 @@
 
 **Tests:** `make test-tools` → **102/102 pass**; `make test-host` → **485/485 pass**; `make test-interactive` → **7/7 pass** (last run Session 115); `make test-kernel` → **152/152 pass** (3600 s).  `make verify-iface-fresh`: 0 drift.  `make verify-registry`: 0 findings (R2,R4,R9).
 
-**Latest session log:** [Session 119](logs/session-119-remove-generated-html.md) — generated HTML files removed from source repo.  15 `.html` files (every `README.html` + `docs/framework-*.html`) deleted via `git rm`; `*.html` rule added to `sources/nonux/.gitignore` under "Build artifacts".  Vendored busybox HTML (`third_party/busybox/docs/cgi/*.html`) left alone — gitignore doesn't affect already-tracked files.  No code changes; 102/102 tools; 485/485 host; 152/152 kernel.
+**Latest session log:** [Session 120](logs/session-120-book-chapter-1.md) — book chapter 1 (boot and linker).  New top-level `book/` directory in `sources/nonux/`; chapter 1 (`book/01-boot-and-linker.md`) covers bootloaders, the compiler/linker/loader pipeline, ELF vs raw binary, ARM64 boot contract, the linker script, full boot timeline.  Plain-English target — invented metaphors (moving box / packing list / sticky note / tap on the shoulder) replaced with standard terms while keeping the restaurant-opening intro analogy as motivation.  `book/README.md` index + cross-links from top-level `README.md` and `docs/README.md`.  No code changes; 102/102 tools; 485/485 host; 152/152 kernel.
 
 **Blockers:** None.
 
@@ -97,9 +97,9 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
 ### Forward step
 
-1. **Phase 9 — per-process MM rework.**  Phase 9b closed (Session 108), post-9b fixes landed Sessions 109–116 (el0_file, posix_musl, ktest failures, idle latency, reap-on-wait, POSIX dot entries, chdir/getcwd).  Sessions 117–119 covered repo hygiene (libnxlibc relocation, subdirectory READMEs, generated-HTML cleanup).  All tests pass.  Next: start Phase 9 — L3 4 KiB pages, per-process VMAs, demand paging, COW fork.  See [IMPLEMENTATION-GUIDE.md §Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework).
+1. **Phase 9 — per-process MM rework.**  Phase 9b closed (Session 108), post-9b fixes landed Sessions 109–116 (el0_file, posix_musl, ktest failures, idle latency, reap-on-wait, POSIX dot entries, chdir/getcwd).  Sessions 117–120 covered repo hygiene + tutorial-style docs (libnxlibc relocation, subdirectory READMEs, generated-HTML cleanup, book chapter 1).  All tests pass.  Next: start Phase 9 — L3 4 KiB pages, per-process VMAs, demand paging, COW fork.  See [IMPLEMENTATION-GUIDE.md §Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework).
 
-   **Tests at end of Session 119:** `make test-tools` **102/102 pass**; `make test-host` **485/485 pass**; `make test-interactive` **7/7 pass** (last run Session 115); `make test-kernel` **152/152** (3600 s).  `make verify-iface-fresh` 0 drift; `make verify-registry` 0 findings (R2,R4,R9).
+   **Tests at end of Session 120:** `make test-tools` **102/102 pass**; `make test-host` **485/485 pass**; `make test-interactive` **7/7 pass** (last run Session 115); `make test-kernel` **152/152** (3600 s).  `make verify-iface-fresh` 0 drift; `make verify-registry` 0 findings (R2,R4,R9).
 
 ### Deferred — actionable when a workload demands
 
@@ -147,13 +147,13 @@ Key design decisions — see [DESIGN.md §Key Design Decisions](DESIGN.md#key-de
 
 Each log captures that session's goals, decisions, findings, and next steps — the canonical narrative lives in the linked file.
 
-1. **[Session 119](logs/session-119-remove-generated-html.md)** (2026-05-08) — **Remove generated HTML from source repo**.  15 `.html` files (every `README.html` + `docs/framework-*.html`) deleted via `git rm`; `*.html` rule added to `sources/nonux/.gitignore`.  Vendored busybox HTML left alone.  Documentation-only; test counts unchanged.
-2. **[Session 118](logs/session-118-subdirectory-readmes.md)** (2026-05-08) — **Subdirectory README files**.  `README.md` created for `core/`, `framework/`, `components/`, `interfaces/`, `lib/`, `third_party/`, `test/`; top-level `README.md` updated with Directory Structure table.  Documentation-only; 102/102 tools; 485/485 host; 152/152 kernel.
-3. **[Session 117](logs/session-117-libnxlibc-relocation.md)** (2026-05-07) — **`libnxlibc` relocated to `lib/`**.  Moved from `components/libnxlibc/` to top-level `lib/libnxlibc/`; 37 files updated.  102/102 tools; 485/485 host; 152/152 kernel.
-4. **[Session 116](logs/session-116-chdir-getcwd.md)** (2026-05-06) — **`chdir` / `getcwd`**.  `char cwd[128]` added to `struct nx_process`; `path_make_absolute()` prepends CWD to relative paths in `sys_open`, `sys_fstatat`, `sys_mkdirat`; `NX_SYS_CHDIR=46` + `NX_SYS_GETCWD=47` + musl translation entries added.  9 host tests + 1 kernel test.  Makefile: `kernel-busybox.bin` added to `test` target so stale `initramfs-busybox.cpio` is caught by `make test`.  485/485 host; 152/152 kernel.
-5. **[Session 115](logs/session-115-dot-dot-entries.md)** (2026-05-06) — **POSIX `.`/`..` directory entries**.  `ramfs_op_readdir` yields `.` (cookie 0→1) and `..` (cookie 1→2) before real entries.  `sys_getdents64` sets `d_type = DT_DIR` for dot entries.  Added `path_normalize()` in `syscall.c`; `path_normalize()` called from `sys_open` and `sys_fstatat`.  476/476 host; 151/151 kernel; 7/7 interactive.
-(Sessions 80–114 archived to [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) per the "keep last 5" convention.)
-Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–114).
+1. **[Session 120](logs/session-120-book-chapter-1.md)** (2026-05-09) — **Book chapter 1 — boot and linker**.  New `book/` top-level dir in source repo; `book/01-boot-and-linker.md` (~860 lines) explains bootloaders, the compiler/linker/loader pipeline, ELF vs raw binary, ARM64 boot contract, the linker script, full boot timeline.  Plain-English target enforced by replacing invented metaphors with standard terminology.  `book/README.md` index added.  Documentation-only; test counts unchanged.
+2. **[Session 119](logs/session-119-remove-generated-html.md)** (2026-05-08) — **Remove generated HTML from source repo**.  15 `.html` files (every `README.html` + `docs/framework-*.html`) deleted via `git rm`; `*.html` rule added to `sources/nonux/.gitignore`.  Vendored busybox HTML left alone.  Documentation-only; test counts unchanged.
+3. **[Session 118](logs/session-118-subdirectory-readmes.md)** (2026-05-08) — **Subdirectory README files**.  `README.md` created for `core/`, `framework/`, `components/`, `interfaces/`, `lib/`, `third_party/`, `test/`; top-level `README.md` updated with Directory Structure table.  Documentation-only; 102/102 tools; 485/485 host; 152/152 kernel.
+4. **[Session 117](logs/session-117-libnxlibc-relocation.md)** (2026-05-07) — **`libnxlibc` relocated to `lib/`**.  Moved from `components/libnxlibc/` to top-level `lib/libnxlibc/`; 37 files updated.  102/102 tools; 485/485 host; 152/152 kernel.
+5. **[Session 116](logs/session-116-chdir-getcwd.md)** (2026-05-06) — **`chdir` / `getcwd`**.  `char cwd[128]` added to `struct nx_process`; `path_make_absolute()` prepends CWD to relative paths in `sys_open`, `sys_fstatat`, `sys_mkdirat`; `NX_SYS_CHDIR=46` + `NX_SYS_GETCWD=47` + musl translation entries added.  9 host tests + 1 kernel test.  Makefile: `kernel-busybox.bin` added to `test` target so stale `initramfs-busybox.cpio` is caught by `make test`.  485/485 host; 152/152 kernel.
+(Sessions 80–115 archived to [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) per the "keep last 5" convention.)
+Older entries: see [HANDOFF-ARCHIVE.md](HANDOFF-ARCHIVE.md) (Sessions 1–115).
 
 ---
 
