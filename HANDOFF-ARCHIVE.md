@@ -6,9 +6,11 @@ Older session log entries, rolled off from [HANDOFF.md](HANDOFF.md) once the inl
 
 ## Session Logs (archived)
 
-1. **[Session 115](logs/session-115-dot-dot-entries.md)** (2026-05-06) — **POSIX `.`/`..` directory entries**.  `ramfs_op_readdir` yields `.` (cookie 0→1) and `..` (cookie 1→2) before real entries.  `sys_getdents64` sets `d_type = DT_DIR` for dot entries.  Added `path_normalize()` in `syscall.c`; `path_normalize()` called from `sys_open` and `sys_fstatat`.  476/476 host; 151/151 kernel; 7/7 interactive.
+1. **[Session 116](logs/session-116-chdir-getcwd.md)** (2026-05-06) — **`chdir` / `getcwd`**.  `char cwd[128]` added to `struct nx_process`; `path_make_absolute()` prepends CWD to relative paths in `sys_open`, `sys_fstatat`, `sys_mkdirat`; `NX_SYS_CHDIR=46` + `NX_SYS_GETCWD=47` + musl translation entries added.  9 host tests + 1 kernel test.  Makefile: `kernel-busybox.bin` added to `test` target so stale `initramfs-busybox.cpio` is caught by `make test`.  485/485 host; 152/152 kernel.
 
-2. **[Session 114](logs/session-114-reap-on-wait.md)** (2026-05-06) — **Reap-on-wait implemented**.  `sys_wait` now calls `nx_process_destroy(child)` after delivering exit status.  `make test-host` **476/476**; `make test-kernel` **151/151**.
+2. **[Session 115](logs/session-115-dot-dot-entries.md)** (2026-05-06) — **POSIX `.`/`..` directory entries**.  `ramfs_op_readdir` yields `.` (cookie 0→1) and `..` (cookie 1→2) before real entries.  `sys_getdents64` sets `d_type = DT_DIR` for dot entries.  Added `path_normalize()` in `syscall.c`; `path_normalize()` called from `sys_open` and `sys_fstatat`.  476/476 host; 151/151 kernel; 7/7 interactive.
+
+3. **[Session 114](logs/session-114-reap-on-wait.md)** (2026-05-06) — **Reap-on-wait implemented**.  `sys_wait` now calls `nx_process_destroy(child)` after delivering exit status.  `make test-host` **476/476**; `make test-kernel` **151/151**.
 
 3. **[Session 113](logs/session-113-idle-runqueue-check.md)** (2026-05-06) — **Idle runqueue check**.  Added `runqueue_size` op to scheduler IDL; idle loop yields immediately after `wfi` wakes if non-idle tasks are runnable.  `make test-host` **476/476**.
 

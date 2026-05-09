@@ -21,8 +21,12 @@
 
 - **[TESTING-GUIDE.md](TESTING-GUIDE.md)** — Testing procedures, expected output, troubleshooting
 
+### Authoring
+
+- **[BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md)** — Style and conventions for the [nonux book](../../sources/nonux/book/README.md) (audience, terminology rules, formatting, chapter structure)
+
 **Quick Links:**
-- [Overview](#overview) | [Design & Architecture](DESIGN.md) | [Current Status](HANDOFF.md#current-status) | [Testing](TESTING-GUIDE.md)
+- [Overview](#overview) | [Design & Architecture](DESIGN.md) | [Current Status](HANDOFF.md#current-status) | [Testing](TESTING-GUIDE.md) | [Book Style Guide](BOOK-STYLE-GUIDE.md)
 
 ---
 
