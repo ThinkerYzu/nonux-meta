@@ -24,9 +24,10 @@
 ### Authoring
 
 - **[BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md)** — Style and conventions for the [nonux book](../../sources/nonux/book/README.md) (audience, terminology rules, formatting, chapter structure)
+- **[BOOK-OUTLINE.md](BOOK-OUTLINE.md)** — Full chapter plan (18 chapters in 9 parts), reading dependencies, per-chapter workflow
 
 **Quick Links:**
-- [Overview](#overview) | [Design & Architecture](DESIGN.md) | [Current Status](HANDOFF.md#current-status) | [Testing](TESTING-GUIDE.md) | [Book Style Guide](BOOK-STYLE-GUIDE.md)
+- [Overview](#overview) | [Design & Architecture](DESIGN.md) | [Current Status](HANDOFF.md#current-status) | [Testing](TESTING-GUIDE.md) | [Book Style Guide](BOOK-STYLE-GUIDE.md) | [Book Outline](BOOK-OUTLINE.md)
 
 ---
 
