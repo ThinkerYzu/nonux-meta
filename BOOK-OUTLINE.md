@@ -24,7 +24,7 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
 | 1 | shipped | Boot and linker | `core/boot/` (start.S, linker.ld, boot.c). Bootloader, ARM64 boot, exception levels, linker script, ELF vs raw binary, full boot timeline. |
-| 2 | planned | The console: kprintf and the UART | `core/lib/lib.h`, `components/uart_pl011/`, the PL011 RX ISR. How a `kprintf` call lands as a byte on the screen. |
+| 2 | shipped | The console: kprintf and the UART | `core/lib/lib.h`, `components/uart_pl011/`, the PL011 RX ISR. How a `kprintf` call lands as a byte on the screen. |
 
 ### Part II — Memory
 
