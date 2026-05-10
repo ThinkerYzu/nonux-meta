@@ -6,6 +6,8 @@ Older session log entries, rolled off from [HANDOFF.md](HANDOFF.md) once the inl
 
 ## Session Logs (archived)
 
+1. **[Session 120](logs/session-120-book-chapter-1.md)** (2026-05-09) — **Book chapter 1 — boot and linker**.  New `book/` top-level dir in source repo; `book/01-boot-and-linker.md` (~860 lines) explains bootloaders, the compiler/linker/loader pipeline, ELF vs raw binary, ARM64 boot contract, the linker script, full boot timeline.  Plain-English target enforced by replacing invented metaphors with standard terminology.  `book/README.md` index added.  Documentation-only; test counts unchanged.
+
 1. **[Session 119](logs/session-119-remove-generated-html.md)** (2026-05-08) — **Remove generated HTML from source repo**.  15 `.html` files (every `README.html` + `docs/framework-*.html`) deleted via `git rm`; `*.html` rule added to `sources/nonux/.gitignore`.  Vendored busybox HTML left alone.  Documentation-only; test counts unchanged.
 
 1. **[Session 118](logs/session-118-subdirectory-readmes.md)** (2026-05-08) — **Subdirectory README files**.  `README.md` created for `core/`, `framework/`, `components/`, `interfaces/`, `lib/`, `third_party/`, `test/`; top-level `README.md` updated with Directory Structure table.  Documentation-only; 102/102 tools; 485/485 host; 152/152 kernel.

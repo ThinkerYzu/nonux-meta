@@ -30,7 +30,7 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
-| 3 | planned | Exceptions, the GIC, and IRQs | `core/cpu/exception.S`, the vector table, four exception classes, `core/irq/` (GICv2 distributor + CPU interface), masking. |
+| 3 | shipped | Exceptions, the GIC, and IRQs | `core/cpu/vectors.S`, the vector table, four exception kinds (sync/IRQ/FIQ/SError), the trap frame, `on_sync`/`on_irq` C handlers, ESR_EL1.EC classification, `core/irq/` (GICv2 distributor + CPU interface, SGI/PPI/SPI numbering, ack/EOI), DAIF masking, the boot order in `boot_main`. |
 | 4 | planned | The timer and ticks | `core/timer/`, ARM Generic Timer at 10 Hz, the tick handler, the dispatch chain into the scheduler. |
 
 ### Part III — Memory
