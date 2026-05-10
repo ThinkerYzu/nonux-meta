@@ -37,7 +37,7 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
-| 5 | planned | Physical memory and the page allocator (PMM) | `core/pmm/`, the bitmap, `__free_mem_start` → `RAM_END`, page-level allocation, `components/mm_buddy/`. |
+| 5 | shipped | Physical memory and the page allocator (PMM) | `core/pmm/`, the bitmap, `__free_mem_start` → `RAM_END`, page-level allocation, `components/mm_buddy/`. |
 | 6 | planned | Virtual memory and the MMU | `core/mmu/`, page table walks (L0–L3), identity vs user mapping, MAIR / TCR, kernel/user split, TTBR0 / TTBR1. *(See "Phase 9 dependency" below.)* |
 
 ### Part IV — Tasks
