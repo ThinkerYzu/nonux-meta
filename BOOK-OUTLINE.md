@@ -44,7 +44,7 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
-| 7 | planned | Kernel threads and context switching | `struct nx_task`, kstack layout, `nx_task_switch_to`, kthread spawn, the saved-register frame, what TPIDR_EL1 holds. |
+| 7 | shipped | Kernel threads and context switching | `struct nx_task`, kstack layout, `cpu_switch_to`, kthread spawn, the saved-register frame, what TPIDR_EL1 holds, the first-switch thunk, `preempt_count` vs `need_resched`, the idle task as a switch-out-of-never-into. |
 | 8 | planned | The scheduler | `core/sched/`, runqueue, idle task, preemption, yield, plus the two real schedulers: `components/sched_rr/` and `components/sched_priority/`. |
 
 ### Part V — Framework basics
