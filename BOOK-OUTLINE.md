@@ -26,19 +26,19 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 | 1 | shipped | Boot and linker | `core/boot/` (start.S, linker.ld, boot.c). Bootloader, ARM64 boot, exception levels, linker script, ELF vs raw binary, full boot timeline. |
 | 2 | shipped | The console: kprintf and the UART | `core/lib/lib.h`, `components/uart_pl011/`, the PL011 RX ISR. How a `kprintf` call lands as a byte on the screen. |
 
-### Part II — Memory
+### Part II — Time and interrupts
 
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
-| 3 | planned | Physical memory and the page allocator (PMM) | `core/pmm/`, the bitmap, `__free_mem_start` → `RAM_END`, page-level allocation, `components/mm_buddy/`. |
-| 4 | planned | Virtual memory and the MMU | `core/mmu/`, page table walks (L0–L3), identity vs user mapping, MAIR / TCR, kernel/user split, TTBR0 / TTBR1. *(See "Phase 9 dependency" below.)* |
+| 3 | planned | Exceptions, the GIC, and IRQs | `core/cpu/exception.S`, the vector table, four exception classes, `core/irq/` (GICv2 distributor + CPU interface), masking. |
+| 4 | planned | The timer and ticks | `core/timer/`, ARM Generic Timer at 10 Hz, the tick handler, the dispatch chain into the scheduler. |
 
-### Part III — Time and interrupts
+### Part III — Memory
 
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
-| 5 | planned | Exceptions, the GIC, and IRQs | `core/cpu/exception.S`, the vector table, four exception classes, `core/irq/` (GICv2 distributor + CPU interface), masking. |
-| 6 | planned | The timer and ticks | `core/timer/`, ARM Generic Timer at 10 Hz, the tick handler, the dispatch chain into the scheduler. |
+| 5 | planned | Physical memory and the page allocator (PMM) | `core/pmm/`, the bitmap, `__free_mem_start` → `RAM_END`, page-level allocation, `components/mm_buddy/`. |
+| 6 | planned | Virtual memory and the MMU | `core/mmu/`, page table walks (L0–L3), identity vs user mapping, MAIR / TCR, kernel/user split, TTBR0 / TTBR1. *(See "Phase 9 dependency" below.)* |
 
 ### Part IV — Tasks
 
@@ -107,10 +107,10 @@ dependencies worth calling out explicitly:
   This is why "framework, advanced" comes *after* IPC. Hooks attach
   to slot-call boundaries; recomposition acts on running
   compositions. Both want concrete examples to lean on.
-- **Chapter 15 (Processes) depends on chapter 4 (MMU) and chapter 7
+- **Chapter 15 (Processes) depends on chapter 6 (MMU) and chapter 7
   (Threads).** A process is "an address space + a task running
   inside it"; both pieces need to be in hand first.
-- **Chapter 16 (Syscalls) depends on chapter 5 (Exceptions/GIC) and
+- **Chapter 16 (Syscalls) depends on chapter 3 (Exceptions/GIC) and
   chapter 15 (Processes).** Syscalls *are* an exception class on
   ARM64, and they exist to serve userspace processes.
 - **Chapter 17 (POSIX shim) depends on chapter 16 (Syscalls).** The
@@ -121,7 +121,7 @@ dependencies worth calling out explicitly:
 
 ## Phase 9 dependency
 
-Chapter 4 (Virtual memory and the MMU) and parts of chapter 15
+Chapter 6 (Virtual memory and the MMU) and parts of chapter 15
 (Processes and the user/kernel boundary) describe behavior that is
 currently scheduled to change in [Phase 9](IMPLEMENTATION-GUIDE.md#phase-9-per-process-memory-management-rework)
 (per-process MM rework — L3 4 KiB pages, VMAs, demand paging, COW

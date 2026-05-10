@@ -6,6 +6,8 @@ Older session log entries, rolled off from [HANDOFF.md](HANDOFF.md) once the inl
 
 ## Session Logs (archived)
 
+1. **[Session 119](logs/session-119-remove-generated-html.md)** (2026-05-08) — **Remove generated HTML from source repo**.  15 `.html` files (every `README.html` + `docs/framework-*.html`) deleted via `git rm`; `*.html` rule added to `sources/nonux/.gitignore`.  Vendored busybox HTML left alone.  Documentation-only; test counts unchanged.
+
 1. **[Session 118](logs/session-118-subdirectory-readmes.md)** (2026-05-08) — **Subdirectory README files**.  `README.md` created for `core/`, `framework/`, `components/`, `interfaces/`, `lib/`, `third_party/`, `test/`; top-level `README.md` updated with Directory Structure table.  Documentation-only; 102/102 tools; 485/485 host; 152/152 kernel.
 
 1. **[Session 117](logs/session-117-libnxlibc-relocation.md)** (2026-05-07) — **`libnxlibc` relocated to `lib/`**.  Moved from `components/libnxlibc/` to top-level `lib/libnxlibc/`; 37 files updated.  102/102 tools; 485/485 host; 152/152 kernel.
