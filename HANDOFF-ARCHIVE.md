@@ -6,6 +6,8 @@ Older session log entries, rolled off from [HANDOFF.md](HANDOFF.md) once the inl
 
 ## Session Logs (archived)
 
+1. **[Session 121](logs/session-121-book-style-guide-and-el.md)** (2026-05-09) — **Book style guide + EL0/EL1/EL2 section**.  `proj_docs/nonux/BOOK-STYLE-GUIDE.md` (368 lines) codifies audience, voice, terminology rules, formatting, chapter skeleton, naming, workflow.  Chapter 1 gained a "Privilege levels: EL0, EL1, EL2, and EL3" section (~110 lines); downstream EL2/EL1 explanation trimmed to a back-reference.  859 → 968 lines.  Documentation-only; test counts unchanged.
+
 1. **[Session 120](logs/session-120-book-chapter-1.md)** (2026-05-09) — **Book chapter 1 — boot and linker**.  New `book/` top-level dir in source repo; `book/01-boot-and-linker.md` (~860 lines) explains bootloaders, the compiler/linker/loader pipeline, ELF vs raw binary, ARM64 boot contract, the linker script, full boot timeline.  Plain-English target enforced by replacing invented metaphors with standard terminology.  `book/README.md` index added.  Documentation-only; test counts unchanged.
 
 1. **[Session 119](logs/session-119-remove-generated-html.md)** (2026-05-08) — **Remove generated HTML from source repo**.  15 `.html` files (every `README.html` + `docs/framework-*.html`) deleted via `git rm`; `*.html` rule added to `sources/nonux/.gitignore`.  Vendored busybox HTML left alone.  Documentation-only; test counts unchanged.
