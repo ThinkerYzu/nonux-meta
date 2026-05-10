@@ -142,8 +142,36 @@ Chapter 2 row: status `planned` → `shipped`. No other changes.
 **Files Changed:**
 
 `sources/nonux`:
-- `book/02-console-and-uart.md` — new (1108 lines).
+- `book/02-console-and-uart.md` — new (1108 lines, → 1137 after the
+  amendment below).
 - `book/README.md` — chapter 2 row turned into a link.
 
 `proj_docs/nonux`:
 - `BOOK-OUTLINE.md` — chapter 2 status flipped to `shipped`.
+
+---
+
+## Post-session amendment — Terms section gap fix
+
+After the chapter shipped, an audit against
+[BOOK-STYLE-GUIDE.md](../BOOK-STYLE-GUIDE.md) rule 2 ("Explain
+every standard term on first use") found five
+systems-programming standard terms used in the body without a
+first-use definition: **POSIX**, **system call (syscall)**,
+**file descriptor (fd)**, **kernel thread (kthread)**, and
+**signal / SIGTERM**. None are invented terms (so rule 1 stays
+clean), but the audience profile is "comfortable with C, never
+looked inside a kernel before" — those five aren't core C and
+need a one-line gloss.
+
+Fix: append all five to the Terms section, and bold the first
+body appearance of each so the reader's eye links text →
+Terms. No prose-level rewrites elsewhere; the patch is +29
+lines, contained.
+
+The other potential gap flagged in audit ("EL0" / "EL1" reused
+without re-definition) was kept as-is — chapter 1's Terms
+section defines them, and rule 3 governs definitions
+*per-chapter*, not across chapters; the book's intro tells
+readers a missing term is "usually one or two earlier in the
+book".
