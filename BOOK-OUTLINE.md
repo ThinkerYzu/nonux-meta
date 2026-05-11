@@ -45,7 +45,7 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
 | 7 | shipped | Kernel threads and context switching | `struct nx_task`, kstack layout, `cpu_switch_to`, kthread spawn, the saved-register frame, what TPIDR_EL1 holds, the first-switch thunk, `preempt_count` vs `need_resched`, the idle task as a switch-out-of-never-into. |
-| 8 | planned | The scheduler | `core/sched/`, runqueue, idle task, preemption, yield, plus the two real schedulers: `components/sched_rr/` and `components/sched_priority/`. |
+| 8 | shipped | The scheduler | `core/sched/sched.{h,c}`, the `nx_scheduler_ops` interface, the core/policy split, `sched_init` / `sched_start` / `sched_tick` / `sched_check_resched` / `nx_task_yield`, the `need_resched` flag, `preempt_count`, idle as the renamed boot context, the "wake idle" trick on enqueue, the empty-runqueue `wfi` branch, plus both shipped policies line-by-line: `components/sched_rr/` (one FIFO list, rotate on yield) and `components/sched_priority/` (8 buckets, scan high-to-low). Wait queues sketched as the off-runqueue/on-runqueue primitive. Worked timeline: two kthreads + idle under sched_rr with a 200 ms quantum. |
 
 ### Part V — Framework basics
 
