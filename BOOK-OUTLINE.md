@@ -51,7 +51,7 @@ Style and authoring rules: [BOOK-STYLE-GUIDE.md](BOOK-STYLE-GUIDE.md).
 
 | # | Status | Title | Reader sees |
 |---|---|-------|-------------|
-| 9 | planned | Slots, components, and the registry | `framework/registry.c`, `framework/component.c`, `framework/bootstrap.c`, `kernel.json`, the `NX_COMPONENT_REGISTER` macro and the `nx_components` linker section. |
+| 9 | shipped | Slots, components, and the registry | `framework/registry.{h,c}` (slots, components, connections, change events, snapshots, the bounded change log), `framework/component.{h,c}` (the six-state lifecycle, the `nx_component_ops` table, `nx_resolve_deps`, and the `NX_COMPONENT_REGISTER` family of macros), `framework/bootstrap.c` walked end-to-end (slot register → component register/bind → topological `init`+`enable` → scheduler/dispatcher publish), the `nx_components` linker section and how `__start_/_stop_` markers fall out of it, `kernel.json` declarative composition + `gen/slot_table.c` + per-component `gen/<name>_deps.h`, manifest-driven dependency injection (typed `struct <name>_deps` with one `nx_slot *` per dep, `offsetof`-based dep-table macros). One worked end-to-end trace: posix_shim from `manifest.json` through link-time descriptor placement to ACTIVE in the registry. |
 | 10 | planned | Interface Definition Language (IDL) | `interfaces/idl/*.json`, `tools/gen-iface.py`, the generated `*_call.h` / `*_dispatch.h` / `*_msg.h` shims. |
 
 ### Part VI — IPC and storage
